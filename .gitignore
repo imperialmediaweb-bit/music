@@ -15,6 +15,7 @@ client_secrets.json
 youtube_token.pickle
 
 # Generated output
+input/
 output/
 cookies/
 
