@@ -10,16 +10,29 @@ from utils.logger import log
 
 
 def cmd_run(args):
-    """Run the pipeline once."""
+    """Run the pipeline for N tracks (default 1, max 8)."""
     from pipeline import run_pipeline
 
-    log.info("Starting single pipeline run...")
-    result = run_pipeline()
-    if result["errors"]:
-        log.warning(f"Completed with {len(result['errors'])} error(s)")
+    count = min(args.count, 8)
+    log.info(f"Starting pipeline for {count} track(s)...")
+
+    total_errors = 0
+    for i in range(1, count + 1):
+        log.info(f"\n{'#' * 60}")
+        log.info(f"TRACK {i}/{count}")
+        log.info(f"{'#' * 60}")
+        result = run_pipeline()
+        if result["errors"]:
+            total_errors += 1
+            log.warning(f"Track {i} had errors: {result['errors']}")
+        else:
+            log.info(f"Track {i} completed: {result['concept']}")
+
+    log.info(f"\n{'=' * 60}")
+    log.info(f"BATCH COMPLETE: {count - total_errors}/{count} tracks successful")
+    if total_errors:
+        log.warning(f"{total_errors} track(s) had errors")
         sys.exit(1)
-    else:
-        log.info("Completed successfully")
 
 
 def cmd_schedule(args):
@@ -71,7 +84,13 @@ def main():
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # run command
-    run_parser = subparsers.add_parser("run", help="Run pipeline once")
+    run_parser = subparsers.add_parser("run", help="Run pipeline once or in batch")
+    run_parser.add_argument(
+        "-n", "--count",
+        type=int,
+        default=1,
+        help="Number of tracks to generate (max 8, default 1)",
+    )
     run_parser.set_defaults(func=cmd_run)
 
     # schedule command
