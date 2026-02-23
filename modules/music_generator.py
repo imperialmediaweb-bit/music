@@ -29,7 +29,7 @@ STYLE_OF_MUSIC_PROMPT = (
 )
 
 GENERATION_COMPLETE_SEC = 240  # 4 min — wait after clicking Generate for songs to appear
-DOWNLOAD_READY_SEC = 720       # 12 min — minimum time from generation before downloads work
+DOWNLOAD_READY_SEC = 1080      # 18 min — minimum time from generation before downloads work
 
 
 def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
