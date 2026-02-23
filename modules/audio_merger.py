@@ -1,21 +1,13 @@
-"""Merge multiple MP3 files into one with pauses between them."""
+"""Merge multiple MP3 files into one continuous track."""
 
 from pathlib import Path
-from moviepy import AudioFileClip, concatenate_audioclips, AudioClip
+from moviepy import AudioFileClip, concatenate_audioclips
 from config import OUTPUT_DIR
 from utils.logger import log
 
-# Seconds of silence between each track
-PAUSE_SECONDS = 2.0
-
-
-def _make_silence(duration: float, fps: int = 44100) -> AudioClip:
-    """Create a silent audio clip of the given duration."""
-    return AudioClip(lambda t: [0, 0], duration=duration, fps=fps)
-
 
 def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
-    """Merge multiple MP3 files into one, with pauses between them.
+    """Merge multiple MP3 files into one continuous track (no gaps).
 
     Args:
         mp3_files: List of MP3 file paths to merge.
@@ -31,18 +23,13 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
         log.info("Only 1 MP3 file, no merging needed")
         return mp3_files[0]
 
-    log.info(f"Merging {len(mp3_files)} MP3 files with {PAUSE_SECONDS}s pause between each...")
+    log.info(f"Merging {len(mp3_files)} MP3 files back to back (no gaps)...")
 
     clips = []
-    silence = _make_silence(PAUSE_SECONDS)
-
     for i, mp3_path in enumerate(mp3_files):
         log.info(f"  Loading [{i + 1}/{len(mp3_files)}]: {mp3_path.name}")
         clip = AudioFileClip(str(mp3_path))
         clips.append(clip)
-        # Add silence between tracks (not after the last one)
-        if i < len(mp3_files) - 1:
-            clips.append(silence)
 
     # Concatenate all clips
     merged = concatenate_audioclips(clips)
