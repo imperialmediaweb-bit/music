@@ -135,7 +135,8 @@ def cmd_process(args):
 def cmd_run(args):
     """Run full pipeline N times (generate music + merge + process + upload).
 
-    Default: 4 clips. Each clip = generate music → merge → thumbnail → video → YouTube.
+    Default: 1 clip. Each clip = 3 generations (6 MP3s) → merge → thumbnail → video → YouTube + TikTok.
+    Use -n to create more clips in one run.
     """
     count = min(args.count, 8)
     log.info(f"Running full pipeline for {count} clip(s)...")
@@ -249,8 +250,8 @@ def main():
         help="Full pipeline: generate music → merge → thumbnail → video → YouTube",
     )
     run_parser.add_argument(
-        "-n", "--count", type=int, default=DEFAULT_CLIPS_PER_DAY,
-        help=f"Number of clips to create (default: {DEFAULT_CLIPS_PER_DAY})",
+        "-n", "--count", type=int, default=1,
+        help="Number of clips to create (default: 1)",
     )
     run_parser.set_defaults(func=cmd_run)
 

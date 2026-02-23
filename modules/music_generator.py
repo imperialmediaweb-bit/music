@@ -209,13 +209,17 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
 
     Flow (matches site structure from screenshots):
     1. Go to /myMusic
-    2. Find all cards with the track name (e.g. "Tizanu")
-    3. Click each card to open its detail page
-    4. On the detail page, click each green "Download" button
-    5. Go back to My Music for the next card
+    2. Scroll page to load all cards
+    3. Find all cards with the track name (multiple strategies)
+    4. Click each card to open its detail page
+    5. On the detail page, click each green "Download" button
+    6. Go back to My Music for the next card
     """
     page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(10_000)
+
+    # Scroll down to load all cards (lazy loading / infinite scroll)
+    _scroll_page(page)
     page.screenshot(path=str(OUTPUT_DIR / "debug_mymusic.png"))
 
     # Save HTML for debugging
@@ -223,24 +227,46 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
     (OUTPUT_DIR / "debug_mymusic.html").write_text(html, encoding="utf-8")
     log.info(f"My Music page loaded ({len(html)} chars)")
 
-    # Find track cards matching our track name
+    # Log all visible card names for debugging
+    all_card_names = _get_all_card_names(page)
+    log.info(f"All visible card names on My Music ({len(all_card_names)}):")
+    for name_info in all_card_names[:20]:
+        log.info(f"  card: '{name_info['name']}' → {name_info['href']}")
+
+    # Strategy 1: Find cards matching our track name
     track_name = concept.track_name
     card_hrefs = _find_track_cards(page, track_name)
 
+    # Strategy 2: Try search box
     if not card_hrefs:
         log.warning(f"No cards found for '{track_name}' — trying search box...")
-        # Try using the search box on My Music page
         _search_mymusic(page, track_name)
         page.wait_for_timeout(5000)
+        _scroll_page(page)
         page.screenshot(path=str(OUTPUT_DIR / "debug_mymusic_search.png"))
         card_hrefs = _find_track_cards(page, track_name)
 
+    # Strategy 3: Reload page and try again
     if not card_hrefs:
-        log.error(f"No track cards found for '{track_name}' on My Music!")
+        log.warning(f"Still no cards — reloading My Music page...")
+        page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
+        page.wait_for_timeout(15_000)
+        _scroll_page(page)
+        card_hrefs = _find_track_cards(page, track_name)
+
+    # Strategy 4: Fallback — get the latest N cards regardless of name
+    if not card_hrefs:
+        log.warning(f"Name match failed — falling back to latest {expected_cards} card(s)...")
+        card_hrefs = _get_latest_card_hrefs(page, expected_cards)
+        if card_hrefs:
+            log.info(f"Fallback: found {len(card_hrefs)} latest card(s)")
+
+    if not card_hrefs:
+        log.error(f"No track cards found on My Music at all!")
         page.screenshot(path=str(OUTPUT_DIR / "debug_no_cards.png"))
         return []
 
-    log.info(f"Found {len(card_hrefs)} card(s) for '{track_name}', will download from each")
+    log.info(f"Found {len(card_hrefs)} card(s) to download from")
 
     all_mp3s = []
     for i, href in enumerate(card_hrefs):
@@ -282,53 +308,67 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
 def _find_track_cards(page, track_name: str) -> list[str]:
     """Find all card hrefs on My Music page matching the track name.
 
-    Cards are links/clickable elements showing the track name as text.
+    Uses multiple strategies: exact match, case-insensitive, partial match.
     Returns list of hrefs (URLs) for matching cards.
     """
-    # Strategy: find all visible elements containing the track name, get their hrefs
     hrefs = page.evaluate("""(trackName) => {
         const results = [];
         const seen = new Set();
+        const lowerName = trackName.toLowerCase();
 
-        // Strategy 1: Find <a> tags containing the track name
-        const allLinks = document.querySelectorAll('a');
-        for (const link of allLinks) {
-            const text = link.textContent.trim();
-            const href = link.getAttribute('href') || '';
-            if (!href || seen.has(href)) continue;
-
-            // Check if this link or any child contains exactly the track name
-            if (text.includes(trackName) && href !== '/' && href !== '#') {
+        function addHref(href) {
+            if (!href || seen.has(href) || href === '/' || href === '#') return;
+            // Only add music-related hrefs (track detail pages)
+            if (href.includes('/song/') || href.includes('/track/') ||
+                href.includes('/music/') || href.match(/\\/\\d+/) ||
+                href.includes('/myMusic/')) {
                 seen.add(href);
                 results.push(href);
             }
         }
 
-        // Strategy 2: Find any clickable element with the track name
-        // and walk up to find parent <a>
-        if (results.length === 0) {
-            const allEls = document.querySelectorAll('*');
-            for (const el of allEls) {
-                // Only check direct text content (not children)
-                const ownText = [...el.childNodes]
-                    .filter(n => n.nodeType === 3)
-                    .map(n => n.textContent.trim())
-                    .join('');
-                if (ownText !== trackName) continue;
+        // Strategy 1: Find <a> tags with case-insensitive text match
+        const allLinks = document.querySelectorAll('a');
+        for (const link of allLinks) {
+            const text = link.textContent.trim().toLowerCase();
+            const href = link.getAttribute('href') || '';
+            if (text.includes(lowerName)) {
+                addHref(href);
+            }
+        }
 
-                // Walk up to find parent <a>
-                let parent = el;
-                for (let i = 0; i < 10; i++) {
-                    if (!parent) break;
-                    if (parent.tagName === 'A') {
-                        const href = parent.getAttribute('href') || '';
-                        if (href && !seen.has(href) && href !== '/' && href !== '#') {
-                            seen.add(href);
-                            results.push(href);
-                        }
+        // Strategy 2: Walk up from text nodes containing track name
+        if (results.length === 0) {
+            const walker = document.createTreeWalker(
+                document.body, NodeFilter.SHOW_TEXT, null);
+            while (walker.nextNode()) {
+                const text = walker.currentNode.textContent.trim().toLowerCase();
+                if (!text.includes(lowerName)) continue;
+
+                let el = walker.currentNode.parentElement;
+                for (let i = 0; i < 15; i++) {
+                    if (!el) break;
+                    if (el.tagName === 'A') {
+                        addHref(el.getAttribute('href') || '');
                         break;
                     }
-                    parent = parent.parentElement;
+                    // Also check for onClick or data-href
+                    const href = el.getAttribute('href') || el.dataset?.href || '';
+                    if (href) { addHref(href); break; }
+                    el = el.parentElement;
+                }
+            }
+        }
+
+        // Strategy 3: If href filter was too strict, try without it
+        if (results.length === 0) {
+            for (const link of allLinks) {
+                const text = link.textContent.trim().toLowerCase();
+                const href = link.getAttribute('href') || '';
+                if (!href || seen.has(href) || href === '/' || href === '#') continue;
+                if (text.includes(lowerName)) {
+                    seen.add(href);
+                    results.push(href);
                 }
             }
         }
@@ -341,6 +381,98 @@ def _find_track_cards(page, track_name: str) -> list[str]:
         log.info(f"  card href: {h}")
 
     return hrefs
+
+
+def _get_all_card_names(page) -> list[dict]:
+    """Get all visible card names and hrefs on My Music page for debugging."""
+    return page.evaluate("""() => {
+        const cards = [];
+        const seen = new Set();
+        const allLinks = document.querySelectorAll('a');
+
+        for (const link of allLinks) {
+            const href = link.getAttribute('href') || '';
+            if (!href || href === '/' || href === '#' || seen.has(href)) continue;
+            // Skip navigation/footer links
+            if (link.closest('nav') || link.closest('footer') || link.closest('header')) continue;
+            if (link.offsetParent === null) continue;  // hidden
+
+            const text = link.textContent.trim().replace(/\\s+/g, ' ');
+            if (text.length > 0 && text.length < 200) {
+                seen.add(href);
+                cards.push({name: text.substring(0, 80), href: href});
+            }
+        }
+        return cards;
+    }""")
+
+
+def _get_latest_card_hrefs(page, count: int) -> list[str]:
+    """Get hrefs of the latest N cards on My Music page (regardless of name).
+
+    Fallback when name matching fails — assumes latest cards are at the top.
+    """
+    hrefs = page.evaluate("""(count) => {
+        const results = [];
+        const seen = new Set();
+        const allLinks = document.querySelectorAll('a');
+
+        for (const link of allLinks) {
+            const href = link.getAttribute('href') || '';
+            if (!href || href === '/' || href === '#' || seen.has(href)) continue;
+            // Skip nav/footer
+            if (link.closest('nav') || link.closest('footer') || link.closest('header')) continue;
+            if (link.offsetParent === null) continue;
+
+            // Heuristic: card links typically have numeric IDs or specific paths
+            if (href.includes('/song/') || href.includes('/track/') ||
+                href.includes('/music/') || href.includes('/myMusic/') ||
+                href.match(/\\/\\d{4,}/)) {
+                seen.add(href);
+                results.push(href);
+                if (results.length >= count) break;
+            }
+        }
+
+        // If no structured hrefs found, get first N content links
+        if (results.length === 0) {
+            for (const link of allLinks) {
+                const href = link.getAttribute('href') || '';
+                if (!href || href === '/' || href === '#' || seen.has(href)) continue;
+                if (link.closest('nav') || link.closest('footer') || link.closest('header')) continue;
+                if (link.offsetParent === null) continue;
+
+                const text = link.textContent.trim();
+                // Skip very short or very long text (nav items vs content cards)
+                if (text.length >= 2 && text.length <= 100) {
+                    seen.add(href);
+                    results.push(href);
+                    if (results.length >= count) break;
+                }
+            }
+        }
+
+        return results;
+    }""", count)
+
+    log.info(f"_get_latest_card_hrefs(count={count}): found {len(hrefs)}")
+    for h in hrefs:
+        log.info(f"  latest card href: {h}")
+
+    return hrefs
+
+
+def _scroll_page(page):
+    """Scroll the page down to trigger lazy loading of cards."""
+    page.evaluate("""async () => {
+        for (let i = 0; i < 5; i++) {
+            window.scrollBy(0, window.innerHeight);
+            await new Promise(r => setTimeout(r, 1500));
+        }
+        window.scrollTo(0, 0);
+        await new Promise(r => setTimeout(r, 1000));
+    }""")
+    page.wait_for_timeout(2000)
 
 
 def _search_mymusic(page, track_name: str):
