@@ -7,6 +7,7 @@ Pipeline approach:
 4. On each track detail page, click the Download buttons to get MP3s
 """
 
+import re
 import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
@@ -273,6 +274,10 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
         card_num = i + 1
         log.info(f"\n--- Card {card_num}/{len(card_hrefs)}: {href} ---")
 
+        # Extract song ID from href (e.g. /myMusic/12345 → 12345)
+        song_id_match = re.search(r'/(\d+)', href)
+        song_id = song_id_match.group(1) if song_id_match else str(int(time.time()))
+
         try:
             # Navigate to the track detail page
             if href.startswith("/"):
@@ -293,8 +298,8 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
             # Wait for Download buttons to appear (React hydration)
             _wait_for_download_button(page, card_num)
 
-            # Download all MP3s from this detail page
-            downloaded = _download_mp3s_from_detail(page, safe_name, card_num)
+            # Download all MP3s from this detail page (named: TrackName_SongID.mp3)
+            downloaded = _download_mp3s_from_detail(page, safe_name, card_num, song_id)
             all_mp3s.extend(downloaded)
             log.info(f"Card {card_num}: downloaded {len(downloaded)} MP3(s)")
 
@@ -532,15 +537,12 @@ def _wait_for_download_button(page, card_num: int):
     page.screenshot(path=str(OUTPUT_DIR / f"debug_dl_notfound_{card_num}.png"))
 
 
-def _download_mp3s_from_detail(page, safe_name: str, card_num: int) -> list[Path]:
+def _download_mp3s_from_detail(page, safe_name: str, card_num: int, song_id: str = "") -> list[Path]:
     """Click all Download buttons on a track detail page and save MP3s.
 
     From screenshots: each track has a green gradient "Download" button.
-    Clicking it may either:
-      a) Directly download the MP3
-      b) Open a HeadlessUI popover with format options (MP3, WAV)
-
-    We handle both cases.
+    Clicking it opens a popover with "Audio" option.
+    Files are saved as: TrackName_SongID.mp3
     """
     # Save page HTML for debugging
     try:
@@ -613,8 +615,10 @@ def _download_mp3s_from_detail(page, safe_name: str, card_num: int) -> list[Path
 
     for i in range(btn_count):
         try:
-            ts = int(time.time())
-            output_path = OUTPUT_DIR / f"{safe_name}_card{card_num}_{i + 1}_{ts}.mp3"
+            # Name file as: TrackName_SongID_N.mp3 (or TrackName_SongID.mp3 if only one)
+            id_part = f"_{song_id}" if song_id else f"_{int(time.time())}"
+            suffix = f"_{i + 1}" if btn_count > 1 else ""
+            output_path = OUTPUT_DIR / f"{safe_name}{id_part}{suffix}.mp3"
 
             log.info(f"Clicking Download button {i + 1}/{btn_count}...")
 
@@ -636,7 +640,10 @@ def _download_mp3s_from_detail(page, safe_name: str, card_num: int) -> list[Path
 
 
 def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> Path | None:
-    """Download MP3 via HeadlessUI popover dropdown."""
+    """Download MP3 via HeadlessUI popover dropdown.
+
+    From screenshots: clicking Download opens a dropdown with 'Audio' option.
+    """
     # Click the popover button
     page.evaluate("""(idx) => {
         const popovers = [...document.querySelectorAll('[id^="headlessui-popover-button"]')]
@@ -660,16 +667,17 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
             page.evaluate("""() => {
                 const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
                 for (const panel of panels) {
-                    const links = panel.querySelectorAll('a, button, div[class*="cursor"]');
+                    const links = panel.querySelectorAll('a, button, div, span, [class*="cursor"]');
                     for (const link of links) {
                         const text = link.textContent.trim().toLowerCase();
-                        if (text.includes('mp3')) {
+                        // Match 'Audio', 'MP3', or 'audio' options
+                        if (text.includes('audio') || text.includes('mp3')) {
                             link.click();
-                            return 'clicked_mp3';
+                            return 'clicked_audio';
                         }
                     }
-                    // Click first option if no MP3 label
-                    const first = panel.querySelector('a, button');
+                    // Click first clickable option as fallback
+                    const first = panel.querySelector('a, button, div[class*="cursor"], [role="button"]');
                     if (first) { first.click(); return 'clicked_first'; }
                 }
                 return 'nothing';
@@ -692,27 +700,45 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
 
 
 def _download_via_button(page, idx: int, output_path: Path, card_num: int) -> Path | None:
-    """Download MP3 by clicking a direct Download button."""
+    """Download MP3 by clicking Download then Audio in the dropdown."""
     try:
-        with page.expect_download(timeout=30_000) as dl_info:
-            page.evaluate("""(idx) => {
-                const candidates = [];
-                const allEls = document.querySelectorAll('button, div, a, span');
-                for (const el of allEls) {
-                    if (el.closest('footer')) continue;
-                    if (el.offsetParent === null) continue;
-                    const ownText = el.textContent.trim();
-                    if (ownText === 'Download' || ownText.startsWith('Download')) {
-                        const tag = el.tagName.toLowerCase();
-                        if (tag === 'button' || tag === 'a' || el.getAttribute('role') === 'button'
-                            || el.classList.toString().includes('cursor')
-                            || el.style.cursor === 'pointer') {
-                            candidates.push(el);
-                        }
+        # Click the Download button first
+        page.evaluate("""(idx) => {
+            const candidates = [];
+            const allEls = document.querySelectorAll('button, div, a, span');
+            for (const el of allEls) {
+                if (el.closest('footer')) continue;
+                if (el.offsetParent === null) continue;
+                const ownText = el.textContent.trim();
+                if (ownText === 'Download' || ownText.startsWith('Download')) {
+                    const tag = el.tagName.toLowerCase();
+                    if (tag === 'button' || tag === 'a' || el.getAttribute('role') === 'button'
+                        || el.classList.toString().includes('cursor')
+                        || el.style.cursor === 'pointer') {
+                        candidates.push(el);
                     }
                 }
-                if (idx < candidates.length) candidates[idx].click();
-            }""", idx)
+            }
+            if (idx < candidates.length) candidates[idx].click();
+        }""", idx)
+
+        # Wait for dropdown to appear, then click "Audio"
+        page.wait_for_timeout(1500)
+
+        with page.expect_download(timeout=30_000) as dl_info:
+            page.evaluate("""() => {
+                // Look for "Audio" option in any visible dropdown/popover/panel
+                const allEls = document.querySelectorAll('a, button, div, span, [role="menuitem"]');
+                for (const el of allEls) {
+                    if (el.offsetParent === null) continue;
+                    const text = el.textContent.trim().toLowerCase();
+                    if (text === 'audio' || text.includes('audio') || text.includes('mp3')) {
+                        el.click();
+                        return 'clicked_audio';
+                    }
+                }
+                return 'not_found';
+            }""")
 
         download = dl_info.value
         download.save_as(str(output_path))
