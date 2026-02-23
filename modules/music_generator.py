@@ -402,23 +402,125 @@ def _ensure_toggle_on(page, label_text: str):
 
 
 def _download_mp3s(page, safe_name: str, batch_num: int) -> list[Path]:
-    """Find and click download buttons on the current page."""
+    """Find and click download buttons on the current page.
+
+    The site uses <span class="ml-[2rem] mr-[1rem]">Download</span> inside
+    clickable containers. We use JS to find these spans and click them or
+    their parent elements.
+    """
+    # Save page HTML for debugging
+    try:
+        html = page.content()
+        html_path = OUTPUT_DIR / f"debug_download_page_{batch_num}.html"
+        html_path.write_text(html, encoding="utf-8")
+        log.info(f"Download page HTML saved: {html_path}")
+    except Exception:
+        pass
+
+    # Strategy 1: Use JavaScript to find all elements containing "Download" text
+    download_info = page.evaluate("""() => {
+        const results = [];
+        // Find all spans/elements with exact "Download" text
+        const allEls = document.querySelectorAll('span, a, button, div');
+        for (const el of allEls) {
+            if (el.textContent.trim() === 'Download' && el.offsetParent !== null) {
+                const tag = el.tagName.toLowerCase();
+                const cls = el.className || '';
+                const parentTag = el.parentElement?.tagName.toLowerCase() || '';
+                const parentCls = el.parentElement?.className || '';
+                const href = el.closest('a')?.href || el.parentElement?.closest('a')?.href || '';
+                results.push({
+                    tag, cls, parentTag, parentCls, href,
+                    rect: el.getBoundingClientRect()
+                });
+            }
+        }
+        return results;
+    }""")
+    log.info(f"Found {len(download_info)} 'Download' elements via JS:")
+    for i, info in enumerate(download_info):
+        log.info(f"  [{i}] <{info['tag']}> class='{info['cls'][:60]}' "
+                 f"parent=<{info['parentTag']}> href='{info['href'][:80]}'")
+
+    downloaded = []
+
+    # Strategy 2: Click Download spans via JS (click the span's closest clickable parent)
+    if download_info:
+        count_to_dl = min(len(download_info), 2)
+        for i in range(count_to_dl):
+            try:
+                ts = int(time.time())
+                output_path = OUTPUT_DIR / f"{safe_name}_gen{batch_num}_{i + 1}_{ts}.mp3"
+
+                # Try to get a direct download URL from an <a> tag
+                href = page.evaluate("""(idx) => {
+                    const spans = [...document.querySelectorAll('span, a, button, div')]
+                        .filter(el => el.textContent.trim() === 'Download' && el.offsetParent !== null);
+                    if (idx >= spans.length) return null;
+                    const el = spans[idx];
+                    const link = el.closest('a') || el.parentElement?.closest('a');
+                    return link?.href || null;
+                }""", i)
+
+                if href and ('.mp3' in href or 'download' in href.lower()):
+                    # Direct download via URL
+                    log.info(f"Downloading via URL: {href[:100]}")
+                    response = page.request.get(href)
+                    output_path.write_bytes(response.body())
+                    downloaded.append(output_path)
+                    log.info(f"Downloaded: {output_path.name}")
+                    continue
+
+                # Click the element and catch the download event
+                try:
+                    with page.expect_download(timeout=30_000) as dl_info:
+                        page.evaluate("""(idx) => {
+                            const spans = [...document.querySelectorAll('span, a, button, div')]
+                                .filter(el => el.textContent.trim() === 'Download' && el.offsetParent !== null);
+                            if (idx >= spans.length) return;
+                            const el = spans[idx];
+                            // Try clicking parent chain until we find a clickable
+                            const clickable = el.closest('a') || el.closest('button')
+                                || el.parentElement?.closest('a') || el.parentElement?.closest('button')
+                                || el.parentElement || el;
+                            clickable.click();
+                        }""", i)
+                    download = dl_info.value
+                    download.save_as(str(output_path))
+                    downloaded.append(output_path)
+                    log.info(f"Downloaded: {output_path.name}")
+                except PlaywrightTimeout:
+                    # Download event didn't fire — maybe it opened a new tab or uses fetch
+                    log.warning(f"Download event timeout for button {i+1}, trying direct click...")
+                    page.evaluate("""(idx) => {
+                        const spans = [...document.querySelectorAll('span, a, button, div')]
+                            .filter(el => el.textContent.trim() === 'Download' && el.offsetParent !== null);
+                        if (idx >= spans.length) return;
+                        spans[idx].click();
+                    }""", i)
+                    page.wait_for_timeout(5000)
+
+                page.wait_for_timeout(2000)
+            except Exception as e:
+                log.warning(f"Download {i + 1} failed: {e}")
+
+        if downloaded:
+            return downloaded
+
+    # Strategy 3: Fallback — standard Playwright selectors
     for selector in ['a:has-text("Download")', 'button:has-text("Download")',
-                      'a[download]', '[href*=".mp3"]', '[href*="download"]',
-                      '[aria-label*="ownload"]', '[title*="ownload"]',
-                      '.download-btn', 'a:has-text("download")',
-                      'button:has-text("download")',
-                      'svg[data-testid*="download"]']:
+                      'span:has-text("Download")', 'a[download]',
+                      '[href*=".mp3"]', '[href*="download"]']:
         try:
             elements = page.query_selector_all(selector)
             visible = [el for el in elements if el.is_visible()]
             if visible:
-                log.info(f"Found {len(visible)} download button(s): {selector}")
-                downloaded = []
+                log.info(f"Fallback: found {len(visible)} elements: {selector}")
                 for i, btn in enumerate(visible[:2]):
                     try:
-                        output_path = OUTPUT_DIR / f"{safe_name}_gen{batch_num}_{i + 1}.mp3"
-                        with page.expect_download(timeout=120_000) as dl_info:
+                        ts = int(time.time())
+                        output_path = OUTPUT_DIR / f"{safe_name}_gen{batch_num}_{i + 1}_{ts}.mp3"
+                        with page.expect_download(timeout=60_000) as dl_info:
                             btn.click()
                         download = dl_info.value
                         download.save_as(str(output_path))
@@ -426,13 +528,13 @@ def _download_mp3s(page, safe_name: str, batch_num: int) -> list[Path]:
                         log.info(f"Downloaded: {output_path.name}")
                         page.wait_for_timeout(2000)
                     except Exception as e:
-                        log.warning(f"Download {i + 1} failed: {e}")
+                        log.warning(f"Fallback download {i + 1} failed: {e}")
                 if downloaded:
                     return downloaded
         except Exception:
             continue
 
-    return []
+    return downloaded
 
 
 def generate_music(concept: MusicConcept) -> Path:
