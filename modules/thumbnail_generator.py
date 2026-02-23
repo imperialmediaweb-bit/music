@@ -1,12 +1,59 @@
 from pathlib import Path
 import requests
+from io import BytesIO
 from openai import OpenAI
+from PIL import Image, ImageDraw, ImageFont
 from config import OPENAI_API_KEY, OUTPUT_DIR
 from utils.logger import log
 
 
+def _add_track_name(image: Image.Image, track_name: str) -> Image.Image:
+    """Overlay the track name in bold text on the thumbnail."""
+    draw = ImageDraw.Draw(image)
+    width, height = image.size
+
+    # Try to use a bold font, fall back to default
+    font_size = int(height * 0.12)
+    font = None
+    for font_name in ["Impact", "Arial Bold", "arialbd.ttf", "DejaVuSans-Bold.ttf"]:
+        try:
+            font = ImageFont.truetype(font_name, font_size)
+            break
+        except (OSError, IOError):
+            continue
+    if font is None:
+        font = ImageFont.load_default()
+
+    text = track_name.upper()
+
+    # Measure text
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+
+    # Center horizontally, place in lower third
+    x = (width - text_w) // 2
+    y = int(height * 0.75)
+
+    # Draw black outline for readability
+    outline_width = max(3, font_size // 15)
+    for dx in range(-outline_width, outline_width + 1):
+        for dy in range(-outline_width, outline_width + 1):
+            if dx * dx + dy * dy <= outline_width * outline_width:
+                draw.text((x + dx, y + dy), text, font=font, fill="black")
+
+    # Draw gold text
+    draw.text((x, y), text, font=font, fill="#FFD700")
+
+    return image
+
+
 def generate_thumbnail(thumbnail_prompt: str, track_name: str) -> Path:
-    """Generate an African mask thumbnail with the track name using DALL-E 3."""
+    """Generate an African mask thumbnail with the track name using DALL-E 3.
+
+    1. DALL-E generates the African mask background
+    2. Pillow overlays the track name in bold gold text
+    """
     log.info(f"Generating African mask thumbnail for: {track_name}")
 
     client = OpenAI(api_key=OPENAI_API_KEY)
@@ -21,15 +68,17 @@ def generate_thumbnail(thumbnail_prompt: str, track_name: str) -> Path:
     image_url = response.data[0].url
     log.info("Thumbnail generated, downloading...")
 
+    img_response = requests.get(image_url, timeout=60)
+    img_response.raise_for_status()
+
+    # Open image and overlay track name
+    image = Image.open(BytesIO(img_response.content))
+    image = _add_track_name(image, track_name)
+
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in track_name)
     safe_name = safe_name.strip().replace(" ", "_")[:50]
     output_path = OUTPUT_DIR / f"{safe_name}_thumbnail.png"
 
-    img_response = requests.get(image_url, timeout=60)
-    img_response.raise_for_status()
-
-    with open(output_path, "wb") as f:
-        f.write(img_response.content)
-
+    image.save(str(output_path), "PNG")
     log.info(f"Thumbnail saved to: {output_path}")
     return output_path

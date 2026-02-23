@@ -87,13 +87,13 @@ def generate_concept() -> MusicConcept:
     track_name = data.get("track_name", "Tribal Pulse")
     log.info(f"Generated concept: {track_name}")
 
-    # Build thumbnail prompt: African mask with track name
+    # Build thumbnail prompt: African mask (text is added by Pillow, not DALL-E)
     thumbnail_prompt = (
-        f"A dramatic, high-detail African tribal mask centered on a dark, smoky background. "
-        f"The mask is ornate with gold, bronze, and deep red tribal patterns, glowing edges, "
-        f"and mystical energy radiating from it. The text '{track_name}' is displayed in bold, "
-        f"modern metallic gold font across the image. The overall style is cinematic, vivid, "
-        f"dark, and powerful. Afro House music album cover aesthetic. 4K quality, ultra detailed."
+        "A dramatic, high-detail African tribal mask centered on a dark, smoky background. "
+        "The mask is ornate with gold, bronze, and deep red tribal patterns, glowing edges, "
+        "and mystical energy radiating from it. No text or letters on the image. "
+        "The overall style is cinematic, vivid, dark, and powerful. "
+        "Afro House music album cover aesthetic. 4K quality, ultra detailed."
     )
 
     # Build music generation prompt
