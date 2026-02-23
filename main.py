@@ -10,62 +10,82 @@ from config import SCHEDULE_CRON, INPUT_DIR
 from utils.logger import log
 
 
-def cmd_run(args):
-    """Run the full pipeline for N tracks (generate music + process)."""
-    from pipeline import run_pipeline
-
-    count = min(args.count, 8)
-    log.info(f"Starting pipeline for {count} track(s)...")
-
-    total_errors = 0
-    for i in range(1, count + 1):
-        log.info(f"\n{'#' * 60}")
-        log.info(f"TRACK {i}/{count}")
-        log.info(f"{'#' * 60}")
-        result = run_pipeline()
-        if result["errors"]:
-            total_errors += 1
-            log.warning(f"Track {i} had errors: {result['errors']}")
-        else:
-            log.info(f"Track {i} completed: {result['concept']}")
-
-    log.info(f"\n{'=' * 60}")
-    log.info(f"BATCH COMPLETE: {count - total_errors}/{count} tracks successful")
-    if total_errors:
-        log.warning(f"{total_errors} track(s) had errors")
-        sys.exit(1)
-
-
 def cmd_process(args):
-    """Process existing MP3 files from input/ folder."""
-    from pipeline import process_existing_files
+    """Process a compiled MP3 from D:\\music or input/ folder.
 
-    # Find MP3 files
+    Workflow:
+    1. Generate 8 tracks on aimusicfactory.ai (manual)
+    2. Combine them in CapCut with pauses
+    3. Export final MP3 to D:\\music
+    4. Run: python main.py process
+    5. Pipeline detects duration, generates concept/thumbnail/video, uploads to YouTube
+    """
+    from pipeline import process_single_track
+
+    # Find the MP3 file
+    if args.file:
+        mp3_path = Path(args.file)
+        if not mp3_path.exists():
+            log.error(f"File not found: {mp3_path}")
+            sys.exit(1)
+    else:
+        # Look for MP3 files in input/ or current directory
+        search_dirs = [INPUT_DIR, Path(".")]
+        mp3_path = None
+        for d in search_dirs:
+            mp3_files = sorted(d.glob("*.mp3"), key=lambda f: f.stat().st_mtime, reverse=True)
+            if mp3_files:
+                mp3_path = mp3_files[0]  # Most recent MP3
+                break
+
+        if not mp3_path:
+            log.error("No MP3 file found!")
+            log.info("Usage:")
+            log.info("  python main.py process track.mp3")
+            log.info("  python main.py process  (auto-finds newest MP3 in input/)")
+            sys.exit(1)
+
+    log.info(f"Processing: {mp3_path.name}")
+    result = process_single_track(mp3_path)
+
+    if result["errors"]:
+        log.warning(f"Completed with {len(result['errors'])} error(s)")
+        sys.exit(1)
+    else:
+        log.info("Done!")
+
+
+def cmd_batch(args):
+    """Process multiple MP3 files (each one = separate YouTube upload)."""
+    from pipeline import process_single_track
+
     input_dir = Path(args.folder) if args.folder else INPUT_DIR
     mp3_files = sorted(input_dir.glob("*.mp3"))
 
     if not mp3_files:
         log.error(f"No MP3 files found in: {input_dir}")
-        log.info(f"Put your MP3 files in: {input_dir}")
         sys.exit(1)
 
-    # Limit to max 8
     if len(mp3_files) > 8:
         log.warning(f"Found {len(mp3_files)} files, processing first 8")
         mp3_files = mp3_files[:8]
 
-    log.info(f"Found {len(mp3_files)} MP3 file(s) in {input_dir}:")
+    log.info(f"Found {len(mp3_files)} MP3 file(s):")
     for f in mp3_files:
         log.info(f"  - {f.name}")
 
-    results = process_existing_files(mp3_files)
+    total_errors = 0
+    for i, mp3 in enumerate(mp3_files, 1):
+        log.info(f"\n{'#' * 60}")
+        log.info(f"TRACK {i}/{len(mp3_files)}: {mp3.name}")
+        log.info(f"{'#' * 60}")
+        result = process_single_track(mp3)
+        if result["errors"]:
+            total_errors += 1
 
-    total = len(results)
-    errors = sum(1 for r in results if r["errors"])
     log.info(f"\n{'=' * 60}")
-    log.info(f"BATCH COMPLETE: {total - errors}/{total} tracks successful")
-    if errors:
-        log.warning(f"{errors} track(s) had errors")
+    log.info(f"BATCH COMPLETE: {len(mp3_files) - total_errors}/{len(mp3_files)} successful")
+    if total_errors:
         sys.exit(1)
 
 
@@ -73,7 +93,7 @@ def cmd_schedule(args):
     """Run the pipeline on a cron schedule."""
     from apscheduler.schedulers.blocking import BlockingScheduler
     from apscheduler.triggers.cron import CronTrigger
-    from pipeline import run_pipeline
+    from pipeline import process_single_track
 
     cron_expr = args.cron or SCHEDULE_CRON
     parts = cron_expr.split()
@@ -83,21 +103,24 @@ def cmd_schedule(args):
 
     minute, hour, day, month, day_of_week = parts
 
+    def scheduled_job():
+        mp3_files = sorted(INPUT_DIR.glob("*.mp3"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if mp3_files:
+            process_single_track(mp3_files[0])
+        else:
+            log.warning(f"No MP3 files in {INPUT_DIR}")
+
     scheduler = BlockingScheduler()
     scheduler.add_job(
-        run_pipeline,
+        scheduled_job,
         CronTrigger(
-            minute=minute,
-            hour=hour,
-            day=day,
-            month=month,
-            day_of_week=day_of_week,
+            minute=minute, hour=hour, day=day,
+            month=month, day_of_week=day_of_week,
         ),
         id="music_pipeline",
         name="Music Content Pipeline",
     )
 
-    # Graceful shutdown
     def shutdown(signum, frame):
         log.info("Shutting down scheduler...")
         scheduler.shutdown(wait=False)
@@ -113,32 +136,35 @@ def cmd_schedule(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Music Content Automation Pipeline",
+        description="Afro House Music Pipeline — Thumbnail, Video, YouTube Upload",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # run command - full pipeline (generate music + process)
-    run_parser = subparsers.add_parser("run", help="Generate music + process (full pipeline)")
-    run_parser.add_argument(
-        "-n", "--count",
-        type=int,
-        default=1,
-        help="Number of tracks to generate (max 8, default 1)",
-    )
-    run_parser.set_defaults(func=cmd_run)
-
-    # process command - process existing MP3 files
+    # process command - main workflow (one compiled MP3 → YouTube)
     proc_parser = subparsers.add_parser(
         "process",
-        help="Process existing MP3 files from input/ folder",
+        help="Process a compiled MP3 → generate concept, thumbnail, video, upload to YouTube",
     )
     proc_parser.add_argument(
+        "file",
+        nargs="?",
+        default=None,
+        help="Path to MP3 file (default: newest MP3 in input/)",
+    )
+    proc_parser.set_defaults(func=cmd_process)
+
+    # batch command - multiple MP3s
+    batch_parser = subparsers.add_parser(
+        "batch",
+        help="Process multiple MP3 files from input/ folder",
+    )
+    batch_parser.add_argument(
         "--folder",
         type=str,
         default=None,
         help="Folder with MP3 files (default: input/)",
     )
-    proc_parser.set_defaults(func=cmd_process)
+    batch_parser.set_defaults(func=cmd_batch)
 
     # schedule command
     sched_parser = subparsers.add_parser("schedule", help="Run pipeline on schedule")
