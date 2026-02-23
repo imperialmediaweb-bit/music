@@ -433,9 +433,13 @@ def _ensure_toggle_on(page, label_text: str):
 def _download_mp3s(page, safe_name: str, batch_num: int) -> list[Path]:
     """Find and click download buttons on the current page.
 
-    The site uses <span class="ml-[2rem] mr-[1rem]">Download</span> inside
-    clickable containers. We use JS to find these spans and click them or
-    their parent elements.
+    The Download button is a HeadlessUI Popover:
+      <div id="headlessui-popover-button-:xxx:" aria-expanded="false">
+        <span class="ml-[2rem] mr-[1rem]">Download</span>
+      </div>
+
+    Clicking it opens a dropdown panel with format options (MP3, WAV, etc.).
+    We click the popover, wait for the panel, then click the MP3 option.
     """
     # Save page HTML for debugging
     try:
@@ -446,124 +450,126 @@ def _download_mp3s(page, safe_name: str, batch_num: int) -> list[Path]:
     except Exception:
         pass
 
-    # Find download buttons using JavaScript
-    # The site uses: <span class="ml-[2rem] mr-[1rem]">Download</span>
-    # inside clickable containers. We find ONLY leaf-level spans (not parent
-    # elements whose textContent also contains "Download").
-    download_buttons = page.evaluate("""() => {
-        const results = [];
-        // Find spans that directly contain "Download" text (leaf nodes)
-        const spans = document.querySelectorAll('span');
-        for (const span of spans) {
-            // Only match if the span's own text is "Download" (not children)
-            const ownText = [...span.childNodes]
-                .filter(n => n.nodeType === 3)
-                .map(n => n.textContent.trim())
-                .join('');
-            if (ownText !== 'Download') continue;
-            if (span.offsetParent === null) continue;  // hidden
-
-            // Skip footer spans (inside <footer>)
-            if (span.closest('footer')) continue;
-
-            const tag = span.tagName.toLowerCase();
-            const cls = span.className || '';
-            const parentTag = span.parentElement?.tagName.toLowerCase() || '';
-            const parentCls = span.parentElement?.className || '';
-            // Walk up to find clickable parent
-            const clickable = span.closest('button') || span.closest('a')
-                || span.parentElement?.closest('button')
-                || span.parentElement?.closest('a');
-            const href = clickable?.href || clickable?.getAttribute('href') || '';
-            const clickableTag = clickable?.tagName.toLowerCase() || 'none';
-
-            results.push({
-                tag, cls, parentTag, parentCls, href, clickableTag,
-                rect: span.getBoundingClientRect()
-            });
-        }
-        return results;
+    # Find all HeadlessUI popover Download buttons
+    popover_count = page.evaluate("""() => {
+        return document.querySelectorAll('[id^="headlessui-popover-button"]').length;
     }""")
+    log.info(f"Found {popover_count} HeadlessUI popover button(s)")
 
-    log.info(f"Found {len(download_buttons)} Download button(s) via JS:")
-    for i, info in enumerate(download_buttons):
-        log.info(f"  [{i}] <{info['tag']}> class='{info['cls'][:60]}' "
-                 f"clickable=<{info['clickableTag']}> href='{info['href'][:80]}'")
+    # Also find Download spans (not in footer) as backup count
+    dl_span_count = page.evaluate("""() => {
+        return [...document.querySelectorAll('span')]
+            .filter(s => {
+                const own = [...s.childNodes]
+                    .filter(n => n.nodeType === 3)
+                    .map(n => n.textContent.trim()).join('');
+                return own === 'Download'
+                    && s.offsetParent !== null
+                    && !s.closest('footer');
+            }).length;
+    }""")
+    log.info(f"Found {dl_span_count} Download span(s) (outside footer)")
 
     downloaded = []
+    buttons_to_click = max(popover_count, dl_span_count)
 
-    if not download_buttons:
+    if buttons_to_click == 0:
         log.warning("No Download buttons found on track page!")
         page.screenshot(path=str(OUTPUT_DIR / f"debug_no_dlbtn_{batch_num}.png"))
         return downloaded
 
-    # Click each Download button (max 2 per track)
-    count_to_dl = min(len(download_buttons), 2)
+    # Click each Download popover and download MP3 from the panel
+    count_to_dl = min(buttons_to_click, 2)
     for i in range(count_to_dl):
         try:
             ts = int(time.time())
             output_path = OUTPUT_DIR / f"{safe_name}_gen{batch_num}_{i + 1}_{ts}.mp3"
 
-            # Try clicking and catching download event
+            # Step 1: Click the Download popover button to open dropdown
+            log.info(f"Clicking Download popover button {i+1}...")
+            page.evaluate("""(idx) => {
+                // Try HeadlessUI popover buttons first
+                const popovers = document.querySelectorAll('[id^="headlessui-popover-button"]');
+                if (idx < popovers.length) {
+                    popovers[idx].click();
+                    return;
+                }
+                // Fallback: find Download spans and click their parent div
+                const spans = [...document.querySelectorAll('span')]
+                    .filter(s => {
+                        const own = [...s.childNodes]
+                            .filter(n => n.nodeType === 3)
+                            .map(n => n.textContent.trim()).join('');
+                        return own === 'Download'
+                            && s.offsetParent !== null
+                            && !s.closest('footer');
+                    });
+                if (idx < spans.length) {
+                    (spans[idx].parentElement || spans[idx]).click();
+                }
+            }""", i)
+
+            # Step 2: Wait for popover panel to appear
+            page.wait_for_timeout(1500)
+            page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_open_{batch_num}_{i+1}.png"))
+
+            # Step 3: Save the popover panel HTML for debugging
+            panel_html = page.evaluate("""() => {
+                const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
+                if (panels.length === 0) return 'NO_PANEL_FOUND';
+                return panels[panels.length - 1].innerHTML;
+            }""")
+            log.info(f"Popover panel HTML ({len(panel_html)} chars): {panel_html[:300]}")
+
+            # Step 4: Find and click the MP3 download link in the panel
             try:
                 with page.expect_download(timeout=30_000) as dl_info:
-                    page.evaluate("""(idx) => {
-                        const spans = [...document.querySelectorAll('span')]
-                            .filter(s => {
-                                const own = [...s.childNodes]
-                                    .filter(n => n.nodeType === 3)
-                                    .map(n => n.textContent.trim()).join('');
-                                return own === 'Download'
-                                    && s.offsetParent !== null
-                                    && !s.closest('footer');
-                            });
-                        if (idx >= spans.length) return;
-                        const span = spans[idx];
-                        // Click the closest clickable parent, or the span itself
-                        const clickable = span.closest('button') || span.closest('a')
-                            || span.parentElement?.closest('button')
-                            || span.parentElement?.closest('a')
-                            || span.parentElement || span;
-                        clickable.click();
-                    }""", i)
+                    clicked = page.evaluate("""() => {
+                        // Look in popover panels for download links
+                        const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
+                        for (const panel of panels) {
+                            // Find links/buttons with MP3 text or any download link
+                            const links = panel.querySelectorAll('a, button, div[class*="cursor"]');
+                            for (const link of links) {
+                                const text = link.textContent.trim().toLowerCase();
+                                if (text.includes('mp3') || text.includes('download mp3')) {
+                                    link.click();
+                                    return 'clicked_mp3';
+                                }
+                            }
+                            // If no MP3 specific link, click first link/button
+                            const firstLink = panel.querySelector('a, button');
+                            if (firstLink) {
+                                firstLink.click();
+                                return 'clicked_first: ' + firstLink.textContent.trim();
+                            }
+                        }
+
+                        // Fallback: look for any visible link with mp3/download href
+                        const allLinks = document.querySelectorAll('a[href*=".mp3"], a[href*="download"]');
+                        for (const link of allLinks) {
+                            if (link.offsetParent !== null) {
+                                link.click();
+                                return 'clicked_href: ' + link.href;
+                            }
+                        }
+                        return 'nothing_found';
+                    }""")
+                    log.info(f"Panel click result: {clicked}")
+
                 download = dl_info.value
                 download.save_as(str(output_path))
                 downloaded.append(output_path)
                 log.info(f"Downloaded: {output_path.name}")
             except PlaywrightTimeout:
-                # Download event didn't fire — try getting href directly
                 log.warning(f"Download event timeout for button {i+1}")
+                # Save current state for debugging
+                page.screenshot(path=str(OUTPUT_DIR / f"debug_dl_timeout_{batch_num}_{i+1}.png"))
 
-                href = page.evaluate("""(idx) => {
-                    const spans = [...document.querySelectorAll('span')]
-                        .filter(s => {
-                            const own = [...s.childNodes]
-                                .filter(n => n.nodeType === 3)
-                                .map(n => n.textContent.trim()).join('');
-                            return own === 'Download'
-                                && s.offsetParent !== null
-                                && !s.closest('footer');
-                        });
-                    if (idx >= spans.length) return null;
-                    const span = spans[idx];
-                    const link = span.closest('a')
-                        || span.parentElement?.closest('a');
-                    return link?.href || null;
-                }""", i)
+            # Close popover by clicking elsewhere
+            page.evaluate("document.body.click()")
+            page.wait_for_timeout(2000)
 
-                if href:
-                    log.info(f"Trying direct URL download: {href[:100]}")
-                    try:
-                        response = page.request.get(href)
-                        output_path.write_bytes(response.body())
-                        downloaded.append(output_path)
-                        log.info(f"Downloaded via URL: {output_path.name}")
-                    except Exception as e:
-                        log.warning(f"URL download failed: {e}")
-                else:
-                    log.warning(f"No href found for button {i+1}")
-
-            page.wait_for_timeout(3000)
         except Exception as e:
             log.warning(f"Download {i + 1} failed: {e}")
 
