@@ -352,55 +352,51 @@ def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
 def _ensure_toggle_on(page, label_text: str):
     """Ensure a toggle (Custom Mode / Instrumental) is ON.
 
-    Looks for the label text on the page and checks if the nearby
-    toggle/switch is active. If not, clicks it.
+    Uses JavaScript to find the toggle quickly without Playwright timeouts.
     """
     try:
-        # Find all text elements matching the label
-        elements = page.query_selector_all(f'text="{label_text}"')
-        for el in elements:
-            if not el.is_visible():
-                continue
+        # Use JS to find and check toggle state — avoids Playwright click timeouts
+        result = page.evaluate("""(labelText) => {
+            // Find all elements containing the label text
+            const walker = document.createTreeWalker(
+                document.body, NodeFilter.SHOW_TEXT, null);
+            while (walker.nextNode()) {
+                if (walker.currentNode.textContent.trim().includes(labelText)) {
+                    let el = walker.currentNode.parentElement;
+                    // Walk up to find a clickable toggle container
+                    for (let i = 0; i < 5; i++) {
+                        if (!el) break;
+                        // Check for toggle/switch elements
+                        const toggle = el.querySelector(
+                            'input[type="checkbox"], [role="switch"], button[role="switch"], .toggle, .switch'
+                        );
+                        if (toggle) {
+                            const isOn = toggle.checked
+                                || toggle.getAttribute('aria-checked') === 'true'
+                                || toggle.getAttribute('data-state') === 'checked'
+                                || toggle.classList.contains('active')
+                                || toggle.classList.contains('on');
+                            if (!isOn) {
+                                toggle.click();
+                                return 'turned_on';
+                            }
+                            return 'already_on';
+                        }
+                        el = el.parentElement;
+                    }
+                }
+            }
+            return 'not_found';
+        }""", label_text)
 
-            # Look for a toggle/switch near this label
-            # Common patterns: sibling element, parent container with toggle
-            parent = el.evaluate_handle(
-                "el => el.closest('label') || el.closest('div') || el.parentElement"
-            )
-            parent_el = parent.as_element()
-            if not parent_el:
-                continue
-
-            # Check for toggle input or switch
-            toggle = parent_el.query_selector(
-                'input[type="checkbox"], [role="switch"], button, .toggle, .switch'
-            )
-            if toggle:
-                # Check if it's already ON
-                checked = (
-                    toggle.get_attribute("aria-checked")
-                    or toggle.get_attribute("data-state")
-                    or toggle.get_attribute("checked")
-                )
-                is_on = checked in ("true", "checked", "on")
-
-                if is_on:
-                    log.info(f"{label_text}: already ON")
-                else:
-                    toggle.click()
-                    log.info(f"{label_text}: turned ON")
-                return
-
-            # If no toggle found, try clicking the label area itself
-            # (some toggles are CSS-only and clicking the label toggles them)
-            el.click()
-            log.info(f"{label_text}: clicked label (assuming toggle)")
-            return
-
+        if result == "already_on":
+            log.info(f"{label_text}: already ON")
+        elif result == "turned_on":
+            log.info(f"{label_text}: turned ON")
+        else:
+            log.info(f"{label_text}: toggle not found (assuming already ON)")
     except Exception as e:
-        log.info(f"{label_text} toggle check: {e}")
-
-    log.info(f"{label_text}: could not find toggle (assuming already ON)")
+        log.info(f"{label_text} toggle: {e}")
 
 
 def _download_mp3s(page, safe_name: str, batch_num: int) -> list[Path]:
