@@ -115,8 +115,8 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
 
 def _check_logged_in(page) -> bool:
     """Navigate to the site and return True if already logged in."""
-    page.goto("https://aimusicfactory.ai", wait_until="networkidle", timeout=60_000)
-    page.wait_for_timeout(3000)
+    page.goto("https://aimusicfactory.ai", wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(5000)
 
     for sel in ['text="Sign In"', 'text="Login"', 'text="Log In"',
                 'text="Sign in"', 'text="sign in"', 'a:has-text("Sign")',
@@ -132,8 +132,8 @@ def _check_logged_in(page) -> bool:
 
 def _prompt_login(page, context):
     """Open the site in a visible browser and wait for user to log in."""
-    page.goto("https://aimusicfactory.ai", wait_until="networkidle", timeout=60_000)
-    page.wait_for_timeout(2000)
+    page.goto("https://aimusicfactory.ai", wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(5000)
 
     log.info("=" * 60)
     log.info("Please log in with Google in the browser window.")
@@ -156,8 +156,8 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
 
     # Step 1: Go to Generate page
     log.info("Navigating to Generate page...")
-    page.goto("https://aimusicfactory.ai/#Generate", wait_until="networkidle", timeout=60_000)
-    page.wait_for_timeout(3000)
+    page.goto("https://aimusicfactory.ai/#Generate", wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(5000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_before_gen_{batch_num}.png"))
 
     # Step 2: Try to enable Custom Mode + Instrumental toggles
@@ -203,8 +203,8 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
 
     # Step 5: Go to My Music and find the newest track
     log.info("Going to My Music to download...")
-    page.goto("https://aimusicfactory.ai/myMusic", wait_until="networkidle", timeout=60_000)
-    page.wait_for_timeout(3000)
+    page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(5000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_mymusic_{batch_num}.png"))
 
     # Step 6: Click on the first/newest track card to open its page
