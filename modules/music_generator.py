@@ -54,27 +54,44 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
     all_mp3s = []
 
     with sync_playwright() as p:
-        # Use real Chrome (not Playwright Chromium) to avoid Google blocking
-        browser = p.chromium.launch(
-            headless=False,  # Always visible so user can log in if needed
-            channel="chrome",
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        chrome_args = ["--disable-blink-features=AutomationControlled"]
+        have_cookies = AIMUSICFACTORY_STATE_FILE.exists()
 
-        # Load saved session if available
-        context_opts = {
-            "viewport": {"width": 1920, "height": 1080},
-        }
-        if AIMUSICFACTORY_STATE_FILE.exists():
-            context_opts["storage_state"] = str(AIMUSICFACTORY_STATE_FILE)
-            log.info("Loading saved session cookies")
+        if have_cookies:
+            # Try headless first with saved cookies
+            log.info("Saved cookies found — trying headless mode...")
+            browser = p.chromium.launch(
+                headless=True, channel="chrome", args=chrome_args,
+            )
+            context = browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                storage_state=str(AIMUSICFACTORY_STATE_FILE),
+            )
+            context.set_default_timeout(60_000)
+            page = context.new_page()
 
-        context = browser.new_context(**context_opts)
-        context.set_default_timeout(60_000)
-        page = context.new_page()
+            logged_in = _check_logged_in(page)
+            if logged_in:
+                log.info("Logged in (headless) — no browser window needed!")
+                # Refresh cookies
+                context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
+            else:
+                # Cookies expired — close headless, reopen visible
+                log.info("Cookies expired — reopening browser for login...")
+                browser.close()
+                have_cookies = False
 
-        # Go to the site and check if we're logged in
-        _ensure_logged_in(page, context)
+        if not have_cookies:
+            # Open visible browser for manual login
+            browser = p.chromium.launch(
+                headless=False, channel="chrome", args=chrome_args,
+            )
+            context = browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+            )
+            context.set_default_timeout(60_000)
+            page = context.new_page()
+            _prompt_login(page, context)
 
         for batch_num in range(1, count + 1):
             log.info(f"\n--- Generation {batch_num}/{count} ---")
@@ -96,42 +113,37 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
     return all_mp3s
 
 
-def _ensure_logged_in(page, context):
-    """Navigate to the site and check if logged in. If not, wait for manual login."""
-    log.info("Checking login status on aimusicfactory.ai...")
+def _check_logged_in(page) -> bool:
+    """Navigate to the site and return True if already logged in."""
     page.goto("https://aimusicfactory.ai", wait_until="networkidle", timeout=60_000)
     page.wait_for_timeout(3000)
 
-    # Check if we see a Sign In / Login button (means NOT logged in)
-    not_logged_in = False
     for sel in ['text="Sign In"', 'text="Login"', 'text="Log In"',
                 'text="Sign in"', 'text="sign in"', 'a:has-text("Sign")',
                 'button:has-text("Sign")', 'button:has-text("Login")']:
         try:
             el = page.query_selector(sel)
             if el and el.is_visible():
-                not_logged_in = True
-                break
+                return False
         except Exception:
             continue
+    return True
 
-    if not_logged_in:
-        log.info("=" * 60)
-        log.info("NOT LOGGED IN! Please log in with Google in the browser.")
-        log.info("After you're logged in, press ENTER here in the terminal.")
-        log.info("=" * 60)
-        input("\n>>> Press ENTER after you've logged in... ")
 
-        # Save cookies for next time
-        AIMUSICFACTORY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
-        log.info(f"Session saved to: {AIMUSICFACTORY_STATE_FILE}")
-    else:
-        log.info("Already logged in!")
-        # Re-save cookies to keep them fresh
-        AIMUSICFACTORY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
-        log.info("Cookies refreshed")
+def _prompt_login(page, context):
+    """Open the site in a visible browser and wait for user to log in."""
+    page.goto("https://aimusicfactory.ai", wait_until="networkidle", timeout=60_000)
+    page.wait_for_timeout(2000)
+
+    log.info("=" * 60)
+    log.info("Please log in with Google in the browser window.")
+    log.info("After you're logged in, press ENTER here.")
+    log.info("=" * 60)
+    input("\n>>> Press ENTER after you've logged in... ")
+
+    AIMUSICFACTORY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
+    log.info(f"Session saved to: {AIMUSICFACTORY_STATE_FILE}")
 
 
 def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: int) -> list[Path]:
