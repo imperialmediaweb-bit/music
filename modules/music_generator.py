@@ -38,16 +38,16 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
     all_mp3s = []
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=HEADLESS)
+        # Use real Chrome (not Playwright Chromium) to avoid Google blocking
+        browser = p.chromium.launch(
+            headless=HEADLESS,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
 
         # Load saved session (cookies from 'python main.py login')
         context_opts = {
             "viewport": {"width": 1920, "height": 1080},
-            "user_agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
         }
         if AIMUSICFACTORY_STATE_FILE.exists():
             context_opts["storage_state"] = str(AIMUSICFACTORY_STATE_FILE)
