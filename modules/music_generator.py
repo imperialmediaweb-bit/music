@@ -240,25 +240,38 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
 
 
 def _debug_form_fields(page):
-    """Log all visible form fields to understand the page structure."""
+    """Log all visible form fields and save page HTML for analysis."""
     # Log textareas
     textareas = page.query_selector_all("textarea")
     visible_tas = [t for t in textareas if t.is_visible()]
+    log.info(f"Visible textareas: {len(visible_tas)}")
     for i, ta in enumerate(visible_tas):
         ph = ta.get_attribute("placeholder") or ""
         name = ta.get_attribute("name") or ""
+        cls = ta.get_attribute("class") or ""
         val = ta.input_value()[:30] if ta.input_value() else ""
-        log.info(f"  textarea[{i}]: placeholder='{ph}' name='{name}' value='{val}...'")
+        log.info(f"  textarea[{i}]: placeholder='{ph}' name='{name}' class='{cls}' value='{val}...'")
 
     # Log inputs
     inputs = page.query_selector_all("input")
     visible_inputs = [inp for inp in inputs if inp.is_visible()]
+    log.info(f"Visible inputs: {len(visible_inputs)}")
     for i, inp in enumerate(visible_inputs):
         t = inp.get_attribute("type") or ""
         ph = inp.get_attribute("placeholder") or ""
         name = inp.get_attribute("name") or ""
+        cls = inp.get_attribute("class") or ""
         val = inp.input_value()[:30] if inp.input_value() else ""
-        log.info(f"  input[{i}]: type='{t}' placeholder='{ph}' name='{name}' value='{val}'")
+        log.info(f"  input[{i}]: type='{t}' placeholder='{ph}' name='{name}' class='{cls}' value='{val}'")
+
+    # Dump page HTML to file for analysis
+    try:
+        html = page.content()
+        html_path = OUTPUT_DIR / "debug_page.html"
+        html_path.write_text(html, encoding="utf-8")
+        log.info(f"Page HTML saved to: {html_path} ({len(html)} chars)")
+    except Exception as e:
+        log.warning(f"Could not save page HTML: {e}")
 
 
 def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
