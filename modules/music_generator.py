@@ -248,105 +248,43 @@ def _debug_form_fields(page):
 
 
 def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
-    """Fill Style of Music and Title fields. Works with textareas and inputs."""
+    """Fill the aimusicfactory.ai form fields.
+
+    Known form structure (Custom Mode):
+      textarea[name='prompt'] = Lyrics (leave empty for Instrumental)
+      textarea[name='tags']   = Style of Music (our STYLE_OF_MUSIC_PROMPT)
+      textarea[name='title']  = Title (track name)
+    """
     style_filled = False
     title_filled = False
 
-    # Collect all visible textareas and inputs
-    textareas = page.query_selector_all("textarea")
-    visible_tas = [t for t in textareas if t.is_visible()]
-
-    inputs = page.query_selector_all("input")
-    visible_inputs = [inp for inp in inputs if inp.is_visible()
-                      and inp.get_attribute("type") in (None, "", "text", "search")]
-
-    all_fields = []
-    for ta in visible_tas:
-        ph = (ta.get_attribute("placeholder") or "").lower()
-        name = (ta.get_attribute("name") or "").lower()
-        all_fields.append({"el": ta, "ph": ph, "name": name, "tag": "textarea"})
-    for inp in visible_inputs:
-        ph = (inp.get_attribute("placeholder") or "").lower()
-        name = (inp.get_attribute("name") or "").lower()
-        all_fields.append({"el": inp, "ph": ph, "name": name, "tag": "input"})
-
-    log.info(f"Total visible form fields: {len(all_fields)}")
-
-    # First pass: fill by placeholder/name matching
-    for f in all_fields:
-        ph, name = f["ph"], f["name"]
-
-        # Match Style of Music
-        if not style_filled and ("style" in ph or "music" in ph or "genre" in ph
-                                  or "style" in name or "prompt" in name
-                                  or "description" in ph or "describe" in ph):
-            current = f["el"].input_value()
-            if not current.strip():
-                f["el"].click()
-                f["el"].fill(STYLE_OF_MUSIC_PROMPT)
-                log.info(f"Filled Style of Music via placeholder='{f['ph']}'")
-            else:
-                log.info(f"Style of Music already filled ({len(current)} chars)")
-            style_filled = True
-            continue
-
-        # Match Title
-        if not title_filled and ("title" in ph or "song" in ph or "name" in ph
-                                  or "title" in name or "song" in name):
-            f["el"].click()
-            f["el"].fill("")
-            f["el"].fill(concept.track_name)
-            title_filled = True
-            log.info(f"Filled Title via placeholder='{f['ph']}'")
-            continue
-
-    # Second pass: if not matched by placeholder, use position-based logic
-    # For Custom Mode + Instrumental on aimusicfactory.ai:
-    #   textarea[0] = Style of Music (big prompt area)
-    #   textarea[1] = Lyrics (disabled/empty for Instrumental)
-    #   textarea[2] or last field = Title
-    if not style_filled and len(visible_tas) >= 1:
-        ta = visible_tas[0]
-        current = ta.input_value()
-        if not current.strip():
-            ta.click()
-            ta.fill(STYLE_OF_MUSIC_PROMPT)
-            log.info("Filled Style of Music (first textarea, position-based)")
-        else:
-            log.info(f"Style of Music (first textarea) already filled ({len(current)} chars)")
+    # Fill by exact name attribute (most reliable)
+    tags_el = page.query_selector('textarea[name="tags"]')
+    if tags_el and tags_el.is_visible():
+        tags_el.click()
+        tags_el.fill(STYLE_OF_MUSIC_PROMPT)
         style_filled = True
+        log.info(f"Filled Style of Music (name='tags', {len(STYLE_OF_MUSIC_PROMPT)} chars)")
 
-    if not title_filled:
-        # Try the last textarea (often Title is the last short field)
-        for ta in reversed(visible_tas):
-            ph = (ta.get_attribute("placeholder") or "").lower()
-            # Skip if this is the Style of Music textarea we already filled
-            current = ta.input_value()
-            if current == STYLE_OF_MUSIC_PROMPT:
-                continue
-            # Skip if it looks like a lyrics field (usually large/multiline)
-            if "lyric" in ph or "lyrics" in ph:
-                continue
-            ta.click()
-            ta.fill("")
-            ta.fill(concept.track_name)
-            title_filled = True
-            log.info(f"Filled Title (textarea, position-based, placeholder='{ph}')")
-            break
-
-    # Last resort: try any visible input
-    if not title_filled and visible_inputs:
-        visible_inputs[0].click()
-        visible_inputs[0].fill("")
-        visible_inputs[0].fill(concept.track_name)
+    title_el = page.query_selector('textarea[name="title"]')
+    if title_el and title_el.is_visible():
+        title_el.click()
+        title_el.fill(concept.track_name)
         title_filled = True
-        log.info("Filled Title (first visible input, last resort)")
+        log.info(f"Filled Title (name='title'): {concept.track_name}")
+
+    # Clear lyrics field (we want Instrumental)
+    lyrics_el = page.query_selector('textarea[name="prompt"]')
+    if lyrics_el and lyrics_el.is_visible():
+        lyrics_el.click()
+        lyrics_el.fill("")
+        log.info("Cleared Lyrics field (Instrumental mode)")
 
     if not style_filled:
-        log.warning("Could not find Style of Music field!")
+        log.warning("Could not find Style of Music field (name='tags')!")
     if not title_filled:
         page.screenshot(path=str(OUTPUT_DIR / f"debug_no_title_{batch_num}.png"))
-        raise RuntimeError("Could not find Title field")
+        raise RuntimeError("Could not find Title field (name='title')")
 
 
 def _ensure_toggle_on(page, label_text: str):
