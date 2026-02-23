@@ -54,9 +54,12 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
     all_mp3s = []
 
     with sync_playwright() as p:
-        chrome_args = ["--disable-blink-features=AutomationControlled"]
+        chrome_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--window-position=-2400,-2400",  # Move window off-screen
+        ]
 
-        # Always use visible browser — site is a SPA that won't render in headless
+        # Visible browser required — SPA won't render in headless mode
         context_opts = {"viewport": {"width": 1920, "height": 1080}}
         if AIMUSICFACTORY_STATE_FILE.exists():
             context_opts["storage_state"] = str(AIMUSICFACTORY_STATE_FILE)
