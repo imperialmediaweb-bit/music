@@ -6,7 +6,7 @@ import signal
 import sys
 from pathlib import Path
 
-from config import SCHEDULE_CRON, INPUT_DIR
+from config import SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE
 from utils.logger import log
 
 # Default: 4 clips per day
@@ -43,6 +43,58 @@ def _run_full_pipeline():
     # Step 4-7: Process (duration, thumbnail, video, upload)
     result = process_single_track(merged_path, concept=concept)
     return result
+
+
+def cmd_login(args):
+    """Open browser to log into aimusicfactory.ai and save session cookies.
+
+    Launches a visible browser. Log in with Google, then close the browser.
+    Cookies are saved automatically for future use.
+    """
+    from playwright.sync_api import sync_playwright
+
+    state_file = AIMUSICFACTORY_STATE_FILE
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info("Opening browser for aimusicfactory.ai login...")
+    log.info("Log in with your Google account, then close the browser window.")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False)
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        )
+        page = context.new_page()
+        page.goto("https://aimusicfactory.ai", wait_until="networkidle", timeout=60_000)
+
+        log.info("=" * 60)
+        log.info("Browser is open. Please:")
+        log.info("  1. Click 'Sign in with Google'")
+        log.info("  2. Log into your Gmail account")
+        log.info("  3. Wait until you see the main page (logged in)")
+        log.info("  4. Close the browser window")
+        log.info("=" * 60)
+
+        # Wait for the user to close the browser
+        try:
+            page.wait_for_event("close", timeout=300_000)
+        except Exception:
+            pass
+
+        # Save storage state (cookies + localStorage)
+        context.storage_state(path=str(state_file))
+        log.info(f"Session saved to: {state_file}")
+        log.info("You can now run 'python main.py run' and it will use your account!")
+
+        try:
+            browser.close()
+        except Exception:
+            pass
 
 
 def cmd_process(args):
@@ -175,6 +227,13 @@ def main():
         description="Afro House Music Pipeline — Full Automation",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # login - save aimusicfactory.ai cookies
+    login_parser = subparsers.add_parser(
+        "login",
+        help="Log into aimusicfactory.ai (Google) and save cookies for automation",
+    )
+    login_parser.set_defaults(func=cmd_login)
 
     # process - merge existing MP3s from input/ and upload
     proc_parser = subparsers.add_parser(

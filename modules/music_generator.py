@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from modules.concept_generator import MusicConcept
-from config import OUTPUT_DIR, HEADLESS
+from config import OUTPUT_DIR, HEADLESS, AIMUSICFACTORY_STATE_FILE
 from utils.logger import log
 
 MAX_RETRIES = 3
@@ -37,14 +37,23 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=HEADLESS)
-        context = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=(
+
+        # Load saved session (cookies from 'python main.py login')
+        context_opts = {
+            "viewport": {"width": 1920, "height": 1080},
+            "user_agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/120.0.0.0 Safari/537.36"
             ),
-        )
+        }
+        if AIMUSICFACTORY_STATE_FILE.exists():
+            context_opts["storage_state"] = str(AIMUSICFACTORY_STATE_FILE)
+            log.info("Using saved aimusicfactory.ai session (logged in)")
+        else:
+            log.warning("No saved session. Run 'python main.py login' to use your subscription.")
+
+        context = browser.new_context(**context_opts)
         page = context.new_page()
 
         # Navigate to aimusicfactory.ai
