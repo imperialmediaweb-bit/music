@@ -77,11 +77,15 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
             log.info("Already logged in!")
             context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
         else:
-            log.info("Not logged in — please log in with Google in the browser.")
+            # Move browser on-screen so user can log in
+            page.evaluate("window.moveTo(100, 100)")
+            log.info("Not logged in — browser moved on-screen. Please log in with Google.")
             input("\n>>> Press ENTER after you've logged in... ")
             AIMUSICFACTORY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
             context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
             log.info(f"Session saved to: {AIMUSICFACTORY_STATE_FILE}")
+            # Move browser back off-screen
+            page.evaluate("window.moveTo(-2400, -2400)")
 
         # ── Phase 1: Submit all generations back-to-back ──
         generation_start_times = []
