@@ -1,14 +1,9 @@
 """Generate music on aimusicfactory.ai using Playwright.
 
-Flow:
-1. Go to #Generate page
-2. Ensure Custom Mode ON + Instrumental ON
-3. Fill "Style of Music" textarea (if empty) with Afro House prompt
-4. Fill "Title" input with the track name (e.g. "Zanu")
-5. Click Generate
-6. Wait ~6 minutes for generation
-7. Go to My Music, find the new track, open its page
-8. Download the MP3s from the track page
+Pipeline approach:
+1. Submit all generations back-to-back (wait ~4 min each for server to finish)
+2. Wait until 12 min have passed since the first generation (downloads need time)
+3. Go to My Music, download all new tracks at once
 """
 
 import time
@@ -33,11 +28,15 @@ STYLE_OF_MUSIC_PROMPT = (
     "Mood: Ritualistic, primal, powerful, transcendent."
 )
 
-GENERATION_WAIT_SEC = 360  # 6 minutes wait for generation
+GENERATION_COMPLETE_SEC = 240  # 4 min — wait after clicking Generate for songs to appear
+DOWNLOAD_READY_SEC = 720       # 12 min — minimum time from generation before downloads work
 
 
 def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
-    """Generate music on aimusicfactory.ai multiple times.
+    """Generate music on aimusicfactory.ai — pipeline approach.
+
+    Submits all generations first, then waits for downloads, then downloads all.
+    Much faster than generating and downloading one-by-one.
 
     Args:
         concept: The music concept with the prompt.
@@ -84,21 +83,44 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
             context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
             log.info(f"Session saved to: {AIMUSICFACTORY_STATE_FILE}")
 
+        # ── Phase 1: Submit all generations back-to-back ──
+        generation_start_times = []
+
         for batch_num in range(1, count + 1):
             log.info(f"\n--- Generation {batch_num}/{count} ---")
-
             try:
-                mp3s = _single_generation(page, concept, safe_name, batch_num)
-                all_mp3s.extend(mp3s)
-                log.info(f"Generation {batch_num} done: {len(mp3s)} MP3(s) downloaded")
+                _submit_generation(page, concept, safe_name, batch_num)
+                generation_start_times.append(time.time())
+                log.info(f"Generation {batch_num} submitted successfully")
             except Exception as e:
                 log.warning(f"Generation {batch_num} failed: {e}")
                 page.screenshot(path=str(OUTPUT_DIR / f"debug_gen_{batch_num}.png"))
 
+        if not generation_start_times:
+            browser.close()
+            raise RuntimeError(f"All {count} generations failed")
+
+        # ── Phase 2: Wait for downloads to be ready ──
+        first_gen = generation_start_times[0]
+        elapsed = time.time() - first_gen
+        remaining = DOWNLOAD_READY_SEC - elapsed
+
+        if remaining > 0:
+            log.info(f"Waiting {remaining / 60:.1f} more minutes for downloads to become available...")
+            _wait_with_progress(page, remaining)
+        else:
+            log.info("Enough time has passed — downloads should be ready")
+
+        # ── Phase 3: Download all tracks from My Music ──
+        log.info("Going to My Music to download all tracks...")
+        all_mp3s = _download_all_from_mymusic(
+            page, concept, safe_name, len(generation_start_times),
+        )
+
         browser.close()
 
     if not all_mp3s:
-        raise RuntimeError(f"No MP3s generated after {count} attempts")
+        raise RuntimeError(f"No MP3s downloaded after {count} generations")
 
     log.info(f"Total MP3s downloaded: {len(all_mp3s)}")
     return all_mp3s
@@ -121,16 +143,12 @@ def _check_logged_in(page) -> bool:
     return True
 
 
+def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: int):
+    """Fill form and click Generate, then wait for generation to complete.
 
-def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: int) -> list[Path]:
-    """Generate one track on aimusicfactory.ai.
-
-    1. Ensure Custom Mode + Instrumental toggles are ON
-    2. Fill form fields (Style of Music, Title)
-    3. Click Generate, wait, download
+    Does NOT download — that happens later in the pipeline.
     """
-
-    # Step 1: Go to Generate page
+    # Step 1: Navigate to Generate page
     log.info("Navigating to Generate page...")
     page.goto("https://aimusicfactory.ai/#Generate", wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(5000)
@@ -146,7 +164,6 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
     lyrics_el = page.query_selector('textarea[name="prompt"]')
     if lyrics_el and lyrics_el.is_visible():
         log.warning("Instrumental toggle didn't work — lyrics field still visible. Clicking again...")
-        # Try clicking the text "Instrumental" directly
         page.click('text="Instrumental"', timeout=5000)
         page.wait_for_timeout(1000)
 
@@ -155,10 +172,9 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
 
     # Step 4: Fill form fields
     _fill_form_fields(page, concept, batch_num)
-
     page.screenshot(path=str(OUTPUT_DIR / f"debug_fields_filled_{batch_num}.png"))
 
-    # Step 6: Click Generate button
+    # Step 5: Click Generate button
     clicked = False
     for selector in ['button:has-text("Generate")', 'button:has-text("Create")',
                       'button:has-text("Make")', '[type="submit"]',
@@ -177,50 +193,79 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
         page.screenshot(path=str(OUTPUT_DIR / f"debug_no_button_{batch_num}.png"))
         raise RuntimeError("Could not find Generate button")
 
-    # Step 4: Wait for generation (~6 minutes)
-    log.info(f"Generating... waiting {GENERATION_WAIT_SEC // 60} minutes")
-    for elapsed in range(0, GENERATION_WAIT_SEC, 30):
+    # Step 6: Wait for this generation to complete on the server (~4 min)
+    log.info(f"Waiting {GENERATION_COMPLETE_SEC // 60} min for generation to complete...")
+    _wait_with_progress(page, GENERATION_COMPLETE_SEC)
+
+
+def _wait_with_progress(page, seconds: float):
+    """Wait with progress logging every 30 seconds."""
+    total = int(seconds)
+    for elapsed in range(0, total, 30):
         page.wait_for_timeout(30_000)
-        remaining = GENERATION_WAIT_SEC - elapsed - 30
+        remaining = total - elapsed - 30
         if remaining > 0:
             log.info(f"  {remaining // 60}m {remaining % 60}s remaining...")
 
-    # Step 5: Go to My Music and find the newest track
-    log.info("Going to My Music to download...")
+
+def _download_all_from_mymusic(page, concept: MusicConcept, safe_name: str, track_count: int) -> list[Path]:
+    """Go to My Music page and download MP3s from the newest tracks.
+
+    Args:
+        track_count: Number of recent tracks to download from.
+
+    Returns:
+        List of downloaded MP3 paths.
+    """
     page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(5000)
-    page.screenshot(path=str(OUTPUT_DIR / f"debug_mymusic_{batch_num}.png"))
+    page.screenshot(path=str(OUTPUT_DIR / "debug_mymusic.png"))
 
-    # Step 6: Click on the first/newest track card to open its page
-    track_link = None
+    # Find track links
+    track_links = []
+    seen_hrefs = set()
     for selector in ['a[href*="/myMusic/"]', '[href*="/myMusic/"]',
                       '.track-card a', '.music-card a',
-                      'a:has-text("' + concept.track_name + '")']:
+                      f'a:has-text("{concept.track_name}")']:
         try:
             links = page.query_selector_all(selector)
-            visible = [l for l in links if l.is_visible()]
-            if visible:
-                track_link = visible[0]  # First = newest
-                log.info(f"Found track link: {selector}")
-                break
+            for link in links:
+                if not link.is_visible():
+                    continue
+                href = link.get_attribute("href") or ""
+                if href and href not in seen_hrefs:
+                    seen_hrefs.add(href)
+                    track_links.append(link)
         except Exception:
             continue
 
-    if track_link:
-        href = track_link.get_attribute("href") or ""
-        log.info(f"Opening track page: {href}")
-        track_link.click()
+    if not track_links:
+        log.warning("No track links found in My Music!")
+        page.screenshot(path=str(OUTPUT_DIR / "debug_no_tracks.png"))
+        return []
+
+    log.info(f"Found {len(track_links)} track(s) in My Music, downloading from newest {track_count}")
+    tracks_to_download = track_links[:track_count]
+
+    all_mp3s = []
+    for i, link in enumerate(tracks_to_download):
+        batch_num = i + 1
+        href = link.get_attribute("href") or ""
+        log.info(f"Opening track {batch_num}/{len(tracks_to_download)}: {href}")
+        link.click()
         page.wait_for_timeout(3000)
         page.screenshot(path=str(OUTPUT_DIR / f"debug_track_page_{batch_num}.png"))
 
-    # Step 7: Download MP3s from track page
-    downloaded = _download_mp3s(page, safe_name, batch_num)
+        downloaded = _download_mp3s(page, safe_name, batch_num)
+        all_mp3s.extend(downloaded)
+        log.info(f"Track {batch_num}: downloaded {len(downloaded)} MP3(s)")
 
-    if not downloaded:
-        page.screenshot(path=str(OUTPUT_DIR / f"debug_no_download_{batch_num}.png"))
-        raise RuntimeError("Could not download MP3")
+        # Go back to My Music for next track
+        if i < len(tracks_to_download) - 1:
+            page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(3000)
 
-    return downloaded
+    return all_mp3s
 
 
 def _debug_form_fields(page):
