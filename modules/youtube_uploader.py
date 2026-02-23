@@ -1,13 +1,67 @@
-import time
+"""Upload videos to YouTube using the official YouTube Data API v3.
+
+Uses OAuth2 for authentication (first time requires browser login,
+then token is saved for future uploads).
+"""
+
+import json
+import pickle
 from pathlib import Path
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+
 from modules.concept_generator import MusicConcept
-from config import YOUTUBE_COOKIE_FILE, HEADLESS
-from utils.browser import get_browser_context, save_cookies
+from config import BASE_DIR, OUTPUT_DIR
 from utils.logger import log
 
-YOUTUBE_STUDIO_URL = "https://studio.youtube.com"
-UPLOAD_TIMEOUT_MS = 300_000  # 5 minutes for upload processing
+# OAuth2 scopes needed for YouTube upload
+SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+
+# Paths for OAuth credentials
+CLIENT_SECRETS_FILE = BASE_DIR / "client_secrets.json"
+TOKEN_FILE = BASE_DIR / "youtube_token.pickle"
+
+
+def _get_authenticated_service():
+    """Get an authenticated YouTube API service using OAuth2."""
+    credentials = None
+
+    # Load saved token if it exists
+    if TOKEN_FILE.exists():
+        with open(TOKEN_FILE, "rb") as f:
+            credentials = pickle.load(f)
+
+    # If no valid credentials, do the OAuth flow
+    if not credentials or not credentials.valid:
+        if credentials and credentials.expired and credentials.refresh_token:
+            log.info("Refreshing expired YouTube token...")
+            credentials.refresh(Request())
+        else:
+            if not CLIENT_SECRETS_FILE.exists():
+                raise FileNotFoundError(
+                    f"OAuth client secrets not found: {CLIENT_SECRETS_FILE}\n"
+                    "To set up YouTube uploads:\n"
+                    "1. Go to https://console.cloud.google.com/apis/credentials\n"
+                    "2. Create OAuth 2.0 Client ID (Desktop application)\n"
+                    "3. Download the JSON and save as: client_secrets.json\n"
+                    "4. Run the pipeline again - a browser will open for login"
+                )
+            log.info("Starting YouTube OAuth login (browser will open)...")
+            flow = InstalledAppFlow.from_client_secrets_file(
+                str(CLIENT_SECRETS_FILE), SCOPES
+            )
+            credentials = flow.run_local_server(port=0)
+
+        # Save token for future use
+        with open(TOKEN_FILE, "wb") as f:
+            pickle.dump(credentials, f)
+        log.info("YouTube token saved")
+
+    return build("youtube", "v3", credentials=credentials)
 
 
 def upload_to_youtube(
@@ -15,170 +69,75 @@ def upload_to_youtube(
     thumbnail_path: Path,
     concept: MusicConcept,
 ) -> str | None:
-    log.info(f"Uploading to YouTube: {concept.youtube_title}")
+    """Upload video to YouTube using the official API.
 
-    with sync_playwright() as p:
-        browser, context = get_browser_context(p, YOUTUBE_COOKIE_FILE)
-        page = context.new_page()
+    Returns the YouTube video URL or None on failure.
+    """
+    log.info(f"Uploading to YouTube via API: {concept.youtube_title}")
 
-        try:
-            # Navigate to YouTube Studio
-            page.goto(YOUTUBE_STUDIO_URL, wait_until="networkidle", timeout=30_000)
-            page.wait_for_timeout(3000)
+    try:
+        youtube = _get_authenticated_service()
+    except FileNotFoundError as e:
+        log.error(str(e))
+        return None
 
-            # Check if logged in — look for upload button or channel icon
-            if "accounts.google.com" in page.url:
-                log.error("Not logged in to YouTube. Please export cookies first.")
-                browser.close()
-                return None
+    # Build tags string
+    tags = concept.youtube_tags[:30]  # YouTube allows max 30 tags
+    hashtags_line = " ".join("#" + h.replace(" ", "") for h in concept.hashtags)
 
-            # Click the Create/Upload button
-            log.info("Looking for upload button...")
-            upload_btn = page.wait_for_selector(
-                '#upload-icon, #create-icon, button:has-text("Create"), '
-                'ytcp-button#create-icon',
-                timeout=10_000,
-            )
-            upload_btn.click()
-            page.wait_for_timeout(1000)
+    # Full description with hashtags
+    description = f"{concept.youtube_description}\n\n{hashtags_line}"
 
-            # Click "Upload videos" from dropdown
-            upload_videos = page.wait_for_selector(
-                '#text-item-0, tp-yt-paper-item:has-text("Upload videos"), '
-                'a:has-text("Upload videos")',
-                timeout=5_000,
-            )
-            upload_videos.click()
-            page.wait_for_timeout(2000)
+    # Upload the video
+    body = {
+        "snippet": {
+            "title": concept.youtube_title[:100],  # Max 100 chars
+            "description": description[:5000],  # Max 5000 chars
+            "tags": tags,
+            "categoryId": "10",  # Music category
+            "defaultLanguage": "en",
+        },
+        "status": {
+            "privacyStatus": "public",
+            "selfDeclaredMadeForKids": False,
+        },
+    }
 
-            # Upload the video file via file chooser
-            log.info("Selecting video file...")
-            file_input = page.wait_for_selector(
-                'input[type="file"]',
-                timeout=10_000,
-            )
-            file_input.set_input_files(str(video_path))
-            log.info("Video file selected, waiting for processing...")
+    log.info("Uploading video file...")
+    media = MediaFileUpload(
+        str(video_path),
+        mimetype="video/mp4",
+        resumable=True,
+        chunksize=10 * 1024 * 1024,  # 10MB chunks
+    )
 
-            # Wait for the details form to appear
-            page.wait_for_timeout(5000)
+    request = youtube.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=media,
+    )
 
-            # Fill in title
-            log.info("Filling in video details...")
-            title_input = page.wait_for_selector(
-                '#textbox[aria-label*="title"], #title-textarea #textbox, '
-                'div#textbox.ytcp-social-suggestions-textbox',
-                timeout=15_000,
-            )
-            title_input.click()
-            page.keyboard.select_all()
-            page.keyboard.type(concept.youtube_title)
+    # Execute upload with progress
+    response = None
+    while response is None:
+        status, response = request.next_chunk()
+        if status:
+            progress = int(status.progress() * 100)
+            log.info(f"Upload progress: {progress}%")
 
-            # Fill in description
-            desc_input = page.wait_for_selector(
-                '#textbox[aria-label*="description"], #description-textarea #textbox',
-                timeout=5_000,
-            )
-            desc_input.click()
-            tags_line = " ".join("#" + h.replace(" ", "") for h in concept.hashtags)
-            desc_text = (
-                f"{concept.youtube_description}\n\n"
-                f"{tags_line}"
-            )
-            page.keyboard.type(desc_text)
+    video_id = response["id"]
+    video_url = f"https://youtu.be/{video_id}"
+    log.info(f"Video uploaded: {video_url}")
 
-            # Add YouTube tags if the tags section is available
-            try:
-                # Click "Show more" to reveal tags input
-                show_more = page.wait_for_selector(
-                    'ytcp-button#toggle-button, button:has-text("Show more")',
-                    timeout=3_000,
-                )
-                show_more.click()
-                page.wait_for_timeout(1000)
+    # Upload custom thumbnail
+    try:
+        log.info("Uploading custom thumbnail...")
+        youtube.thumbnails().set(
+            videoId=video_id,
+            media_body=MediaFileUpload(str(thumbnail_path), mimetype="image/png"),
+        ).execute()
+        log.info("Thumbnail uploaded successfully")
+    except Exception as e:
+        log.warning(f"Thumbnail upload failed (may need verified account): {e}")
 
-                tags_input = page.wait_for_selector(
-                    'input[aria-label*="Tags"], #tags-container input, '
-                    'input[placeholder*="Add tag"]',
-                    timeout=3_000,
-                )
-                tags_input.click()
-                tags_text = ",".join(concept.youtube_tags)
-                page.keyboard.type(tags_text)
-                log.info(f"Added {len(concept.youtube_tags)} YouTube tags")
-            except PlaywrightTimeout:
-                log.warning("Could not find tags input, skipping tags")
-
-            # Upload custom thumbnail
-            log.info("Uploading custom thumbnail...")
-            try:
-                thumb_input = page.wait_for_selector(
-                    '#file-loader input[type="file"], '
-                    'input[accept="image/jpeg,image/png"]',
-                    timeout=5_000,
-                )
-                thumb_input.set_input_files(str(thumbnail_path))
-                page.wait_for_timeout(3000)
-            except PlaywrightTimeout:
-                log.warning("Could not find thumbnail upload input, skipping")
-
-            # Click through the steps: "Next" buttons
-            for step in range(3):
-                try:
-                    next_btn = page.wait_for_selector(
-                        '#next-button, ytcp-button#next-button',
-                        timeout=5_000,
-                    )
-                    next_btn.click()
-                    page.wait_for_timeout(2000)
-                except PlaywrightTimeout:
-                    break
-
-            # Set visibility to Public
-            log.info("Setting visibility to Public...")
-            try:
-                public_radio = page.wait_for_selector(
-                    '#offRadio, tp-yt-paper-radio-button[name="PUBLIC"], '
-                    'tp-yt-paper-radio-button:has-text("Public")',
-                    timeout=5_000,
-                )
-                public_radio.click()
-                page.wait_for_timeout(1000)
-            except PlaywrightTimeout:
-                log.warning("Could not find Public visibility option")
-
-            # Click Publish/Done
-            log.info("Publishing video...")
-            done_btn = page.wait_for_selector(
-                '#done-button, ytcp-button#done-button',
-                timeout=5_000,
-            )
-            done_btn.click()
-
-            # Wait for upload to complete
-            page.wait_for_timeout(10_000)
-
-            # Try to get the video URL from the success dialog
-            video_url = None
-            try:
-                link = page.wait_for_selector(
-                    'a.ytcp-video-info, a[href*="youtu.be"], '
-                    'span.video-url-fadeable a',
-                    timeout=30_000,
-                )
-                video_url = link.get_attribute("href")
-                log.info(f"YouTube video URL: {video_url}")
-            except PlaywrightTimeout:
-                log.warning("Could not capture YouTube video URL")
-
-            # Save updated cookies
-            save_cookies(context, YOUTUBE_COOKIE_FILE)
-
-            return video_url
-
-        except Exception as e:
-            log.error(f"YouTube upload failed: {e}")
-            page.screenshot(path=str(Path("output") / "debug_youtube_error.png"))
-            raise
-        finally:
-            browser.close()
+    return video_url
