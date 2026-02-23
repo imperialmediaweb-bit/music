@@ -141,7 +141,7 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
 
     # Step 5: Go to My Music and find the newest track
     log.info("Going to My Music to download...")
-    page.goto("https://aimusicfactory.ai/#MyMusic", wait_until="networkidle", timeout=60_000)
+    page.goto("https://aimusicfactory.ai/myMusic", wait_until="networkidle", timeout=60_000)
     page.wait_for_timeout(3000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_mymusic_{batch_num}.png"))
 
