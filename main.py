@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Music Content Automation Pipeline — CLI + Scheduler."""
+"""Afro House Music Pipeline — Merge MP3s, Thumbnail, Video, YouTube Upload."""
 
 import argparse
 import signal
@@ -11,39 +11,61 @@ from utils.logger import log
 
 
 def cmd_process(args):
-    """Process a compiled MP3 from D:\\music or input/ folder.
+    """Main workflow:
 
-    Workflow:
-    1. Generate 8 tracks on aimusicfactory.ai (manual)
-    2. Combine them in CapCut with pauses
-    3. Export final MP3 to D:\\music
-    4. Run: python main.py process
-    5. Pipeline detects duration, generates concept/thumbnail/video, uploads to YouTube
+    1. Find all MP3s in input/ folder (from aimusicfactory.ai downloads)
+    2. Merge them into one track with pauses between each
+    3. Detect duration
+    4. Generate Afro House concept (name, description, tags)
+    5. Generate African mask thumbnail with track name
+    6. Create YouTube video (16:9) + TikTok video (9:16)
+    7. Upload to YouTube with title, description, tags, thumbnail
+    8. Upload to TikTok
     """
+    from modules.audio_merger import merge_mp3s
     from pipeline import process_single_track
 
-    # Find the MP3 file
-    if args.file:
-        mp3_path = Path(args.file)
-        if not mp3_path.exists():
-            log.error(f"File not found: {mp3_path}")
-            sys.exit(1)
-    else:
-        # Look for MP3 files in input/ or current directory
-        search_dirs = [INPUT_DIR, Path(".")]
-        mp3_path = None
-        for d in search_dirs:
-            mp3_files = sorted(d.glob("*.mp3"), key=lambda f: f.stat().st_mtime, reverse=True)
-            if mp3_files:
-                mp3_path = mp3_files[0]  # Most recent MP3
-                break
+    # Find MP3 files
+    input_dir = Path(args.folder) if args.folder else INPUT_DIR
+    mp3_files = sorted(input_dir.glob("*.mp3"))
 
-        if not mp3_path:
-            log.error("No MP3 file found!")
-            log.info("Usage:")
-            log.info("  python main.py process track.mp3")
-            log.info("  python main.py process  (auto-finds newest MP3 in input/)")
-            sys.exit(1)
+    if not mp3_files:
+        log.error(f"No MP3 files found in: {input_dir}")
+        log.info(f"Put your MP3 files from aimusicfactory.ai in: {input_dir}")
+        sys.exit(1)
+
+    log.info(f"Found {len(mp3_files)} MP3 file(s) in {input_dir}:")
+    for f in mp3_files:
+        log.info(f"  - {f.name}")
+
+    # Step 1: Merge all MP3s into one track
+    log.info("=" * 60)
+    log.info("MERGING MP3 FILES...")
+    try:
+        merged_path = merge_mp3s(mp3_files)
+        log.info(f"Merged file: {merged_path}")
+    except Exception as e:
+        log.error(f"Merge failed: {e}")
+        sys.exit(1)
+
+    # Step 2: Process the merged track (thumbnail, video, upload)
+    result = process_single_track(merged_path)
+
+    if result["errors"]:
+        log.warning(f"Completed with {len(result['errors'])} error(s)")
+        sys.exit(1)
+    else:
+        log.info("Done!")
+
+
+def cmd_single(args):
+    """Process a single MP3 file (already merged/compiled)."""
+    from pipeline import process_single_track
+
+    mp3_path = Path(args.file)
+    if not mp3_path.exists():
+        log.error(f"File not found: {mp3_path}")
+        sys.exit(1)
 
     log.info(f"Processing: {mp3_path.name}")
     result = process_single_track(mp3_path)
@@ -55,44 +77,11 @@ def cmd_process(args):
         log.info("Done!")
 
 
-def cmd_batch(args):
-    """Process multiple MP3 files (each one = separate YouTube upload)."""
-    from pipeline import process_single_track
-
-    input_dir = Path(args.folder) if args.folder else INPUT_DIR
-    mp3_files = sorted(input_dir.glob("*.mp3"))
-
-    if not mp3_files:
-        log.error(f"No MP3 files found in: {input_dir}")
-        sys.exit(1)
-
-    if len(mp3_files) > 8:
-        log.warning(f"Found {len(mp3_files)} files, processing first 8")
-        mp3_files = mp3_files[:8]
-
-    log.info(f"Found {len(mp3_files)} MP3 file(s):")
-    for f in mp3_files:
-        log.info(f"  - {f.name}")
-
-    total_errors = 0
-    for i, mp3 in enumerate(mp3_files, 1):
-        log.info(f"\n{'#' * 60}")
-        log.info(f"TRACK {i}/{len(mp3_files)}: {mp3.name}")
-        log.info(f"{'#' * 60}")
-        result = process_single_track(mp3)
-        if result["errors"]:
-            total_errors += 1
-
-    log.info(f"\n{'=' * 60}")
-    log.info(f"BATCH COMPLETE: {len(mp3_files) - total_errors}/{len(mp3_files)} successful")
-    if total_errors:
-        sys.exit(1)
-
-
 def cmd_schedule(args):
     """Run the pipeline on a cron schedule."""
     from apscheduler.schedulers.blocking import BlockingScheduler
     from apscheduler.triggers.cron import CronTrigger
+    from modules.audio_merger import merge_mp3s
     from pipeline import process_single_track
 
     cron_expr = args.cron or SCHEDULE_CRON
@@ -104,9 +93,10 @@ def cmd_schedule(args):
     minute, hour, day, month, day_of_week = parts
 
     def scheduled_job():
-        mp3_files = sorted(INPUT_DIR.glob("*.mp3"), key=lambda f: f.stat().st_mtime, reverse=True)
+        mp3_files = sorted(INPUT_DIR.glob("*.mp3"))
         if mp3_files:
-            process_single_track(mp3_files[0])
+            merged = merge_mp3s(mp3_files)
+            process_single_track(merged)
         else:
             log.warning(f"No MP3 files in {INPUT_DIR}")
 
@@ -136,35 +126,30 @@ def cmd_schedule(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Afro House Music Pipeline — Thumbnail, Video, YouTube Upload",
+        description="Afro House Music Pipeline — Merge, Thumbnail, Video, Upload",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # process command - main workflow (one compiled MP3 → YouTube)
+    # process command - main workflow (merge MP3s → process → upload)
     proc_parser = subparsers.add_parser(
         "process",
-        help="Process a compiled MP3 → generate concept, thumbnail, video, upload to YouTube",
+        help="Merge MP3s from input/ folder → thumbnail → video → YouTube upload",
     )
     proc_parser.add_argument(
-        "file",
-        nargs="?",
-        default=None,
-        help="Path to MP3 file (default: newest MP3 in input/)",
-    )
-    proc_parser.set_defaults(func=cmd_process)
-
-    # batch command - multiple MP3s
-    batch_parser = subparsers.add_parser(
-        "batch",
-        help="Process multiple MP3 files from input/ folder",
-    )
-    batch_parser.add_argument(
         "--folder",
         type=str,
         default=None,
         help="Folder with MP3 files (default: input/)",
     )
-    batch_parser.set_defaults(func=cmd_batch)
+    proc_parser.set_defaults(func=cmd_process)
+
+    # single command - process one already-merged MP3
+    single_parser = subparsers.add_parser(
+        "single",
+        help="Process a single MP3 file (already merged)",
+    )
+    single_parser.add_argument("file", help="Path to MP3 file")
+    single_parser.set_defaults(func=cmd_single)
 
     # schedule command
     sched_parser = subparsers.add_parser("schedule", help="Run pipeline on schedule")
