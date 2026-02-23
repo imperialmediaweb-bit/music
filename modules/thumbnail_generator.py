@@ -6,7 +6,8 @@ from utils.logger import log
 
 
 def generate_thumbnail(thumbnail_prompt: str, track_name: str) -> Path:
-    log.info(f"Generating thumbnail for: {track_name}")
+    """Generate an African mask thumbnail with the track name using DALL-E 3."""
+    log.info(f"Generating African mask thumbnail for: {track_name}")
 
     client = OpenAI(api_key=OPENAI_API_KEY)
     response = client.images.generate(
@@ -18,9 +19,8 @@ def generate_thumbnail(thumbnail_prompt: str, track_name: str) -> Path:
     )
 
     image_url = response.data[0].url
-    log.info(f"Thumbnail generated, downloading from URL...")
+    log.info("Thumbnail generated, downloading...")
 
-    # Download the image
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in track_name)
     safe_name = safe_name.strip().replace(" ", "_")[:50]
     output_path = OUTPUT_DIR / f"{safe_name}_thumbnail.png"

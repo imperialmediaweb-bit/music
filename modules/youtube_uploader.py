@@ -80,11 +80,34 @@ def upload_to_youtube(
                 timeout=5_000,
             )
             desc_input.click()
+            tags_line = " ".join("#" + h.replace(" ", "") for h in concept.hashtags)
             desc_text = (
                 f"{concept.youtube_description}\n\n"
-                f"{' '.join('#' + h for h in concept.hashtags)}"
+                f"{tags_line}"
             )
             page.keyboard.type(desc_text)
+
+            # Add YouTube tags if the tags section is available
+            try:
+                # Click "Show more" to reveal tags input
+                show_more = page.wait_for_selector(
+                    'ytcp-button#toggle-button, button:has-text("Show more")',
+                    timeout=3_000,
+                )
+                show_more.click()
+                page.wait_for_timeout(1000)
+
+                tags_input = page.wait_for_selector(
+                    'input[aria-label*="Tags"], #tags-container input, '
+                    'input[placeholder*="Add tag"]',
+                    timeout=3_000,
+                )
+                tags_input.click()
+                tags_text = ",".join(concept.youtube_tags)
+                page.keyboard.type(tags_text)
+                log.info(f"Added {len(concept.youtube_tags)} YouTube tags")
+            except PlaywrightTimeout:
+                log.warning("Could not find tags input, skipping tags")
 
             # Upload custom thumbnail
             log.info("Uploading custom thumbnail...")

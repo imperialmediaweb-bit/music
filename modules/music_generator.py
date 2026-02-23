@@ -46,13 +46,8 @@ def _attempt_generation(concept: MusicConcept, safe_name: str) -> Path:
         page.goto("https://aimusicfactory.ai/", wait_until="networkidle", timeout=60_000)
         page.wait_for_timeout(3000)
 
-        # Build the prompt text
-        prompt_text = (
-            f"{concept.description}\n"
-            f"Genre: {concept.genre}\n"
-            f"Mood: {concept.mood}\n"
-            f"{concept.lyrics}"
-        )
+        # Build the prompt text from the music_prompt field
+        prompt_text = concept.music_prompt
 
         # Find and fill the text input area
         # Try common selectors for text input on music generation sites
