@@ -1,9 +1,10 @@
 """Generate music on aimusicfactory.ai using Playwright.
 
 Pipeline approach:
-1. Submit all generations back-to-back (wait ~4 min each for server to finish)
-2. Wait until 12 min have passed since the first generation (downloads need time)
-3. Go to My Music, download all new tracks at once
+1. Submit all generations on the Generate page (wait ~4 min each)
+2. Wait until 18 min have passed since the first generation
+3. Go to My Music, click on each track card by name
+4. On each track detail page, click the Download buttons to get MP3s
 """
 
 import time
@@ -33,10 +34,10 @@ DOWNLOAD_READY_SEC = 1080      # 18 min — minimum time from generation before 
 
 
 def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
-    """Generate music on aimusicfactory.ai — pipeline approach.
+    """Generate music on aimusicfactory.ai.
 
-    Submits all generations first, then waits for downloads, then downloads all.
-    Much faster than generating and downloading one-by-one.
+    Submits all generations, waits for downloads to be ready,
+    then goes to My Music and downloads from each track's detail page.
 
     Args:
         concept: The music concept with the prompt.
@@ -77,14 +78,12 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
             log.info("Already logged in!")
             context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
         else:
-            # Move browser on-screen so user can log in
             page.evaluate("window.moveTo(100, 100)")
             log.info("Not logged in — browser moved on-screen. Please log in with Google.")
             input("\n>>> Press ENTER after you've logged in... ")
             AIMUSICFACTORY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
             context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
             log.info(f"Session saved to: {AIMUSICFACTORY_STATE_FILE}")
-            # Move browser back off-screen
             page.evaluate("window.moveTo(-2400, -2400)")
 
         # ── Phase 1: Submit all generations back-to-back ──
@@ -104,7 +103,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
             browser.close()
             raise RuntimeError(f"All {count} generations failed")
 
-        # ── Phase 2: Wait for downloads to be ready ──
+        # ── Phase 2: Wait for downloads to be ready (18 min from first gen) ──
         first_gen = generation_start_times[0]
         elapsed = time.time() - first_gen
         remaining = DOWNLOAD_READY_SEC - elapsed
@@ -115,9 +114,9 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
         else:
             log.info("Enough time has passed — downloads should be ready")
 
-        # ── Phase 3: Download all tracks from My Music ──
-        log.info("Going to My Music to download all tracks...")
-        all_mp3s = _download_all_from_mymusic(
+        # ── Phase 3: Go to My Music, find track cards, download from each ──
+        log.info(f"\nGoing to My Music to find '{concept.track_name}' cards...")
+        all_mp3s = _download_from_mymusic(
             page, concept, safe_name, len(generation_start_times),
         )
 
@@ -148,37 +147,29 @@ def _check_logged_in(page) -> bool:
 
 
 def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: int):
-    """Fill form and click Generate, then wait for generation to complete.
-
-    Does NOT download — that happens later in the pipeline.
-    """
-    # Step 1: Navigate to Generate page
+    """Fill form and click Generate, then wait for generation to complete."""
     log.info("Navigating to Generate page...")
     page.goto("https://aimusicfactory.ai/#Generate", wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(5000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_before_gen_{batch_num}.png"))
 
-    # Step 2: Enable Custom Mode + Instrumental toggles
     _ensure_toggle_on(page, "Custom Mode")
     page.wait_for_timeout(500)
     _ensure_toggle_on(page, "Instrumental")
     page.wait_for_timeout(500)
 
-    # Verify Instrumental is ON: if lyrics textarea is visible, toggle failed
+    # Verify Instrumental is ON
     lyrics_el = page.query_selector('textarea[name="prompt"]')
     if lyrics_el and lyrics_el.is_visible():
         log.warning("Instrumental toggle didn't work — lyrics field still visible. Clicking again...")
         page.click('text="Instrumental"', timeout=5000)
         page.wait_for_timeout(1000)
 
-    # Step 3: Debug — log all visible form fields
     _debug_form_fields(page)
-
-    # Step 4: Fill form fields
     _fill_form_fields(page, concept, batch_num)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_fields_filled_{batch_num}.png"))
 
-    # Step 5: Click Generate button
+    # Click Generate button
     clicked = False
     for selector in ['button:has-text("Generate")', 'button:has-text("Create")',
                       'button:has-text("Make")', '[type="submit"]',
@@ -197,7 +188,6 @@ def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
         page.screenshot(path=str(OUTPUT_DIR / f"debug_no_button_{batch_num}.png"))
         raise RuntimeError("Could not find Generate button")
 
-    # Step 6: Wait for this generation to complete on the server (~4 min)
     log.info(f"Waiting {GENERATION_COMPLETE_SEC // 60} min for generation to complete...")
     _wait_with_progress(page, GENERATION_COMPLETE_SEC)
 
@@ -212,144 +202,411 @@ def _wait_with_progress(page, seconds: float):
             log.info(f"  {remaining // 60}m {remaining % 60}s remaining...")
 
 
-def _download_all_from_mymusic(page, concept: MusicConcept, safe_name: str, track_count: int) -> list[Path]:
-    """Go to My Music page and download MP3s from the newest tracks.
+# ── Phase 3: My Music → click cards → download from detail pages ──
 
-    Args:
-        track_count: Number of recent tracks to download from.
+def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected_cards: int) -> list[Path]:
+    """Navigate to My Music, find track cards by name, open each, download MP3s.
 
-    Returns:
-        List of downloaded MP3 paths.
+    Flow (matches site structure from screenshots):
+    1. Go to /myMusic
+    2. Find all cards with the track name (e.g. "Tizanu")
+    3. Click each card to open its detail page
+    4. On the detail page, click each green "Download" button
+    5. Go back to My Music for the next card
     """
     page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(10_000)
     page.screenshot(path=str(OUTPUT_DIR / "debug_mymusic.png"))
 
-    # Save page HTML for debugging
+    # Save HTML for debugging
     html = page.content()
-    debug_html_path = OUTPUT_DIR / "debug_mymusic.html"
-    debug_html_path.write_text(html, encoding="utf-8")
-    log.info(f"My Music HTML saved to: {debug_html_path} ({len(html)} chars)")
+    (OUTPUT_DIR / "debug_mymusic.html").write_text(html, encoding="utf-8")
+    log.info(f"My Music page loaded ({len(html)} chars)")
 
-    # Log all <a> tags to help debug selectors
-    all_a_tags = page.query_selector_all("a")
-    log.info(f"Total <a> tags on page: {len(all_a_tags)}")
-    for a in all_a_tags[:30]:
-        href = a.get_attribute("href") or ""
-        text = (a.inner_text() or "").strip()[:60]
-        visible = a.is_visible()
-        if href:
-            log.info(f"  <a> href={href!r} text={text!r} visible={visible}")
+    # Find track cards matching our track name
+    track_name = concept.track_name
+    card_hrefs = _find_track_cards(page, track_name)
 
-    # Find track links — try multiple selectors
-    track_links = []
-    seen_hrefs = set()
-    for selector in ['a[href*="/myMusic/"]', '[href*="/myMusic/"]',
-                      'a[href*="/my-music/"]', 'a[href*="/song/"]',
-                      'a[href*="/track/"]',
-                      '.track-card a', '.music-card a',
-                      f'a:has-text("{concept.track_name}")']:
-        try:
-            links = page.query_selector_all(selector)
-            if links:
-                log.info(f"  Selector {selector!r} matched {len(links)} element(s)")
-            for link in links:
-                if not link.is_visible():
-                    continue
-                href = link.get_attribute("href") or ""
-                if href and href not in seen_hrefs:
-                    seen_hrefs.add(href)
-                    track_links.append(link)
-        except Exception:
-            continue
-
-    if not track_links:
-        log.warning("No track links found in My Music! Retrying after scroll + wait...")
-        # Scroll down to trigger lazy loading, then wait more
-        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    if not card_hrefs:
+        log.warning(f"No cards found for '{track_name}' — trying search box...")
+        # Try using the search box on My Music page
+        _search_mymusic(page, track_name)
         page.wait_for_timeout(5000)
-        page.evaluate("window.scrollTo(0, 0)")
-        page.wait_for_timeout(5000)
-        page.screenshot(path=str(OUTPUT_DIR / "debug_no_tracks.png"))
+        page.screenshot(path=str(OUTPUT_DIR / "debug_mymusic_search.png"))
+        card_hrefs = _find_track_cards(page, track_name)
 
-        # Retry with all selectors
-        for selector in ['a[href*="/myMusic/"]', '[href*="/myMusic/"]',
-                          'a[href*="/my-music/"]', 'a[href*="/song/"]',
-                          'a[href*="/track/"]',
-                          '.track-card a', '.music-card a',
-                          f'a:has-text("{concept.track_name}")']:
-            try:
-                links = page.query_selector_all(selector)
-                for link in links:
-                    if not link.is_visible():
-                        continue
-                    href = link.get_attribute("href") or ""
-                    if href and href not in seen_hrefs:
-                        seen_hrefs.add(href)
-                        track_links.append(link)
-            except Exception:
-                continue
-
-    if not track_links:
-        log.warning("Still no track links found after retry!")
+    if not card_hrefs:
+        log.error(f"No track cards found for '{track_name}' on My Music!")
+        page.screenshot(path=str(OUTPUT_DIR / "debug_no_cards.png"))
         return []
 
-    log.info(f"Found {len(track_links)} track(s) in My Music, downloading from newest {track_count}")
-    tracks_to_download = track_links[:track_count]
+    log.info(f"Found {len(card_hrefs)} card(s) for '{track_name}', will download from each")
 
     all_mp3s = []
-    for i, link in enumerate(tracks_to_download):
-        batch_num = i + 1
-        href = link.get_attribute("href") or ""
-        log.info(f"Opening track {batch_num}/{len(tracks_to_download)}: {href}")
-        link.click()
+    for i, href in enumerate(card_hrefs):
+        card_num = i + 1
+        log.info(f"\n--- Card {card_num}/{len(card_hrefs)}: {href} ---")
 
-        # Wait for track page to fully render (React hydration)
-        _wait_for_track_content(page, batch_num)
+        try:
+            # Navigate to the track detail page
+            if href.startswith("/"):
+                full_url = f"https://aimusicfactory.ai{href}"
+            elif href.startswith("http"):
+                full_url = href
+            else:
+                full_url = f"https://aimusicfactory.ai/{href}"
 
-        downloaded = _download_mp3s(page, safe_name, batch_num)
-        all_mp3s.extend(downloaded)
-        log.info(f"Track {batch_num}: downloaded {len(downloaded)} MP3(s)")
+            page.goto(full_url, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(8_000)
+            page.screenshot(path=str(OUTPUT_DIR / f"debug_track_detail_{card_num}.png"))
 
-        # Go back to My Music for next track
-        if i < len(tracks_to_download) - 1:
-            page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
-            page.wait_for_timeout(5000)
+            # Save detail page HTML
+            detail_html = page.content()
+            (OUTPUT_DIR / f"debug_track_detail_{card_num}.html").write_text(detail_html, encoding="utf-8")
+
+            # Wait for Download buttons to appear (React hydration)
+            _wait_for_download_button(page, card_num)
+
+            # Download all MP3s from this detail page
+            downloaded = _download_mp3s_from_detail(page, safe_name, card_num)
+            all_mp3s.extend(downloaded)
+            log.info(f"Card {card_num}: downloaded {len(downloaded)} MP3(s)")
+
+        except Exception as e:
+            log.warning(f"Card {card_num} failed: {e}")
+            page.screenshot(path=str(OUTPUT_DIR / f"debug_card_fail_{card_num}.png"))
 
     return all_mp3s
 
 
-def _wait_for_track_content(page, batch_num: int):
-    """Wait for the track detail page to fully render (React client-side).
+def _find_track_cards(page, track_name: str) -> list[str]:
+    """Find all card hrefs on My Music page matching the track name.
 
-    The page HTML is initially empty — React hydrates and loads track data
-    via API calls. We wait for "Download" text to appear in the DOM.
+    Cards are links/clickable elements showing the track name as text.
+    Returns list of hrefs (URLs) for matching cards.
     """
-    log.info("Waiting for track page content to render...")
+    # Strategy: find all visible elements containing the track name, get their hrefs
+    hrefs = page.evaluate("""(trackName) => {
+        const results = [];
+        const seen = new Set();
 
-    # Wait for any element with "Download" text to appear (up to 30s)
-    for attempt in range(1, 4):
+        // Strategy 1: Find <a> tags containing the track name
+        const allLinks = document.querySelectorAll('a');
+        for (const link of allLinks) {
+            const text = link.textContent.trim();
+            const href = link.getAttribute('href') || '';
+            if (!href || seen.has(href)) continue;
+
+            // Check if this link or any child contains exactly the track name
+            if (text.includes(trackName) && href !== '/' && href !== '#') {
+                seen.add(href);
+                results.push(href);
+            }
+        }
+
+        // Strategy 2: Find any clickable element with the track name
+        // and walk up to find parent <a>
+        if (results.length === 0) {
+            const allEls = document.querySelectorAll('*');
+            for (const el of allEls) {
+                // Only check direct text content (not children)
+                const ownText = [...el.childNodes]
+                    .filter(n => n.nodeType === 3)
+                    .map(n => n.textContent.trim())
+                    .join('');
+                if (ownText !== trackName) continue;
+
+                // Walk up to find parent <a>
+                let parent = el;
+                for (let i = 0; i < 10; i++) {
+                    if (!parent) break;
+                    if (parent.tagName === 'A') {
+                        const href = parent.getAttribute('href') || '';
+                        if (href && !seen.has(href) && href !== '/' && href !== '#') {
+                            seen.add(href);
+                            results.push(href);
+                        }
+                        break;
+                    }
+                    parent = parent.parentElement;
+                }
+            }
+        }
+
+        return results;
+    }""", track_name)
+
+    log.info(f"_find_track_cards('{track_name}'): found {len(hrefs)} card(s)")
+    for h in hrefs:
+        log.info(f"  card href: {h}")
+
+    return hrefs
+
+
+def _search_mymusic(page, track_name: str):
+    """Use the search box on My Music to filter by track name."""
+    try:
+        # The search box has placeholder "title/lyric/description/style"
+        search_input = page.query_selector('input[placeholder*="title"]')
+        if not search_input:
+            search_input = page.query_selector('input[type="text"]')
+        if not search_input:
+            search_input = page.query_selector('input[type="search"]')
+
+        if search_input and search_input.is_visible():
+            search_input.click()
+            search_input.fill(track_name)
+            log.info(f"Filled search box with: {track_name}")
+
+            # Click Search button
+            for sel in ['button:has-text("Search")', 'button[type="submit"]']:
+                try:
+                    btn = page.query_selector(sel)
+                    if btn and btn.is_visible():
+                        btn.click()
+                        log.info(f"Clicked: {sel}")
+                        page.wait_for_timeout(3000)
+                        return
+                except Exception:
+                    continue
+
+            # Press Enter as fallback
+            search_input.press("Enter")
+            log.info("Pressed Enter in search box")
+        else:
+            log.warning("Search input not found on My Music page")
+    except Exception as e:
+        log.warning(f"Search failed: {e}")
+
+
+def _wait_for_download_button(page, card_num: int):
+    """Wait for Download button(s) to appear on the track detail page."""
+    log.info(f"Card {card_num}: waiting for Download button...")
+
+    for attempt in range(1, 5):
         try:
             page.wait_for_selector('text="Download"', timeout=15_000)
-            log.info("Track page content loaded — Download button(s) visible")
-            page.wait_for_timeout(2000)  # Extra buffer for all elements
-            page.screenshot(path=str(OUTPUT_DIR / f"debug_track_page_{batch_num}.png"))
+            log.info(f"Card {card_num}: Download button(s) visible!")
+            page.wait_for_timeout(2000)
+            page.screenshot(path=str(OUTPUT_DIR / f"debug_dl_ready_{card_num}.png"))
             return
         except PlaywrightTimeout:
-            log.warning(f"Download buttons not found (attempt {attempt}/3)")
-            if attempt < 3:
-                log.info("Refreshing page...")
-                page.reload(wait_until="domcontentloaded", timeout=30_000)
-                page.wait_for_timeout(5000)
+            log.warning(f"Card {card_num}: Download not found (attempt {attempt}/4)")
+            if attempt < 4:
+                page.reload(wait_until="domcontentloaded", timeout=60_000)
+                page.wait_for_timeout(8_000)
 
-    # Last resort: take screenshot and continue anyway
-    log.warning("Track page may not have fully loaded")
-    page.screenshot(path=str(OUTPUT_DIR / f"debug_track_noload_{batch_num}.png"))
+    log.warning(f"Card {card_num}: Download button not found after 4 attempts, trying anyway")
+    page.screenshot(path=str(OUTPUT_DIR / f"debug_dl_notfound_{card_num}.png"))
 
+
+def _download_mp3s_from_detail(page, safe_name: str, card_num: int) -> list[Path]:
+    """Click all Download buttons on a track detail page and save MP3s.
+
+    From screenshots: each track has a green gradient "Download" button.
+    Clicking it may either:
+      a) Directly download the MP3
+      b) Open a HeadlessUI popover with format options (MP3, WAV)
+
+    We handle both cases.
+    """
+    # Save page HTML for debugging
+    try:
+        html = page.content()
+        (OUTPUT_DIR / f"debug_detail_page_{card_num}.html").write_text(html, encoding="utf-8")
+    except Exception:
+        pass
+
+    # Count Download buttons (green buttons with "Download" text, outside footer)
+    dl_button_count = page.evaluate("""() => {
+        // Find all elements with "Download" text that are visible and not in footer
+        const candidates = [];
+
+        // Check HeadlessUI popover buttons
+        const popovers = document.querySelectorAll('[id^="headlessui-popover-button"]');
+        for (const p of popovers) {
+            if (p.textContent.includes('Download') && p.offsetParent !== null) {
+                candidates.push(p);
+            }
+        }
+        if (candidates.length > 0) return {type: 'popover', count: candidates.length};
+
+        // Check buttons/divs with Download text (green gradient buttons)
+        const allEls = document.querySelectorAll('button, div, a, span');
+        for (const el of allEls) {
+            if (el.closest('footer')) continue;
+            if (el.offsetParent === null) continue;
+            // Check own text content
+            const ownText = el.textContent.trim();
+            if (ownText === 'Download' || ownText === 'Download ❓' || ownText.startsWith('Download')) {
+                // Make sure it's a clickable-looking element (not a child span inside another match)
+                const tag = el.tagName.toLowerCase();
+                if (tag === 'button' || tag === 'a' || el.getAttribute('role') === 'button'
+                    || el.classList.toString().includes('cursor')
+                    || el.style.cursor === 'pointer') {
+                    candidates.push(el);
+                }
+            }
+        }
+        if (candidates.length > 0) return {type: 'button', count: candidates.length};
+
+        return {type: 'none', count: 0};
+    }""")
+
+    btn_type = dl_button_count.get("type", "none")
+    btn_count = dl_button_count.get("count", 0)
+    log.info(f"Found {btn_count} Download element(s) (type: {btn_type})")
+
+    if btn_count == 0:
+        log.warning("No Download buttons found on detail page!")
+        page.screenshot(path=str(OUTPUT_DIR / f"debug_no_dlbtn_{card_num}.png"))
+
+        # Debug: log all visible buttons
+        visible_buttons = page.evaluate("""() => {
+            const result = [];
+            const els = document.querySelectorAll('button, a, [role="button"]');
+            els.forEach(el => {
+                if (el.offsetParent !== null) {
+                    result.push(el.tagName + ': ' + el.textContent.trim().substring(0, 60));
+                }
+            });
+            return result;
+        }""")
+        for vb in visible_buttons[:20]:
+            log.info(f"  visible element: {vb}")
+
+        return []
+
+    downloaded = []
+
+    for i in range(btn_count):
+        try:
+            ts = int(time.time())
+            output_path = OUTPUT_DIR / f"{safe_name}_card{card_num}_{i + 1}_{ts}.mp3"
+
+            log.info(f"Clicking Download button {i + 1}/{btn_count}...")
+
+            if btn_type == "popover":
+                # HeadlessUI popover — click to open, then find MP3 in panel
+                mp3_path = _download_via_popover(page, i, output_path, card_num)
+            else:
+                # Direct button — click and expect download event
+                mp3_path = _download_via_button(page, i, output_path, card_num)
+
+            if mp3_path:
+                downloaded.append(mp3_path)
+                log.info(f"Downloaded: {mp3_path.name}")
+
+        except Exception as e:
+            log.warning(f"Download {i + 1} failed: {e}")
+
+    return downloaded
+
+
+def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> Path | None:
+    """Download MP3 via HeadlessUI popover dropdown."""
+    # Click the popover button
+    page.evaluate("""(idx) => {
+        const popovers = [...document.querySelectorAll('[id^="headlessui-popover-button"]')]
+            .filter(p => p.textContent.includes('Download') && p.offsetParent !== null);
+        if (idx < popovers.length) popovers[idx].click();
+    }""", idx)
+
+    page.wait_for_timeout(1500)
+    page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_{card_num}_{idx + 1}.png"))
+
+    # Log panel content
+    panel_html = page.evaluate("""() => {
+        const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
+        if (panels.length === 0) return 'NO_PANEL';
+        return panels[panels.length - 1].innerHTML;
+    }""")
+    log.info(f"Popover panel ({len(panel_html)} chars): {panel_html[:300]}")
+
+    try:
+        with page.expect_download(timeout=30_000) as dl_info:
+            page.evaluate("""() => {
+                const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
+                for (const panel of panels) {
+                    const links = panel.querySelectorAll('a, button, div[class*="cursor"]');
+                    for (const link of links) {
+                        const text = link.textContent.trim().toLowerCase();
+                        if (text.includes('mp3')) {
+                            link.click();
+                            return 'clicked_mp3';
+                        }
+                    }
+                    // Click first option if no MP3 label
+                    const first = panel.querySelector('a, button');
+                    if (first) { first.click(); return 'clicked_first'; }
+                }
+                return 'nothing';
+            }""")
+
+        download = dl_info.value
+        download.save_as(str(output_path))
+
+        # Close popover
+        page.evaluate("document.body.click()")
+        page.wait_for_timeout(1000)
+        return output_path
+
+    except PlaywrightTimeout:
+        log.warning(f"Popover download timeout (card {card_num}, btn {idx + 1})")
+        page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_timeout_{card_num}_{idx + 1}.png"))
+        page.evaluate("document.body.click()")
+        page.wait_for_timeout(1000)
+        return None
+
+
+def _download_via_button(page, idx: int, output_path: Path, card_num: int) -> Path | None:
+    """Download MP3 by clicking a direct Download button."""
+    try:
+        with page.expect_download(timeout=30_000) as dl_info:
+            page.evaluate("""(idx) => {
+                const candidates = [];
+                const allEls = document.querySelectorAll('button, div, a, span');
+                for (const el of allEls) {
+                    if (el.closest('footer')) continue;
+                    if (el.offsetParent === null) continue;
+                    const ownText = el.textContent.trim();
+                    if (ownText === 'Download' || ownText.startsWith('Download')) {
+                        const tag = el.tagName.toLowerCase();
+                        if (tag === 'button' || tag === 'a' || el.getAttribute('role') === 'button'
+                            || el.classList.toString().includes('cursor')
+                            || el.style.cursor === 'pointer') {
+                            candidates.push(el);
+                        }
+                    }
+                }
+                if (idx < candidates.length) candidates[idx].click();
+            }""", idx)
+
+        download = dl_info.value
+        download.save_as(str(output_path))
+        page.wait_for_timeout(2000)
+        return output_path
+
+    except PlaywrightTimeout:
+        log.warning(f"Direct download timeout (card {card_num}, btn {idx + 1})")
+        page.screenshot(path=str(OUTPUT_DIR / f"debug_btn_timeout_{card_num}_{idx + 1}.png"))
+
+        # Maybe the button opened a popover instead — check and try
+        panel_exists = page.evaluate("""() => {
+            return document.querySelectorAll('[id^="headlessui-popover-panel"]').length > 0;
+        }""")
+
+        if panel_exists:
+            log.info("A popover opened — trying to download MP3 from it...")
+            return _download_via_popover(page, 0, output_path, card_num)
+
+        return None
+
+
+# ── Form helpers ──
 
 def _debug_form_fields(page):
     """Log all visible form fields and save page HTML for analysis."""
-    # Log textareas
     textareas = page.query_selector_all("textarea")
     visible_tas = [t for t in textareas if t.is_visible()]
     log.info(f"Visible textareas: {len(visible_tas)}")
@@ -360,7 +617,6 @@ def _debug_form_fields(page):
         val = ta.input_value()[:30] if ta.input_value() else ""
         log.info(f"  textarea[{i}]: placeholder='{ph}' name='{name}' class='{cls}' value='{val}...'")
 
-    # Log inputs
     inputs = page.query_selector_all("input")
     visible_inputs = [inp for inp in inputs if inp.is_visible()]
     log.info(f"Visible inputs: {len(visible_inputs)}")
@@ -372,7 +628,6 @@ def _debug_form_fields(page):
         val = inp.input_value()[:30] if inp.input_value() else ""
         log.info(f"  input[{i}]: type='{t}' placeholder='{ph}' name='{name}' class='{cls}' value='{val}'")
 
-    # Dump page HTML to file for analysis
     try:
         html = page.content()
         html_path = OUTPUT_DIR / "debug_page.html"
@@ -383,17 +638,10 @@ def _debug_form_fields(page):
 
 
 def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
-    """Fill the aimusicfactory.ai form fields.
-
-    Known form structure (Custom Mode):
-      textarea[name='prompt'] = Lyrics (leave empty for Instrumental)
-      textarea[name='tags']   = Style of Music (our STYLE_OF_MUSIC_PROMPT)
-      textarea[name='title']  = Title (track name)
-    """
+    """Fill the aimusicfactory.ai form fields."""
     style_filled = False
     title_filled = False
 
-    # Fill by exact name attribute (most reliable)
     tags_el = page.query_selector('textarea[name="tags"]')
     if tags_el and tags_el.is_visible():
         tags_el.click()
@@ -408,7 +656,6 @@ def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
         title_filled = True
         log.info(f"Filled Title (name='title'): {concept.track_name}")
 
-    # If lyrics field is still visible (Instrumental toggle failed), clear it
     lyrics_el = page.query_selector('textarea[name="prompt"]')
     if lyrics_el and lyrics_el.is_visible():
         lyrics_el.click()
@@ -425,21 +672,15 @@ def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
 
 
 def _ensure_toggle_on(page, label_text: str):
-    """Ensure a HeadlessUI toggle (Custom Mode / Instrumental) is ON.
-
-    The toggles are HeadlessUI switches: <button role="switch" aria-checked="true/false">
-    near a text label. We find the label text, then search siblings/parent for the switch.
-    """
+    """Ensure a HeadlessUI toggle (Custom Mode / Instrumental) is ON."""
     try:
         result = page.evaluate("""(labelText) => {
-            // Strategy 1: Find text node, walk up parents to find sibling switch
             const walker = document.createTreeWalker(
                 document.body, NodeFilter.SHOW_TEXT, null);
             while (walker.nextNode()) {
                 const text = walker.currentNode.textContent.trim();
                 if (text === labelText || text.includes(labelText)) {
                     let el = walker.currentNode.parentElement;
-                    // Walk up to find a container that has a button[role="switch"]
                     for (let i = 0; i < 8; i++) {
                         if (!el) break;
                         const sw = el.querySelector('button[role="switch"]');
@@ -454,7 +695,6 @@ def _ensure_toggle_on(page, label_text: str):
                 }
             }
 
-            // Strategy 2: Find all switches and match by nearby text
             const switches = document.querySelectorAll('button[role="switch"]');
             for (const sw of switches) {
                 const container = sw.closest('div')?.parentElement
@@ -478,152 +718,6 @@ def _ensure_toggle_on(page, label_text: str):
             log.info(f"{label_text}: toggle not found")
     except Exception as e:
         log.info(f"{label_text} toggle: {e}")
-
-
-def _download_mp3s(page, safe_name: str, batch_num: int) -> list[Path]:
-    """Find and click download buttons on the current page.
-
-    The Download button is a HeadlessUI Popover:
-      <div id="headlessui-popover-button-:xxx:" aria-expanded="false">
-        <span class="ml-[2rem] mr-[1rem]">Download</span>
-      </div>
-
-    Clicking it opens a dropdown panel with format options (MP3, WAV, etc.).
-    We click the popover, wait for the panel, then click the MP3 option.
-    """
-    # Save page HTML for debugging
-    try:
-        html = page.content()
-        html_path = OUTPUT_DIR / f"debug_download_page_{batch_num}.html"
-        html_path.write_text(html, encoding="utf-8")
-        log.info(f"Download page HTML saved: {html_path}")
-    except Exception:
-        pass
-
-    # Find all HeadlessUI popover Download buttons
-    popover_count = page.evaluate("""() => {
-        return document.querySelectorAll('[id^="headlessui-popover-button"]').length;
-    }""")
-    log.info(f"Found {popover_count} HeadlessUI popover button(s)")
-
-    # Also find Download spans (not in footer) as backup count
-    dl_span_count = page.evaluate("""() => {
-        return [...document.querySelectorAll('span')]
-            .filter(s => {
-                const own = [...s.childNodes]
-                    .filter(n => n.nodeType === 3)
-                    .map(n => n.textContent.trim()).join('');
-                return own === 'Download'
-                    && s.offsetParent !== null
-                    && !s.closest('footer');
-            }).length;
-    }""")
-    log.info(f"Found {dl_span_count} Download span(s) (outside footer)")
-
-    downloaded = []
-    buttons_to_click = max(popover_count, dl_span_count)
-
-    if buttons_to_click == 0:
-        log.warning("No Download buttons found on track page!")
-        page.screenshot(path=str(OUTPUT_DIR / f"debug_no_dlbtn_{batch_num}.png"))
-        return downloaded
-
-    # Click each Download popover and download MP3 from the panel
-    count_to_dl = min(buttons_to_click, 2)
-    for i in range(count_to_dl):
-        try:
-            ts = int(time.time())
-            output_path = OUTPUT_DIR / f"{safe_name}_gen{batch_num}_{i + 1}_{ts}.mp3"
-
-            # Step 1: Click the Download popover button to open dropdown
-            log.info(f"Clicking Download popover button {i+1}...")
-            page.evaluate("""(idx) => {
-                // Try HeadlessUI popover buttons first
-                const popovers = document.querySelectorAll('[id^="headlessui-popover-button"]');
-                if (idx < popovers.length) {
-                    popovers[idx].click();
-                    return;
-                }
-                // Fallback: find Download spans and click their parent div
-                const spans = [...document.querySelectorAll('span')]
-                    .filter(s => {
-                        const own = [...s.childNodes]
-                            .filter(n => n.nodeType === 3)
-                            .map(n => n.textContent.trim()).join('');
-                        return own === 'Download'
-                            && s.offsetParent !== null
-                            && !s.closest('footer');
-                    });
-                if (idx < spans.length) {
-                    (spans[idx].parentElement || spans[idx]).click();
-                }
-            }""", i)
-
-            # Step 2: Wait for popover panel to appear
-            page.wait_for_timeout(1500)
-            page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_open_{batch_num}_{i+1}.png"))
-
-            # Step 3: Save the popover panel HTML for debugging
-            panel_html = page.evaluate("""() => {
-                const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
-                if (panels.length === 0) return 'NO_PANEL_FOUND';
-                return panels[panels.length - 1].innerHTML;
-            }""")
-            log.info(f"Popover panel HTML ({len(panel_html)} chars): {panel_html[:300]}")
-
-            # Step 4: Find and click the MP3 download link in the panel
-            try:
-                with page.expect_download(timeout=30_000) as dl_info:
-                    clicked = page.evaluate("""() => {
-                        // Look in popover panels for download links
-                        const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
-                        for (const panel of panels) {
-                            // Find links/buttons with MP3 text or any download link
-                            const links = panel.querySelectorAll('a, button, div[class*="cursor"]');
-                            for (const link of links) {
-                                const text = link.textContent.trim().toLowerCase();
-                                if (text.includes('mp3') || text.includes('download mp3')) {
-                                    link.click();
-                                    return 'clicked_mp3';
-                                }
-                            }
-                            // If no MP3 specific link, click first link/button
-                            const firstLink = panel.querySelector('a, button');
-                            if (firstLink) {
-                                firstLink.click();
-                                return 'clicked_first: ' + firstLink.textContent.trim();
-                            }
-                        }
-
-                        // Fallback: look for any visible link with mp3/download href
-                        const allLinks = document.querySelectorAll('a[href*=".mp3"], a[href*="download"]');
-                        for (const link of allLinks) {
-                            if (link.offsetParent !== null) {
-                                link.click();
-                                return 'clicked_href: ' + link.href;
-                            }
-                        }
-                        return 'nothing_found';
-                    }""")
-                    log.info(f"Panel click result: {clicked}")
-
-                download = dl_info.value
-                download.save_as(str(output_path))
-                downloaded.append(output_path)
-                log.info(f"Downloaded: {output_path.name}")
-            except PlaywrightTimeout:
-                log.warning(f"Download event timeout for button {i+1}")
-                # Save current state for debugging
-                page.screenshot(path=str(OUTPUT_DIR / f"debug_dl_timeout_{batch_num}_{i+1}.png"))
-
-            # Close popover by clicking elsewhere
-            page.evaluate("document.body.click()")
-            page.wait_for_timeout(2000)
-
-        except Exception as e:
-            log.warning(f"Download {i + 1} failed: {e}")
-
-    return downloaded
 
 
 def generate_music(concept: MusicConcept) -> Path:
