@@ -48,7 +48,8 @@ def _run_full_pipeline():
 def cmd_login(args):
     """Open browser to log into aimusicfactory.ai and save session cookies.
 
-    Launches a visible browser. Log in with Google, then close the browser.
+    Uses the real Chrome browser (channel='chrome') to avoid Google blocking
+    the login with 'This browser or app may not be secure'.
     Cookies are saved automatically for future use.
     """
     from playwright.sync_api import sync_playwright
@@ -56,18 +57,20 @@ def cmd_login(args):
     state_file = AIMUSICFACTORY_STATE_FILE
     state_file.parent.mkdir(parents=True, exist_ok=True)
 
-    log.info("Opening browser for aimusicfactory.ai login...")
+    log.info("Opening Chrome browser for aimusicfactory.ai login...")
     log.info("Log in with your Google account, then close the browser window.")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
+        # Use real Chrome to bypass Google's 'unsafe browser' detection
+        browser = p.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=[
+                "--disable-blink-features=AutomationControlled",
+            ],
+        )
         context = browser.new_context(
             viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
         )
         page = context.new_page()
         page.goto("https://aimusicfactory.ai", wait_until="networkidle", timeout=60_000)
