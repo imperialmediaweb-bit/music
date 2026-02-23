@@ -37,18 +37,26 @@ SYSTEM_PROMPT = """You are a creative Afro House music producer and content stra
 Generate a unique Afro House track concept. The track style is always:
 """ + AFRO_HOUSE_STYLE + """
 
+IMPORTANT NAMING RULE:
+- The track_name MUST be invented African-sounding words with NO real meaning.
+- Examples: "Zanu", "Maku", "Piku", "Dakora", "Mbawu", "Tikala", "Nyoru", "Zafiki", "Obandu", "Kwelu"
+- Use 1-2 short, punchy, exotic-sounding words. They should sound African/tribal but NOT be real words.
+- Do NOT use English words for the track name.
+
+Everything else (youtube_title, youtube_description, hashtags, youtube_tags, tiktok_caption) MUST be in English.
+
 Return ONLY valid JSON with these exact fields:
 
 {
-  "track_name": "creative, catchy, vivid Afro House track name (2-4 words, powerful and memorable)",
+  "track_name": "1-2 invented African-sounding words, no real meaning (e.g. Zanu, Maku, Tikala)",
   "mood": "emotional mood/vibe (e.g. ritualistic, primal, powerful, transcendent)",
-  "description": "2-3 sentence vivid description of the track's atmosphere and energy",
+  "description": "2-3 sentence vivid description of the track's atmosphere and energy (in English)",
   "music_prompt": "detailed prompt for AI music generation - describe instruments, rhythm, bass, mood, tempo 122 BPM, Afro House style with car bass",
   "hashtags": ["afrohouse", "tribalbass", "deephouse", + 7 more relevant tags],
-  "youtube_title": "catchy YouTube title with emoji, include track name and Afro House (max 100 chars)",
-  "youtube_description": "full YouTube description: track name, genre (Afro House), mood, style description, call to subscribe, 3-5 sentences",
+  "youtube_title": "catchy YouTube title in English with emoji, include track name and Afro House (max 100 chars)",
+  "youtube_description": "full YouTube description in English: track name, genre (Afro House), mood, style description, call to subscribe, 3-5 sentences",
   "youtube_tags": ["afro house", "deep house", "tribal", "car bass", + 10 more relevant SEO tags],
-  "tiktok_caption": "short TikTok caption with hashtags (max 150 chars)"
+  "tiktok_caption": "short TikTok caption in English with hashtags (max 150 chars)"
 }"""
 
 
@@ -64,8 +72,9 @@ def generate_concept() -> MusicConcept:
                 "role": "user",
                 "content": (
                     "Generate a fresh, original Afro House track concept. "
-                    "The name should be vivid, powerful, and memorable. "
-                    "Think ritualistic, primal, transcendent vibes."
+                    "The track name MUST be invented African-sounding nonsense words "
+                    "(like Zanu, Maku, Piku, Dakora, Mbawu). NOT English words. "
+                    "Everything else (title, description, tags) must be in English."
                 ),
             },
         ],
