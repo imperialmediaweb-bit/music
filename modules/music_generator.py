@@ -2,11 +2,12 @@
 
 Flow:
 1. Go to #Generate page
-2. Enter track name as prompt (e.g. "Zanu Afro House")
+2. Fill ONLY the "Title" input with the track name (e.g. "Zanu")
+   (Style of Music is already set by the user and stays the same)
 3. Click Generate
 4. Wait ~6 minutes for generation
 5. Go to My Music, find the new track, open its page
-6. Download the MP3 from the track page
+6. Download the MP3s from the track page
 """
 
 import time
@@ -79,10 +80,11 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
 
 
 def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: int) -> list[Path]:
-    """Generate one track: fill prompt, wait, download from My Music page."""
+    """Generate one track: fill ONLY Title, click Generate, wait, download.
 
-    # Use just the track name as the prompt
-    prompt_text = concept.track_name
+    Style of Music is already set by the user and stays the same.
+    We only change the Title field with the track name.
+    """
 
     # Step 1: Go to Generate page
     log.info("Navigating to Generate page...")
@@ -90,29 +92,47 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
     page.wait_for_timeout(3000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_before_gen_{batch_num}.png"))
 
-    # Step 2: Fill prompt
-    filled = False
-    for selector in ["textarea", 'input[type="text"]', '[contenteditable="true"]',
-                      '[placeholder*="lyrics"]', '[placeholder*="describe"]',
-                      '[placeholder*="prompt"]', '[placeholder*="Describe"]',
-                      '[placeholder*="Enter"]', ".prompt-input", "#prompt"]:
-        try:
-            el = page.wait_for_selector(selector, timeout=3000)
-            if el and el.is_visible():
-                el.click()
-                el.fill("")
-                el.fill(prompt_text)
-                filled = True
-                log.info(f"Filled prompt: '{prompt_text}' in {selector}")
-                break
-        except PlaywrightTimeout:
-            continue
+    # Step 2: Fill ONLY the "Title" input with the track name
+    # (Style of Music textarea is already filled by the user — don't touch it)
+    title_filled = False
 
-    if not filled:
-        page.screenshot(path=str(OUTPUT_DIR / f"debug_no_input_{batch_num}.png"))
-        raise RuntimeError("Could not find text input")
+    # Try finding input fields (Title is an input, not textarea)
+    text_inputs = page.query_selector_all('input[type="text"]')
+    visible_inputs = [inp for inp in text_inputs if inp.is_visible()]
+    log.info(f"Found {len(visible_inputs)} visible text input(s)")
 
-    # Step 3: Click Generate
+    if visible_inputs:
+        title_inp = visible_inputs[0]
+        title_inp.click()
+        title_inp.fill("")
+        title_inp.fill(concept.track_name)
+        title_filled = True
+        log.info(f"Filled 'Title' with: {concept.track_name}")
+
+    if not title_filled:
+        # Fallback: try placeholder-based selectors
+        for sel in ['input[placeholder*="itle"]', 'input[placeholder*="Title"]',
+                     'input[placeholder*="name"]', 'input[placeholder*="Name"]',
+                     'input[placeholder*="song"]', 'input[placeholder*="Song"]']:
+            try:
+                el = page.wait_for_selector(sel, timeout=3000)
+                if el and el.is_visible():
+                    el.click()
+                    el.fill("")
+                    el.fill(concept.track_name)
+                    title_filled = True
+                    log.info(f"Filled 'Title' via {sel}")
+                    break
+            except PlaywrightTimeout:
+                continue
+
+    if not title_filled:
+        page.screenshot(path=str(OUTPUT_DIR / f"debug_no_title_{batch_num}.png"))
+        raise RuntimeError("Could not find 'Title' input")
+
+    page.screenshot(path=str(OUTPUT_DIR / f"debug_title_filled_{batch_num}.png"))
+
+    # Step 3: Click Generate button
     clicked = False
     for selector in ['button:has-text("Generate")', 'button:has-text("Create")',
                       'button:has-text("Make")', '[type="submit"]',
@@ -167,7 +187,7 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
         page.wait_for_timeout(3000)
         page.screenshot(path=str(OUTPUT_DIR / f"debug_track_page_{batch_num}.png"))
 
-    # Step 7: Download MP3 from track page (or My Music page)
+    # Step 7: Download MP3s from track page
     downloaded = _download_mp3s(page, safe_name, batch_num)
 
     if not downloaded:
@@ -183,7 +203,8 @@ def _download_mp3s(page, safe_name: str, batch_num: int) -> list[Path]:
                       'a[download]', '[href*=".mp3"]', '[href*="download"]',
                       '[aria-label*="ownload"]', '[title*="ownload"]',
                       '.download-btn', 'a:has-text("download")',
-                      'button:has-text("download")']:
+                      'button:has-text("download")',
+                      'svg[data-testid*="download"]']:
         try:
             elements = page.query_selector_all(selector)
             visible = [el for el in elements if el.is_visible()]
