@@ -222,17 +222,37 @@ def _download_all_from_mymusic(page, concept: MusicConcept, safe_name: str, trac
         List of downloaded MP3 paths.
     """
     page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
-    page.wait_for_timeout(5000)
+    page.wait_for_timeout(10_000)
     page.screenshot(path=str(OUTPUT_DIR / "debug_mymusic.png"))
 
-    # Find track links
+    # Save page HTML for debugging
+    html = page.content()
+    debug_html_path = OUTPUT_DIR / "debug_mymusic.html"
+    debug_html_path.write_text(html, encoding="utf-8")
+    log.info(f"My Music HTML saved to: {debug_html_path} ({len(html)} chars)")
+
+    # Log all <a> tags to help debug selectors
+    all_a_tags = page.query_selector_all("a")
+    log.info(f"Total <a> tags on page: {len(all_a_tags)}")
+    for a in all_a_tags[:30]:
+        href = a.get_attribute("href") or ""
+        text = (a.inner_text() or "").strip()[:60]
+        visible = a.is_visible()
+        if href:
+            log.info(f"  <a> href={href!r} text={text!r} visible={visible}")
+
+    # Find track links — try multiple selectors
     track_links = []
     seen_hrefs = set()
     for selector in ['a[href*="/myMusic/"]', '[href*="/myMusic/"]',
+                      'a[href*="/my-music/"]', 'a[href*="/song/"]',
+                      'a[href*="/track/"]',
                       '.track-card a', '.music-card a',
                       f'a:has-text("{concept.track_name}")']:
         try:
             links = page.query_selector_all(selector)
+            if links:
+                log.info(f"  Selector {selector!r} matched {len(links)} element(s)")
             for link in links:
                 if not link.is_visible():
                     continue
@@ -244,8 +264,34 @@ def _download_all_from_mymusic(page, concept: MusicConcept, safe_name: str, trac
             continue
 
     if not track_links:
-        log.warning("No track links found in My Music!")
+        log.warning("No track links found in My Music! Retrying after scroll + wait...")
+        # Scroll down to trigger lazy loading, then wait more
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        page.wait_for_timeout(5000)
+        page.evaluate("window.scrollTo(0, 0)")
+        page.wait_for_timeout(5000)
         page.screenshot(path=str(OUTPUT_DIR / "debug_no_tracks.png"))
+
+        # Retry with all selectors
+        for selector in ['a[href*="/myMusic/"]', '[href*="/myMusic/"]',
+                          'a[href*="/my-music/"]', 'a[href*="/song/"]',
+                          'a[href*="/track/"]',
+                          '.track-card a', '.music-card a',
+                          f'a:has-text("{concept.track_name}")']:
+            try:
+                links = page.query_selector_all(selector)
+                for link in links:
+                    if not link.is_visible():
+                        continue
+                    href = link.get_attribute("href") or ""
+                    if href and href not in seen_hrefs:
+                        seen_hrefs.add(href)
+                        track_links.append(link)
+            except Exception:
+                continue
+
+    if not track_links:
+        log.warning("Still no track links found after retry!")
         return []
 
     log.info(f"Found {len(track_links)} track(s) in My Music, downloading from newest {track_count}")
