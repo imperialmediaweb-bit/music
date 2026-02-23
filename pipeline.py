@@ -1,3 +1,5 @@
+from moviepy import AudioFileClip
+
 from utils.logger import log
 from modules.concept_generator import generate_concept
 from modules.music_generator import generate_music
@@ -7,11 +9,19 @@ from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
 
 
+def _format_duration(seconds: float) -> str:
+    """Format seconds into mm:ss string."""
+    mins = int(seconds) // 60
+    secs = int(seconds) % 60
+    return f"{mins}:{secs:02d}"
+
+
 def run_pipeline() -> dict:
     """Run the full music content pipeline. Returns a summary dict."""
     result = {
         "concept": None,
         "audio_path": None,
+        "duration": None,
         "thumbnail_path": None,
         "youtube_video_path": None,
         "tiktok_video_path": None,
@@ -38,7 +48,19 @@ def run_pipeline() -> dict:
         log.info("STEP 2: Generating music on aimusicfactory.ai...")
         audio_path = generate_music(concept)
         result["audio_path"] = str(audio_path)
+
+        # Detect audio duration
+        audio_clip = AudioFileClip(str(audio_path))
+        duration_sec = audio_clip.duration
+        audio_clip.close()
+        duration_str = _format_duration(duration_sec)
+        result["duration"] = duration_str
+
         log.info(f"Audio: {audio_path}")
+        log.info(f"Duration: {duration_str} ({duration_sec:.1f} seconds)")
+
+        # Add duration to YouTube description
+        concept.youtube_description += f"\n\nDuration: {duration_str}"
     except Exception as e:
         log.error(f"Music generation failed: {e}")
         result["errors"].append(f"music: {e}")
@@ -97,6 +119,7 @@ def run_pipeline() -> dict:
     else:
         log.info("Pipeline completed successfully!")
     log.info(f"Track: {result['concept']}")
+    log.info(f"Duration: {result.get('duration', 'N/A')}")
     log.info(f"YouTube: {result.get('youtube_url', 'N/A')}")
     log.info(f"TikTok: {result.get('tiktok_url', 'N/A')}")
 
