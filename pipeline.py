@@ -16,16 +16,12 @@ def _format_duration(seconds: float) -> str:
     return f"{mins}:{secs:02d}"
 
 
-def process_single_track(mp3_path: Path) -> dict:
+def process_single_track(mp3_path: Path, concept=None) -> dict:
     """Process one compiled MP3 file: concept → thumbnail → video → upload.
 
-    Workflow:
-    1. Detect audio duration
-    2. Generate concept (track name, description, tags, etc.)
-    3. Generate thumbnail (African mask + track name)
-    4. Create YouTube video (16:9) + TikTok video (9:16)
-    5. Upload to YouTube with title, description, tags, thumbnail
-    6. Upload to TikTok
+    Args:
+        mp3_path: Path to the MP3 file.
+        concept: Optional pre-generated MusicConcept. If None, generates one.
     """
     result = {
         "file": str(mp3_path),
@@ -54,11 +50,12 @@ def process_single_track(mp3_path: Path) -> dict:
         result["errors"].append(f"audio: {e}")
         return result
 
-    # Step 2: Generate concept
+    # Step 2: Generate concept (or use pre-generated one)
     try:
-        log.info("=" * 60)
-        log.info("STEP 2: Generating Afro House concept...")
-        concept = generate_concept()
+        if concept is None:
+            log.info("=" * 60)
+            log.info("STEP 2: Generating Afro House concept...")
+            concept = generate_concept()
         result["concept"] = concept.track_name
         log.info(f"Track name: {concept.track_name}")
         log.info(f"Mood: {concept.mood}")
