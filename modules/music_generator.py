@@ -133,16 +133,24 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
     page.wait_for_timeout(5000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_before_gen_{batch_num}.png"))
 
-    # Step 2: Try to enable Custom Mode + Instrumental toggles
+    # Step 2: Enable Custom Mode + Instrumental toggles
     _ensure_toggle_on(page, "Custom Mode")
     page.wait_for_timeout(500)
     _ensure_toggle_on(page, "Instrumental")
     page.wait_for_timeout(500)
 
+    # Verify Instrumental is ON: if lyrics textarea is visible, toggle failed
+    lyrics_el = page.query_selector('textarea[name="prompt"]')
+    if lyrics_el and lyrics_el.is_visible():
+        log.warning("Instrumental toggle didn't work — lyrics field still visible. Clicking again...")
+        # Try clicking the text "Instrumental" directly
+        page.click('text="Instrumental"', timeout=5000)
+        page.wait_for_timeout(1000)
+
     # Step 3: Debug — log all visible form fields
     _debug_form_fields(page)
 
-    # Step 4: Fill form fields by analyzing placeholders
+    # Step 4: Fill form fields
     _fill_form_fields(page, concept, batch_num)
 
     page.screenshot(path=str(OUTPUT_DIR / f"debug_fields_filled_{batch_num}.png"))
@@ -273,12 +281,14 @@ def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
         title_filled = True
         log.info(f"Filled Title (name='title'): {concept.track_name}")
 
-    # Clear lyrics field (we want Instrumental)
+    # If lyrics field is still visible (Instrumental toggle failed), clear it
     lyrics_el = page.query_selector('textarea[name="prompt"]')
     if lyrics_el and lyrics_el.is_visible():
         lyrics_el.click()
         lyrics_el.fill("")
-        log.info("Cleared Lyrics field (Instrumental mode)")
+        log.info("Cleared Lyrics field (Instrumental toggle may have failed)")
+    else:
+        log.info("Lyrics field hidden (Instrumental mode active)")
 
     if not style_filled:
         log.warning("Could not find Style of Music field (name='tags')!")
