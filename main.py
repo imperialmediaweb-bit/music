@@ -4,13 +4,14 @@
 import argparse
 import signal
 import sys
+from pathlib import Path
 
-from config import SCHEDULE_CRON
+from config import SCHEDULE_CRON, INPUT_DIR
 from utils.logger import log
 
 
 def cmd_run(args):
-    """Run the pipeline for N tracks (default 1, max 8)."""
+    """Run the full pipeline for N tracks (generate music + process)."""
     from pipeline import run_pipeline
 
     count = min(args.count, 8)
@@ -32,6 +33,39 @@ def cmd_run(args):
     log.info(f"BATCH COMPLETE: {count - total_errors}/{count} tracks successful")
     if total_errors:
         log.warning(f"{total_errors} track(s) had errors")
+        sys.exit(1)
+
+
+def cmd_process(args):
+    """Process existing MP3 files from input/ folder."""
+    from pipeline import process_existing_files
+
+    # Find MP3 files
+    input_dir = Path(args.folder) if args.folder else INPUT_DIR
+    mp3_files = sorted(input_dir.glob("*.mp3"))
+
+    if not mp3_files:
+        log.error(f"No MP3 files found in: {input_dir}")
+        log.info(f"Put your MP3 files in: {input_dir}")
+        sys.exit(1)
+
+    # Limit to max 8
+    if len(mp3_files) > 8:
+        log.warning(f"Found {len(mp3_files)} files, processing first 8")
+        mp3_files = mp3_files[:8]
+
+    log.info(f"Found {len(mp3_files)} MP3 file(s) in {input_dir}:")
+    for f in mp3_files:
+        log.info(f"  - {f.name}")
+
+    results = process_existing_files(mp3_files)
+
+    total = len(results)
+    errors = sum(1 for r in results if r["errors"])
+    log.info(f"\n{'=' * 60}")
+    log.info(f"BATCH COMPLETE: {total - errors}/{total} tracks successful")
+    if errors:
+        log.warning(f"{errors} track(s) had errors")
         sys.exit(1)
 
 
@@ -83,8 +117,8 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # run command
-    run_parser = subparsers.add_parser("run", help="Run pipeline once or in batch")
+    # run command - full pipeline (generate music + process)
+    run_parser = subparsers.add_parser("run", help="Generate music + process (full pipeline)")
     run_parser.add_argument(
         "-n", "--count",
         type=int,
@@ -92,6 +126,19 @@ def main():
         help="Number of tracks to generate (max 8, default 1)",
     )
     run_parser.set_defaults(func=cmd_run)
+
+    # process command - process existing MP3 files
+    proc_parser = subparsers.add_parser(
+        "process",
+        help="Process existing MP3 files from input/ folder",
+    )
+    proc_parser.add_argument(
+        "--folder",
+        type=str,
+        default=None,
+        help="Folder with MP3 files (default: input/)",
+    )
+    proc_parser.set_defaults(func=cmd_process)
 
     # schedule command
     sched_parser = subparsers.add_parser("schedule", help="Run pipeline on schedule")
