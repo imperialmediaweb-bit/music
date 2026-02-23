@@ -298,40 +298,45 @@ def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
 
 
 def _ensure_toggle_on(page, label_text: str):
-    """Ensure a toggle (Custom Mode / Instrumental) is ON.
+    """Ensure a HeadlessUI toggle (Custom Mode / Instrumental) is ON.
 
-    Uses JavaScript to find the toggle quickly without Playwright timeouts.
+    The toggles are HeadlessUI switches: <button role="switch" aria-checked="true/false">
+    near a text label. We find the label text, then search siblings/parent for the switch.
     """
     try:
-        # Use JS to find and check toggle state — avoids Playwright click timeouts
         result = page.evaluate("""(labelText) => {
-            // Find all elements containing the label text
+            // Strategy 1: Find text node, walk up parents to find sibling switch
             const walker = document.createTreeWalker(
                 document.body, NodeFilter.SHOW_TEXT, null);
             while (walker.nextNode()) {
-                if (walker.currentNode.textContent.trim().includes(labelText)) {
+                const text = walker.currentNode.textContent.trim();
+                if (text === labelText || text.includes(labelText)) {
                     let el = walker.currentNode.parentElement;
-                    // Walk up to find a clickable toggle container
-                    for (let i = 0; i < 5; i++) {
+                    // Walk up to find a container that has a button[role="switch"]
+                    for (let i = 0; i < 8; i++) {
                         if (!el) break;
-                        // Check for toggle/switch elements
-                        const toggle = el.querySelector(
-                            'input[type="checkbox"], [role="switch"], button[role="switch"], .toggle, .switch'
-                        );
-                        if (toggle) {
-                            const isOn = toggle.checked
-                                || toggle.getAttribute('aria-checked') === 'true'
-                                || toggle.getAttribute('data-state') === 'checked'
-                                || toggle.classList.contains('active')
-                                || toggle.classList.contains('on');
-                            if (!isOn) {
-                                toggle.click();
-                                return 'turned_on';
-                            }
+                        const sw = el.querySelector('button[role="switch"]');
+                        if (sw) {
+                            const isOn = sw.getAttribute('aria-checked') === 'true'
+                                || sw.hasAttribute('data-checked');
+                            if (!isOn) { sw.click(); return 'turned_on'; }
                             return 'already_on';
                         }
                         el = el.parentElement;
                     }
+                }
+            }
+
+            // Strategy 2: Find all switches and match by nearby text
+            const switches = document.querySelectorAll('button[role="switch"]');
+            for (const sw of switches) {
+                const container = sw.closest('div')?.parentElement
+                    || sw.parentElement?.parentElement;
+                if (container && container.textContent.includes(labelText)) {
+                    const isOn = sw.getAttribute('aria-checked') === 'true'
+                        || sw.hasAttribute('data-checked');
+                    if (!isOn) { sw.click(); return 'turned_on'; }
+                    return 'already_on';
                 }
             }
             return 'not_found';
@@ -341,8 +346,9 @@ def _ensure_toggle_on(page, label_text: str):
             log.info(f"{label_text}: already ON")
         elif result == "turned_on":
             log.info(f"{label_text}: turned ON")
+            page.wait_for_timeout(500)
         else:
-            log.info(f"{label_text}: toggle not found (assuming already ON)")
+            log.info(f"{label_text}: toggle not found")
     except Exception as e:
         log.info(f"{label_text} toggle: {e}")
 
