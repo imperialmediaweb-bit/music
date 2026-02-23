@@ -12,7 +12,7 @@ from config import OUTPUT_DIR, HEADLESS, AIMUSICFACTORY_STATE_FILE
 from utils.logger import log
 
 MAX_RETRIES = 3
-GENERATION_TIMEOUT_MS = 300_000  # 5 minutes
+GENERATION_WAIT_SEC = 360  # 6 minutes wait for generation
 
 
 def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
@@ -54,30 +54,20 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
             log.warning("No saved session. Run 'python main.py login' to use your subscription.")
 
         context = browser.new_context(**context_opts)
+        context.set_default_timeout(60_000)
         page = context.new_page()
-
-        # Navigate to aimusicfactory.ai
-        log.info("Navigating to aimusicfactory.ai...")
-        page.goto("https://aimusicfactory.ai/#Generate", wait_until="networkidle", timeout=60_000)
-        page.wait_for_timeout(3000)
 
         for batch_num in range(1, count + 1):
             log.info(f"\n--- Generation {batch_num}/{count} ---")
 
             try:
-                mp3s = _single_generation(page, concept, safe_name, batch_num)
+                mp3s = _single_generation(page, context, concept, safe_name, batch_num)
                 all_mp3s.extend(mp3s)
                 log.info(f"Generation {batch_num} done: {len(mp3s)} MP3(s) downloaded")
             except Exception as e:
                 log.warning(f"Generation {batch_num} failed: {e}")
-                # Take screenshot for debugging
                 page.screenshot(path=str(OUTPUT_DIR / f"debug_gen_{batch_num}.png"))
-                # Try to reload and continue
-                try:
-                    page.goto("https://aimusicfactory.ai/#Generate", wait_until="networkidle", timeout=60_000)
-                    page.wait_for_timeout(3000)
-                except Exception:
-                    pass
+                log.info(f"Debug screenshot saved: debug_gen_{batch_num}.png")
 
         browser.close()
 
@@ -88,12 +78,21 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
     return all_mp3s
 
 
-def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: int) -> list[Path]:
-    """Run one generation cycle on the page, downloading all resulting MP3s."""
+def _single_generation(page, context, concept: MusicConcept, safe_name: str, batch_num: int) -> list[Path]:
+    """Run one generation cycle: fill prompt, generate, wait, download from My Music."""
 
     prompt_text = concept.music_prompt
 
-    # Fill the text input
+    # Step 1: Navigate to Generate page
+    log.info("Navigating to Generate page...")
+    page.goto("https://aimusicfactory.ai/#Generate", wait_until="networkidle", timeout=60_000)
+    page.wait_for_timeout(3000)
+
+    # Take debug screenshot to see what we're working with
+    page.screenshot(path=str(OUTPUT_DIR / f"debug_before_gen_{batch_num}.png"))
+
+    # Step 2: Fill the prompt text
+    filled = False
     textarea_selectors = [
         "textarea",
         'input[type="text"]',
@@ -103,15 +102,16 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
         '[placeholder*="lyrics"]',
         '[placeholder*="describe"]',
         '[placeholder*="prompt"]',
+        '[placeholder*="Describe"]',
+        '[placeholder*="Enter"]',
     ]
 
-    filled = False
     for selector in textarea_selectors:
         try:
             element = page.wait_for_selector(selector, timeout=3000)
             if element and element.is_visible():
                 element.click()
-                element.fill("")  # Clear first
+                element.fill("")
                 element.fill(prompt_text)
                 filled = True
                 log.info(f"Filled text input: {selector}")
@@ -121,9 +121,10 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
 
     if not filled:
         page.screenshot(path=str(OUTPUT_DIR / f"debug_no_input_{batch_num}.png"))
-        raise RuntimeError("Could not find text input")
+        raise RuntimeError("Could not find text input on Generate page")
 
-    # Click Generate button
+    # Step 3: Click Generate button
+    clicked = False
     generate_selectors = [
         'button:has-text("Generate")',
         'button:has-text("Create")',
@@ -134,7 +135,6 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
         "#generate",
     ]
 
-    clicked = False
     for selector in generate_selectors:
         try:
             btn = page.wait_for_selector(selector, timeout=3000)
@@ -147,10 +147,39 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
             continue
 
     if not clicked:
-        raise RuntimeError("Could not find generate button")
+        page.screenshot(path=str(OUTPUT_DIR / f"debug_no_button_{batch_num}.png"))
+        raise RuntimeError("Could not find Generate button")
 
-    # Wait for generation to complete
-    log.info("Waiting for music generation...")
+    # Step 4: Wait for generation (takes 4-6 minutes)
+    log.info(f"Waiting {GENERATION_WAIT_SEC // 60} minutes for music generation...")
+    for elapsed in range(0, GENERATION_WAIT_SEC, 30):
+        page.wait_for_timeout(30_000)
+        remaining = GENERATION_WAIT_SEC - elapsed - 30
+        if remaining > 0:
+            log.info(f"  Still generating... {remaining // 60}m {remaining % 60}s remaining")
+
+    page.screenshot(path=str(OUTPUT_DIR / f"debug_after_wait_{batch_num}.png"))
+
+    # Step 5: Try to download from current page first
+    downloaded = _try_download_from_page(page, safe_name, batch_num)
+
+    if not downloaded:
+        # Step 6: Go to My Music page to find and download
+        log.info("Checking My Music page for downloads...")
+        page.goto("https://aimusicfactory.ai/#MyMusic", wait_until="networkidle", timeout=60_000)
+        page.wait_for_timeout(3000)
+        page.screenshot(path=str(OUTPUT_DIR / f"debug_mymusic_{batch_num}.png"))
+        downloaded = _try_download_from_page(page, safe_name, batch_num)
+
+    if not downloaded:
+        page.screenshot(path=str(OUTPUT_DIR / f"debug_no_download_{batch_num}.png"))
+        raise RuntimeError("Could not find any download buttons")
+
+    return downloaded
+
+
+def _try_download_from_page(page, safe_name: str, batch_num: int) -> list[Path]:
+    """Try to find and click download buttons on the current page."""
     download_selectors = [
         'a:has-text("Download")',
         'button:has-text("Download")',
@@ -158,39 +187,44 @@ def _single_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
         ".download-btn",
         '[href*=".mp3"]',
         '[href*="download"]',
+        'a[href*=".mp3"]',
+        'button:has-text("download")',
+        # Icon-based download buttons
+        '[aria-label*="download"]',
+        '[aria-label*="Download"]',
+        '[title*="Download"]',
+        '[title*="download"]',
+        # SVG download icons inside buttons/links
+        'a svg',
+        'button svg',
     ]
-
-    # Wait for download buttons to appear
-    page.wait_for_timeout(5000)  # Give it time to start generating
 
     download_elements = []
     for selector in download_selectors:
         try:
-            page.wait_for_selector(selector, timeout=GENERATION_TIMEOUT_MS)
             elements = page.query_selector_all(selector)
             visible = [el for el in elements if el.is_visible()]
             if visible:
-                download_elements = visible
-                log.info(f"Found {len(visible)} download button(s): {selector}")
+                download_elements = visible[:2]  # Take max 2 per generation
+                log.info(f"Found {len(visible)} download element(s): {selector}")
                 break
-        except PlaywrightTimeout:
+        except Exception:
             continue
 
     if not download_elements:
-        raise RuntimeError("No download buttons found")
+        return []
 
-    # Download all available MP3s
     downloaded = []
     for i, dl_btn in enumerate(download_elements):
         try:
             output_path = OUTPUT_DIR / f"{safe_name}_gen{batch_num}_{i + 1}.mp3"
-            with page.expect_download(timeout=60_000) as download_info:
+            with page.expect_download(timeout=120_000) as download_info:
                 dl_btn.click()
             download = download_info.value
             download.save_as(str(output_path))
             downloaded.append(output_path)
             log.info(f"Downloaded: {output_path.name}")
-            page.wait_for_timeout(1000)
+            page.wait_for_timeout(2000)
         except Exception as e:
             log.warning(f"Download {i + 1} failed: {e}")
 
