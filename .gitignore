@@ -9,8 +9,10 @@ build/
 venv/
 .venv/
 
-# Environment
+# Environment & secrets
 .env
+client_secrets.json
+youtube_token.pickle
 
 # Generated output
 output/
