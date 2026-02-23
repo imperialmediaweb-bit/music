@@ -80,24 +80,18 @@ def cmd_login(args):
         log.info("  1. Click 'Sign in with Google'")
         log.info("  2. Log into your Gmail account")
         log.info("  3. Wait until you see the main page (logged in)")
-        log.info("  4. Close the browser window")
+        log.info("  4. Come back here and press ENTER")
         log.info("=" * 60)
 
-        # Wait for the user to close the browser
-        try:
-            page.wait_for_event("close", timeout=300_000)
-        except Exception:
-            pass
+        # Wait for user to press Enter in terminal
+        input("\n>>> Press ENTER here after you've logged in... ")
 
         # Save storage state (cookies + localStorage)
         context.storage_state(path=str(state_file))
         log.info(f"Session saved to: {state_file}")
         log.info("You can now run 'python main.py run' and it will use your account!")
 
-        try:
-            browser.close()
-        except Exception:
-            pass
+        browser.close()
 
 
 def cmd_process(args):
