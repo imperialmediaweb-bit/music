@@ -57,17 +57,19 @@ def generate_concept() -> MusicConcept:
 
     raw = response.choices[0].message.content
     data = json.loads(raw)
-    log.info(f"Generated concept: {data['track_name']} ({data['genre']})")
+    track_name = data.get("track_name", "Untitled Track")
+    genre_val = data.get("genre", genre)
+    log.info(f"Generated concept: {track_name} ({genre_val})")
 
     return MusicConcept(
-        track_name=data["track_name"],
-        genre=data["genre"],
-        mood=data["mood"],
-        description=data["description"],
-        lyrics=data["lyrics"],
-        hashtags=data["hashtags"],
-        thumbnail_prompt=data["thumbnail_prompt"],
-        youtube_title=data["youtube_title"],
-        youtube_description=data["youtube_description"],
-        tiktok_caption=data["tiktok_caption"],
+        track_name=track_name,
+        genre=genre_val,
+        mood=data.get("mood", "chill"),
+        description=data.get("description", f"A {genre_val} track called {track_name}"),
+        lyrics=data.get("lyrics", ""),
+        hashtags=data.get("hashtags", [genre_val, "music", "newmusic"]),
+        thumbnail_prompt=data.get("thumbnail_prompt", f"abstract artistic album cover art, {genre_val} music aesthetic, vibrant colors, no text"),
+        youtube_title=data.get("youtube_title", f"{track_name} - {genre_val}"),
+        youtube_description=data.get("youtube_description", f"{track_name} - a {genre_val} track."),
+        tiktok_caption=data.get("tiktok_caption", f"{track_name} #{genre_val} #music"),
     )
