@@ -138,8 +138,21 @@ def upload_to_youtube(
 
     import re
 
-    # Build tags for video metadata (max 30)
-    tags = concept.youtube_tags[:30]
+    # Build tags for video metadata
+    # YouTube API rules: no < > characters, no # prefix, total chars ≤ 500
+    raw_tags = concept.youtube_tags[:30]
+    tags = []
+    total_chars = 0
+    for t in raw_tags:
+        t = re.sub(r'[<>]', '', t).strip().lstrip('#')
+        if not t:
+            continue
+        # YouTube counts commas between tags; each tag costs len(tag)+1 (except last)
+        cost = len(t) + (1 if tags else 0)
+        if total_chars + cost > 500:
+            break
+        tags.append(t)
+        total_chars += cost
 
     # Clean any existing hashtags from end of AI description to avoid duplication
     clean_desc = re.sub(r'(\s*#\w+)+\s*$', '', concept.youtube_description).rstrip()

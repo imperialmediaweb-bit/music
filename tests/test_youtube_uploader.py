@@ -143,7 +143,31 @@ class TestUploadToYoutube:
         assert len(body["snippet"]["title"]) <= 100
         assert len(body["snippet"]["description"]) <= 5000
         assert len(body["snippet"]["tags"]) <= 30
+        # Total tag characters (with comma separators) must not exceed 500
+        total = sum(len(t) for t in body["snippet"]["tags"]) + max(len(body["snippet"]["tags"]) - 1, 0)
+        assert total <= 500
         assert result == "https://youtu.be/limits_test"
+
+    def test_tags_sanitized(self, fake_video, fake_thumbnail, fake_concept):
+        """Tags with <, >, or # prefix should be cleaned before upload."""
+        fake_concept.youtube_tags = ["#afrohouse", "deep <house>", "tribal", ""]
+
+        mock_youtube = MagicMock()
+        mock_insert_request = MagicMock()
+        mock_insert_request.next_chunk.return_value = (None, {"id": "sanitize_test"})
+        mock_youtube.videos.return_value.insert.return_value = mock_insert_request
+        mock_youtube.thumbnails.return_value.set.return_value.execute.return_value = {}
+
+        with patch("modules.youtube_uploader._get_authenticated_service", return_value=mock_youtube), \
+             patch("modules.youtube_uploader.MediaFileUpload"):
+            upload_to_youtube(fake_video, fake_thumbnail, fake_concept)
+
+        call_kwargs = mock_youtube.videos.return_value.insert.call_args
+        tags = call_kwargs[1]["body"]["snippet"]["tags"]
+        for tag in tags:
+            assert "<" not in tag and ">" not in tag
+            assert not tag.startswith("#")
+        assert "" not in tags
 
     def test_playlist_failure_not_fatal(self, fake_video, fake_thumbnail, fake_concept):
         """Playlist add failure should not prevent upload from succeeding."""
