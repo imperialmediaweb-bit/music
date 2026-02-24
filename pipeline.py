@@ -97,13 +97,18 @@ def reupload_track(track_name: str) -> dict:
             log.info("=" * 60)
             log.info("Uploading to TikTok...")
             tiktok_url = upload_to_tiktok(tiktok_video, concept)
-            result["tiktok_url"] = tiktok_url
-            log.info(f"TikTok URL: {tiktok_url}")
+            if tiktok_url:
+                result["tiktok_url"] = tiktok_url
+                log.info(f"TikTok URL: {tiktok_url}")
+            else:
+                log.error("TikTok upload returned None — check cookies/login above")
+                result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
         except Exception as e:
             log.error(f"TikTok upload failed: {e}")
             result["errors"].append(f"tiktok: {e}")
     else:
-        log.warning("Skipping TikTok upload (no video file)")
+        log.error(f"TikTok video not found: {tiktok_video}")
+        result["errors"].append(f"missing: {tiktok_video}")
 
     # Summary
     log.info("=" * 60)
@@ -234,8 +239,12 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         log.info("=" * 60)
         log.info("STEP 6: Uploading to TikTok...")
         tiktok_url = upload_to_tiktok(tiktok_video, concept)
-        result["tiktok_url"] = tiktok_url
-        log.info(f"TikTok URL: {tiktok_url}")
+        if tiktok_url:
+            result["tiktok_url"] = tiktok_url
+            log.info(f"TikTok URL: {tiktok_url}")
+        else:
+            log.error("TikTok upload returned None — check cookies/login above")
+            result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
     except Exception as e:
         log.error(f"TikTok upload failed: {e}")
         result["errors"].append(f"tiktok: {e}")
