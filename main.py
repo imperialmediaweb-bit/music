@@ -263,8 +263,9 @@ def cmd_reupload(args):
     from pipeline import reupload_track
 
     track_name = args.name
-    log.info(f"Re-uploading existing track: {track_name}")
-    result = reupload_track(track_name)
+    only = getattr(args, "only", None)
+    log.info(f"Re-uploading existing track: {track_name}" + (f" (only {only})" if only else ""))
+    result = reupload_track(track_name, only=only)
 
     if result["errors"]:
         log.warning(f"Completed with {len(result['errors'])} error(s)")
@@ -393,6 +394,10 @@ def main():
     reupload_parser.add_argument(
         "name", type=str,
         help="Track name (e.g. Tikasa) — must match files in output/",
+    )
+    reupload_parser.add_argument(
+        "--only", choices=["youtube", "tiktok"],
+        help="Upload to only one platform (default: both)",
     )
     reupload_parser.set_defaults(func=cmd_reupload)
 

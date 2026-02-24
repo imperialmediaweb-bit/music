@@ -10,7 +10,7 @@ from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
 
 
-def reupload_track(track_name: str) -> dict:
+def reupload_track(track_name: str, only: str | None = None) -> dict:
     """Re-upload an existing track to YouTube and TikTok (skip generation/video steps).
 
     Looks for existing files in OUTPUT_DIR:
@@ -88,34 +88,40 @@ def reupload_track(track_name: str) -> dict:
     log.info(f"YouTube title: {concept.youtube_title}")
 
     # Upload to YouTube
-    try:
-        log.info("=" * 60)
-        log.info("Uploading to YouTube...")
-        youtube_url = upload_to_youtube(video, thumbnail, concept)
-        result["youtube_url"] = youtube_url
-        if youtube_url:
-            log.info(f"YouTube URL: {youtube_url}")
-        else:
-            log.error("YouTube upload returned None — check client_secrets.json and OAuth token")
-            result["errors"].append("youtube: upload returned None (check client_secrets.json / OAuth)")
-    except Exception as e:
-        log.error(f"YouTube upload failed: {e}")
-        result["errors"].append(f"youtube: {e}")
+    if only in (None, "youtube"):
+        try:
+            log.info("=" * 60)
+            log.info("Uploading to YouTube...")
+            youtube_url = upload_to_youtube(video, thumbnail, concept)
+            result["youtube_url"] = youtube_url
+            if youtube_url:
+                log.info(f"YouTube URL: {youtube_url}")
+            else:
+                log.error("YouTube upload returned None — check client_secrets.json and OAuth token")
+                result["errors"].append("youtube: upload returned None (check client_secrets.json / OAuth)")
+        except Exception as e:
+            log.error(f"YouTube upload failed: {e}")
+            result["errors"].append(f"youtube: {e}")
+    else:
+        log.info("Skipping YouTube (--only tiktok)")
 
     # Upload to TikTok
-    try:
-        log.info("=" * 60)
-        log.info("Uploading to TikTok...")
-        tiktok_url = upload_to_tiktok(video, concept)
-        result["tiktok_url"] = tiktok_url
-        if tiktok_url:
-            log.info(f"TikTok: {tiktok_url}")
-        else:
-            log.error("TikTok upload returned None — check cookies/login above")
-            result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
-    except Exception as e:
-        log.error(f"TikTok upload failed: {e}")
-        result["errors"].append(f"tiktok: {e}")
+    if only in (None, "tiktok"):
+        try:
+            log.info("=" * 60)
+            log.info("Uploading to TikTok...")
+            tiktok_url = upload_to_tiktok(video, concept)
+            result["tiktok_url"] = tiktok_url
+            if tiktok_url:
+                log.info(f"TikTok: {tiktok_url}")
+            else:
+                log.error("TikTok upload returned None — check cookies/login above")
+                result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
+        except Exception as e:
+            log.error(f"TikTok upload failed: {e}")
+            result["errors"].append(f"tiktok: {e}")
+    else:
+        log.info("Skipping TikTok (--only youtube)")
 
     # Summary
     log.info("=" * 60)
