@@ -6,7 +6,7 @@ import signal
 import sys
 from pathlib import Path
 
-from config import SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE
+from config import SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE
 from utils.logger import log
 
 # Default: 4 clips per day
@@ -94,6 +94,49 @@ def cmd_login(args):
         context.storage_state(path=str(state_file))
         log.info(f"Session saved to: {state_file}")
         log.info("You can now run 'python main.py run' and it will use your account!")
+
+        browser.close()
+
+
+def cmd_tiktok_login(args):
+    """Open browser to log into TikTok and save session cookies.
+
+    Uses a real Chrome browser so TikTok does not block the login.
+    Cookies are saved automatically for future uploads.
+    """
+    from playwright.sync_api import sync_playwright
+    from utils.browser import save_cookies
+
+    cookie_file = TIKTOK_COOKIE_FILE
+    cookie_file.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info("Opening Chrome browser for TikTok login...")
+    log.info("Log in with your TikTok account, then come back here.")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+        )
+        page = context.new_page()
+        page.goto("https://www.tiktok.com/login", wait_until="networkidle", timeout=60_000)
+
+        log.info("=" * 60)
+        log.info("Browser is open. Please:")
+        log.info("  1. Log into your TikTok account")
+        log.info("  2. Wait until you see your TikTok feed (logged in)")
+        log.info("  3. Come back here and press ENTER")
+        log.info("=" * 60)
+
+        input("\n>>> Press ENTER here after you've logged in... ")
+
+        save_cookies(context, cookie_file)
+        log.info(f"TikTok cookies saved to: {cookie_file}")
+        log.info("You can now run 'python main.py run' and TikTok uploads will work!")
 
         browser.close()
 
@@ -287,6 +330,13 @@ def main():
         help="Log into aimusicfactory.ai (Google) and save cookies for automation",
     )
     login_parser.set_defaults(func=cmd_login)
+
+    # tiktok-login - save TikTok cookies
+    tiktok_login_parser = subparsers.add_parser(
+        "tiktok-login",
+        help="Log into TikTok and save cookies for automated uploads",
+    )
+    tiktok_login_parser.set_defaults(func=cmd_tiktok_login)
 
     # process - merge existing MP3s from input/ and upload
     proc_parser = subparsers.add_parser(

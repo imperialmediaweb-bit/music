@@ -5,7 +5,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.youtube_uploader import upload_to_youtube, _get_authenticated_service
+from modules.youtube_uploader import (
+    upload_to_youtube,
+    _get_authenticated_service,
+    _find_or_create_playlist,
+    _add_to_playlist,
+    SCOPES,
+)
 
 
 class TestGetAuthenticatedService:
@@ -14,6 +20,7 @@ class TestGetAuthenticatedService:
     def test_loads_existing_valid_token(self):
         mock_creds = MagicMock()
         mock_creds.valid = True
+        mock_creds.scopes = set(SCOPES)
 
         with patch("modules.youtube_uploader.TOKEN_FILE") as mock_tf, \
              patch("modules.youtube_uploader.pickle") as mock_pickle, \
@@ -137,3 +144,120 @@ class TestUploadToYoutube:
         assert len(body["snippet"]["description"]) <= 5000
         assert len(body["snippet"]["tags"]) <= 30
         assert result == "https://youtu.be/limits_test"
+
+    def test_playlist_failure_not_fatal(self, fake_video, fake_thumbnail, fake_concept):
+        """Playlist add failure should not prevent upload from succeeding."""
+        mock_youtube = MagicMock()
+        mock_insert_request = MagicMock()
+        mock_insert_request.next_chunk.return_value = (None, {"id": "pl_fail"})
+        mock_youtube.videos.return_value.insert.return_value = mock_insert_request
+        mock_youtube.thumbnails.return_value.set.return_value.execute.return_value = {}
+        # Playlist call raises
+        mock_youtube.playlists.return_value.list.return_value.execute.side_effect = \
+            Exception("Playlist API error")
+
+        with patch("modules.youtube_uploader._get_authenticated_service", return_value=mock_youtube), \
+             patch("modules.youtube_uploader.MediaFileUpload"):
+            result = upload_to_youtube(fake_video, fake_thumbnail, fake_concept)
+
+        assert result == "https://youtu.be/pl_fail"
+
+
+class TestScopeMismatchDetection:
+    """Scope mismatch should force re-authentication."""
+
+    def test_deletes_token_on_scope_mismatch(self):
+        mock_creds = MagicMock()
+        mock_creds.valid = True
+        mock_creds.scopes = {"https://www.googleapis.com/auth/youtube.upload"}
+
+        with patch("modules.youtube_uploader.TOKEN_FILE") as mock_tf, \
+             patch("modules.youtube_uploader.CLIENT_SECRETS_FILE") as mock_sf, \
+             patch("modules.youtube_uploader.pickle") as mock_pickle, \
+             patch("modules.youtube_uploader.build") as mock_build, \
+             patch("modules.youtube_uploader.InstalledAppFlow") as mock_flow, \
+             patch("builtins.open", MagicMock()):
+            mock_tf.exists.return_value = True
+            mock_pickle.load.return_value = mock_creds
+            mock_sf.exists.return_value = True
+
+            new_creds = MagicMock()
+            new_creds.valid = True
+            mock_flow.from_client_secrets_file.return_value.run_local_server.return_value = new_creds
+
+            _get_authenticated_service()
+
+        # Old token should be deleted
+        mock_tf.unlink.assert_called_once_with(missing_ok=True)
+        # New OAuth flow should be triggered
+        mock_flow.from_client_secrets_file.assert_called_once()
+
+    def test_keeps_token_when_scopes_match(self):
+        mock_creds = MagicMock()
+        mock_creds.valid = True
+        mock_creds.scopes = set(SCOPES)
+
+        with patch("modules.youtube_uploader.TOKEN_FILE") as mock_tf, \
+             patch("modules.youtube_uploader.pickle") as mock_pickle, \
+             patch("modules.youtube_uploader.build") as mock_build, \
+             patch("builtins.open", MagicMock()):
+            mock_tf.exists.return_value = True
+            mock_pickle.load.return_value = mock_creds
+
+            _get_authenticated_service()
+
+        mock_tf.unlink.assert_not_called()
+        mock_build.assert_called_once_with("youtube", "v3", credentials=mock_creds)
+
+
+class TestFindOrCreatePlaylist:
+    """_find_or_create_playlist() should find or create an Afro House playlist."""
+
+    def test_finds_existing_playlist(self):
+        mock_youtube = MagicMock()
+        mock_youtube.playlists.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {"id": "PL123", "snippet": {"title": "Afro House"}},
+            ]
+        }
+
+        result = _find_or_create_playlist(mock_youtube, "Afro House")
+        assert result == "PL123"
+        mock_youtube.playlists.return_value.insert.assert_not_called()
+
+    def test_creates_playlist_if_not_found(self):
+        mock_youtube = MagicMock()
+        mock_youtube.playlists.return_value.list.return_value.execute.return_value = {
+            "items": []
+        }
+        mock_youtube.playlists.return_value.insert.return_value.execute.return_value = {
+            "id": "PL_NEW"
+        }
+
+        result = _find_or_create_playlist(mock_youtube, "Afro House")
+        assert result == "PL_NEW"
+        mock_youtube.playlists.return_value.insert.assert_called_once()
+
+    def test_case_insensitive_match(self):
+        mock_youtube = MagicMock()
+        mock_youtube.playlists.return_value.list.return_value.execute.return_value = {
+            "items": [
+                {"id": "PL456", "snippet": {"title": "afro house"}},
+            ]
+        }
+
+        result = _find_or_create_playlist(mock_youtube, "Afro House")
+        assert result == "PL456"
+
+
+class TestAddToPlaylist:
+    """_add_to_playlist() should add a video to a playlist."""
+
+    def test_adds_video(self):
+        mock_youtube = MagicMock()
+        _add_to_playlist(mock_youtube, "PL123", "vid456")
+
+        call_kwargs = mock_youtube.playlistItems.return_value.insert.call_args
+        body = call_kwargs[1]["body"]
+        assert body["snippet"]["playlistId"] == "PL123"
+        assert body["snippet"]["resourceId"]["videoId"] == "vid456"

@@ -137,6 +137,22 @@ def generate_concept(track_name: str = "") -> MusicConcept:
             f"Mood: {data.get('mood', 'ritualistic, primal, powerful, transcendent')}"
         )
 
+    # Merge mandatory SEO tags with AI-generated tags (deduplicated)
+    MANDATORY_TAGS = [
+        "afro house", "afro house music", "deep afro house", "tribal afro house",
+        "organic afro house", "afro house mix", "underground afro house",
+        "afro house ritual", "deep house", "tribal house", "afro house 2025",
+        "car bass music", "warehouse music",
+    ]
+    ai_tags = data.get("youtube_tags", [])
+    seen = set()
+    final_tags = []
+    for tag in MANDATORY_TAGS + ai_tags:
+        tag_lower = tag.lower().strip()
+        if tag_lower and tag_lower not in seen:
+            seen.add(tag_lower)
+            final_tags.append(tag)
+
     return MusicConcept(
         track_name=final_name,
         genre="Afro House",
@@ -147,6 +163,6 @@ def generate_concept(track_name: str = "") -> MusicConcept:
         thumbnail_prompt=thumbnail_prompt,
         youtube_title=data.get("youtube_title", f"{final_name} - Afro House"),
         youtube_description=data.get("youtube_description", f"{final_name} - A deep Afro House track."),
-        youtube_tags=data.get("youtube_tags", ["afro house", "afro house music", "deep afro house", "tribal afro house", "organic afro house", "afro house mix", "underground afro house", "afro house ritual", "deep house", "tribal house", "warehouse vibes", "afro house 2025", "extended mix", "car bass", "afro house DJ set"]),
+        youtube_tags=final_tags,
         tiktok_caption=data.get("tiktok_caption", f"{final_name} #afrohouse #tribal #deepbass"),
     )

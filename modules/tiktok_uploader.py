@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from modules.concept_generator import MusicConcept
@@ -6,6 +7,7 @@ from utils.browser import get_browser_context, save_cookies
 from utils.logger import log
 
 TIKTOK_UPLOAD_URL = "https://www.tiktok.com/upload"
+MAX_RETRIES = 2
 
 
 def upload_to_tiktok(
@@ -14,12 +16,39 @@ def upload_to_tiktok(
 ) -> str | None:
     log.info(f"Uploading to TikTok: {concept.track_name}")
 
-    # Validate cookies exist
+    # Pre-flight: validate cookies exist and are non-empty
     if not TIKTOK_COOKIE_FILE.exists():
-        log.error(f"TikTok cookies not found: {TIKTOK_COOKIE_FILE}")
-        log.error("Please export your TikTok cookies to this file first.")
+        log.error(
+            f"TikTok cookies not found: {TIKTOK_COOKIE_FILE}\n"
+            "Run: python main.py tiktok-login"
+        )
         return None
 
+    if TIKTOK_COOKIE_FILE.stat().st_size < 10:
+        log.error(
+            f"TikTok cookie file is empty: {TIKTOK_COOKIE_FILE}\n"
+            "Run: python main.py tiktok-login"
+        )
+        return None
+
+    # Retry loop
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            result = _do_upload(video_path, concept)
+            return result
+        except Exception as e:
+            if attempt < MAX_RETRIES:
+                wait = 2 ** attempt
+                log.warning(f"TikTok upload attempt {attempt}/{MAX_RETRIES} failed: {e}")
+                log.info(f"Retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                log.error(f"TikTok upload failed after {MAX_RETRIES} attempts: {e}")
+                raise
+
+
+def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
+    """Single attempt to upload a video to TikTok."""
     debug_dir = Path("output")
 
     with sync_playwright() as p:

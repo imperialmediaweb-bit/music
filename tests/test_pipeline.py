@@ -154,6 +154,16 @@ class TestProcessSingleTrackE2E:
 
         assert "Duration:" in fake_concept.youtube_description
 
+    def test_pipeline_appends_hashtag_block_to_description(self, fake_mp3, fake_concept, tmp_output):
+        with _mock_thumbnail_generator(tmp_output), \
+             _mock_youtube_uploader(), \
+             _mock_tiktok_uploader():
+            result = process_single_track(fake_mp3, concept=fake_concept)
+
+        assert "#afrohouse" in fake_concept.youtube_description
+        assert "#afrohousemusic" in fake_concept.youtube_description
+        assert "#extendedmix" in fake_concept.youtube_description
+
     def test_pipeline_result_structure(self, fake_mp3, fake_concept, tmp_output):
         """Verify the result dict has all expected keys."""
         with _mock_thumbnail_generator(tmp_output), \

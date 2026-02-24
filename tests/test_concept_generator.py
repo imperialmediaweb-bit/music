@@ -85,3 +85,49 @@ class TestGenerateConcept:
         assert concept.mood == "ritualistic, primal, powerful, transcendent"
         assert len(concept.hashtags) > 0
         assert concept.thumbnail_prompt  # Should always be set
+
+    def test_mandatory_youtube_tags_always_present(self, openai_concept_response):
+        """Mandatory SEO tags should always be in youtube_tags, even if AI omits them."""
+        # AI returns only 2 tags
+        openai_concept_response["youtube_tags"] = ["custom tag 1", "custom tag 2"]
+
+        mock_message = MagicMock()
+        mock_message.content = json.dumps(openai_concept_response)
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("modules.concept_generator.OpenAI", return_value=mock_client):
+            concept = generate_concept()
+
+        tag_lower = [t.lower() for t in concept.youtube_tags]
+        assert "afro house" in tag_lower
+        assert "deep afro house" in tag_lower
+        assert "tribal afro house" in tag_lower
+        assert "custom tag 1" in tag_lower
+        assert "custom tag 2" in tag_lower
+
+    def test_youtube_tags_no_duplicates(self, openai_concept_response):
+        """AI-generated tags that duplicate mandatory ones should be deduplicated."""
+        openai_concept_response["youtube_tags"] = ["afro house", "deep afro house", "unique tag"]
+
+        mock_message = MagicMock()
+        mock_message.content = json.dumps(openai_concept_response)
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value = mock_response
+
+        with patch("modules.concept_generator.OpenAI", return_value=mock_client):
+            concept = generate_concept()
+
+        tag_lower = [t.lower() for t in concept.youtube_tags]
+        assert tag_lower.count("afro house") == 1
+        assert "unique tag" in tag_lower

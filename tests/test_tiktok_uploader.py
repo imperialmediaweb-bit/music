@@ -13,6 +13,10 @@ def _build_playwright_mocks(logged_in=True, post_success=True, video_url=None):
     mock_page = MagicMock()
     mock_page.url = "https://www.tiktok.com/upload" if logged_in else "https://www.tiktok.com/login"
 
+    # Login check: query_selector returns None when logged in (no login modal found)
+    if logged_in:
+        mock_page.query_selector = MagicMock(return_value=None)
+
     # File input
     mock_file_input = MagicMock()
     mock_file_input.set_input_files = MagicMock()
@@ -52,6 +56,16 @@ def _build_playwright_mocks(logged_in=True, post_success=True, video_url=None):
     return mock_browser, mock_context, mock_page
 
 
+def _patch_cookie_file_exists(exists=True, size=500):
+    """Patch TIKTOK_COOKIE_FILE to simulate cookie presence."""
+    mock_path = MagicMock()
+    mock_path.exists.return_value = exists
+    mock_stat = MagicMock()
+    mock_stat.st_size = size
+    mock_path.stat.return_value = mock_stat
+    return patch("modules.tiktok_uploader.TIKTOK_COOKIE_FILE", mock_path)
+
+
 class TestUploadToTiktok:
     """upload_to_tiktok() should automate TikTok upload via browser."""
 
@@ -65,13 +79,24 @@ class TestUploadToTiktok:
         mock_pw.__enter__ = MagicMock(return_value=mock_pw_instance)
         mock_pw.__exit__ = MagicMock(return_value=False)
 
-        with patch("modules.tiktok_uploader.sync_playwright", return_value=mock_pw), \
+        with _patch_cookie_file_exists(), \
+             patch("modules.tiktok_uploader.sync_playwright", return_value=mock_pw), \
              patch("modules.tiktok_uploader.get_browser_context", return_value=(mock_browser, mock_context)), \
              patch("modules.tiktok_uploader.save_cookies"):
             result = upload_to_tiktok(fake_video, fake_concept)
 
         assert result is not None
         assert "tiktok.com" in result
+
+    def test_returns_none_when_cookies_missing(self, fake_video, fake_concept):
+        with _patch_cookie_file_exists(exists=False):
+            result = upload_to_tiktok(fake_video, fake_concept)
+        assert result is None
+
+    def test_returns_none_when_cookies_empty(self, fake_video, fake_concept):
+        with _patch_cookie_file_exists(exists=True, size=0):
+            result = upload_to_tiktok(fake_video, fake_concept)
+        assert result is None
 
     def test_returns_none_when_not_logged_in(self, fake_video, fake_concept):
         mock_browser, mock_context, mock_page = _build_playwright_mocks(logged_in=False)
@@ -81,7 +106,8 @@ class TestUploadToTiktok:
         mock_pw.__enter__ = MagicMock(return_value=mock_pw_instance)
         mock_pw.__exit__ = MagicMock(return_value=False)
 
-        with patch("modules.tiktok_uploader.sync_playwright", return_value=mock_pw), \
+        with _patch_cookie_file_exists(), \
+             patch("modules.tiktok_uploader.sync_playwright", return_value=mock_pw), \
              patch("modules.tiktok_uploader.get_browser_context", return_value=(mock_browser, mock_context)), \
              patch("modules.tiktok_uploader.save_cookies"):
             result = upload_to_tiktok(fake_video, fake_concept)
@@ -97,7 +123,8 @@ class TestUploadToTiktok:
         mock_pw.__enter__ = MagicMock(return_value=mock_pw_instance)
         mock_pw.__exit__ = MagicMock(return_value=False)
 
-        with patch("modules.tiktok_uploader.sync_playwright", return_value=mock_pw), \
+        with _patch_cookie_file_exists(), \
+             patch("modules.tiktok_uploader.sync_playwright", return_value=mock_pw), \
              patch("modules.tiktok_uploader.get_browser_context", return_value=(mock_browser, mock_context)), \
              patch("modules.tiktok_uploader.save_cookies"):
             result = upload_to_tiktok(fake_video, fake_concept)
@@ -105,3 +132,14 @@ class TestUploadToTiktok:
         # No URL captured, but no crash
         # (result could be None since no href with /@)
         mock_browser.close.assert_called_once()
+
+    def test_retries_on_failure(self, fake_video, fake_concept):
+        """upload_to_tiktok retries on transient failures."""
+        with _patch_cookie_file_exists(), \
+             patch("modules.tiktok_uploader._do_upload") as mock_do, \
+             patch("modules.tiktok_uploader.time.sleep"):
+            mock_do.side_effect = [RuntimeError("Transient"), "https://tiktok.com/@u/v/1"]
+            result = upload_to_tiktok(fake_video, fake_concept)
+
+        assert result == "https://tiktok.com/@u/v/1"
+        assert mock_do.call_count == 2
