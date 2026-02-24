@@ -47,6 +47,46 @@ def upload_to_tiktok(
                 raise
 
 
+def _dismiss_tiktok_popups(page) -> None:
+    """Dismiss cookie consent banner and any popups on TikTok Studio."""
+    # Cookie banner — use JavaScript to find and click (most reliable)
+    dismissed = page.evaluate("""() => {
+        // Find banner buttons by text content
+        const buttons = [...document.querySelectorAll('button')];
+        for (const btn of buttons) {
+            const text = btn.textContent.trim().toLowerCase();
+            if (text === 'allow all' || text === 'allow all cookies'
+                || text === 'accept all' || text === 'accept all cookies') {
+                btn.click();
+                return 'cookie:' + text;
+            }
+        }
+        // Also try removing the entire banner overlay via common selectors
+        for (const sel of ['[class*="cookie"]', '[id*="cookie"]', 'tiktok-cookie-banner']) {
+            const el = document.querySelector(sel);
+            if (el && el.offsetHeight > 50) {
+                el.remove();
+                return 'removed:' + sel;
+            }
+        }
+        return null;
+    }""")
+    if dismissed:
+        log.info(f"Cookie banner dismissed: {dismissed}")
+        page.wait_for_timeout(1000)
+
+    # Dismiss popups ("Got it", "New editing features", etc.)
+    for popup_text in ["Got it", "OK", "Close", "Maybe later", "Not now"]:
+        try:
+            popup_btn = page.query_selector(f'button:has-text("{popup_text}")')
+            if popup_btn and popup_btn.is_visible():
+                popup_btn.click(force=True)
+                log.info(f"Dismissed popup: '{popup_text}'")
+                page.wait_for_timeout(500)
+        except Exception:
+            continue
+
+
 def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
     """Single attempt to upload a video to TikTok."""
     debug_dir = Path("output")
@@ -80,19 +120,8 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
 
             log.info("TikTok login check passed")
 
-            # Dismiss cookie consent banner if present
-            for cookie_btn_text in ["Allow all", "Decline optional cookies"]:
-                try:
-                    cookie_btn = page.wait_for_selector(
-                        f'button:has-text("{cookie_btn_text}")', timeout=3_000
-                    )
-                    if cookie_btn and cookie_btn.is_visible():
-                        cookie_btn.click(force=True)
-                        log.info(f"Dismissed cookie banner: '{cookie_btn_text}'")
-                        page.wait_for_timeout(1000)
-                        break
-                except PlaywrightTimeout:
-                    continue
+            # Dismiss cookie consent banner aggressively (blocks all interactions)
+            _dismiss_tiktok_popups(page)
 
             # Upload video file (input is hidden by design, use state="attached")
             log.info("Looking for video file input...")
@@ -116,18 +145,8 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
 
             page.screenshot(path=str(debug_dir / "debug_tiktok_03_after_processing.png"))
 
-            # Dismiss any popups ("Got it", "New editing features", etc.)
-            for popup_text in ["Got it", "OK", "Close", "Maybe later", "Not now"]:
-                try:
-                    popup_btn = page.wait_for_selector(
-                        f'button:has-text("{popup_text}")', timeout=2_000
-                    )
-                    if popup_btn and popup_btn.is_visible():
-                        popup_btn.click(force=True)
-                        log.info(f"Dismissed popup: '{popup_text}'")
-                        page.wait_for_timeout(1000)
-                except PlaywrightTimeout:
-                    continue
+            # Dismiss cookie banner + popups again (may reappear after upload)
+            _dismiss_tiktok_popups(page)
 
             # Dump all editable elements for debugging
             editables = page.evaluate("""() => {
@@ -199,16 +218,8 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             page.wait_for_timeout(1000)
 
-            # Dismiss any remaining popups before clicking Post
-            for popup_text in ["Got it", "OK", "Close"]:
-                try:
-                    popup_btn = page.query_selector(f'button:has-text("{popup_text}")')
-                    if popup_btn and popup_btn.is_visible():
-                        popup_btn.click(force=True)
-                        log.info(f"Dismissed popup before Post: '{popup_text}'")
-                        page.wait_for_timeout(1000)
-                except Exception:
-                    continue
+            # Dismiss popups again before clicking Post
+            _dismiss_tiktok_popups(page)
 
             # Click the Post button
             log.info("Looking for Post/Publish button...")
