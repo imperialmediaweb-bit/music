@@ -83,16 +83,13 @@ def reupload_track(track_name: str) -> dict:
 
     log.info(f"YouTube title: {concept.youtube_title}")
 
-    # Upload to YouTube
-    try:
-        log.info("=" * 60)
-        log.info("Uploading to YouTube...")
-        youtube_url = upload_to_youtube(youtube_video, thumbnail, concept)
-        result["youtube_url"] = youtube_url
-        log.info(f"YouTube URL: {youtube_url}")
-    except Exception as e:
-        log.error(f"YouTube upload failed: {e}")
-        result["errors"].append(f"youtube: {e}")
+    # YouTube upload disabled — video was already posted twice
+    # To re-enable: uncomment the upload_to_youtube call below
+    # try:
+    #     youtube_url = upload_to_youtube(youtube_video, thumbnail, concept)
+    #     result["youtube_url"] = youtube_url
+    # except Exception as e:
+    #     result["errors"].append(f"youtube: {e}")
 
     # Upload to TikTok
     if tiktok_video.exists():
@@ -224,16 +221,13 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         result["errors"].append(f"video: {e}")
         return result
 
-    # Step 5: Upload to YouTube
-    try:
-        log.info("=" * 60)
-        log.info("STEP 5: Uploading to YouTube...")
-        youtube_url = upload_to_youtube(youtube_video, thumbnail_path, concept)
-        result["youtube_url"] = youtube_url
-        log.info(f"YouTube URL: {youtube_url}")
-    except Exception as e:
-        log.error(f"YouTube upload failed: {e}")
-        result["errors"].append(f"youtube: {e}")
+    # Step 5: YouTube upload disabled — video was already posted twice
+    # To re-enable: uncomment the upload_to_youtube call below
+    # try:
+    #     youtube_url = upload_to_youtube(youtube_video, thumbnail_path, concept)
+    #     result["youtube_url"] = youtube_url
+    # except Exception as e:
+    #     result["errors"].append(f"youtube: {e}")
 
     # Step 6: Upload to TikTok
     try:
