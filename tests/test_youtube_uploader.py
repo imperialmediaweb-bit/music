@@ -1,0 +1,139 @@
+"""Tests for modules/youtube_uploader.py — mocks YouTube API entirely."""
+
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from modules.youtube_uploader import upload_to_youtube, _get_authenticated_service
+
+
+class TestGetAuthenticatedService:
+    """_get_authenticated_service() handles OAuth flow."""
+
+    def test_loads_existing_valid_token(self):
+        mock_creds = MagicMock()
+        mock_creds.valid = True
+
+        with patch("modules.youtube_uploader.TOKEN_FILE") as mock_tf, \
+             patch("modules.youtube_uploader.pickle") as mock_pickle, \
+             patch("modules.youtube_uploader.build") as mock_build, \
+             patch("builtins.open", MagicMock()):
+            mock_tf.exists.return_value = True
+            mock_pickle.load.return_value = mock_creds
+
+            _get_authenticated_service()
+
+        mock_build.assert_called_once_with("youtube", "v3", credentials=mock_creds)
+
+    def test_refreshes_expired_token(self):
+        mock_creds = MagicMock()
+        mock_creds.valid = False
+        mock_creds.expired = True
+        mock_creds.refresh_token = "fake-refresh"
+
+        with patch("modules.youtube_uploader.TOKEN_FILE") as mock_tf, \
+             patch("modules.youtube_uploader.pickle") as mock_pickle, \
+             patch("modules.youtube_uploader.build") as mock_build, \
+             patch("modules.youtube_uploader.Request") as mock_request, \
+             patch("builtins.open", MagicMock()):
+            mock_tf.exists.return_value = True
+            mock_pickle.load.return_value = mock_creds
+
+            _get_authenticated_service()
+
+        mock_creds.refresh.assert_called_once()
+        mock_build.assert_called_once()
+
+    def test_raises_if_no_client_secrets(self):
+        with patch("modules.youtube_uploader.TOKEN_FILE") as mock_tf, \
+             patch("modules.youtube_uploader.CLIENT_SECRETS_FILE") as mock_sf:
+            mock_tf.exists.return_value = False
+            mock_sf.exists.return_value = False
+
+            with pytest.raises(FileNotFoundError, match="OAuth client secrets not found"):
+                _get_authenticated_service()
+
+
+class TestUploadToYoutube:
+    """upload_to_youtube() should upload video and thumbnail."""
+
+    def test_successful_upload(self, fake_video, fake_thumbnail, fake_concept):
+        mock_youtube = MagicMock()
+
+        mock_insert_request = MagicMock()
+        mock_insert_request.next_chunk.return_value = (None, {"id": "abc123"})
+        mock_youtube.videos.return_value.insert.return_value = mock_insert_request
+
+        mock_youtube.thumbnails.return_value.set.return_value.execute.return_value = {}
+
+        with patch("modules.youtube_uploader._get_authenticated_service", return_value=mock_youtube), \
+             patch("modules.youtube_uploader.MediaFileUpload"):
+            result = upload_to_youtube(fake_video, fake_thumbnail, fake_concept)
+
+        assert result == "https://youtu.be/abc123"
+
+    def test_upload_with_chunked_progress(self, fake_video, fake_thumbnail, fake_concept):
+        mock_youtube = MagicMock()
+
+        mock_status_50 = MagicMock()
+        mock_status_50.progress.return_value = 0.5
+
+        mock_insert_request = MagicMock()
+        mock_insert_request.next_chunk.side_effect = [
+            (mock_status_50, None),
+            (None, {"id": "xyz789"}),
+        ]
+        mock_youtube.videos.return_value.insert.return_value = mock_insert_request
+        mock_youtube.thumbnails.return_value.set.return_value.execute.return_value = {}
+
+        with patch("modules.youtube_uploader._get_authenticated_service", return_value=mock_youtube), \
+             patch("modules.youtube_uploader.MediaFileUpload"):
+            result = upload_to_youtube(fake_video, fake_thumbnail, fake_concept)
+
+        assert result == "https://youtu.be/xyz789"
+
+    def test_returns_none_if_no_secrets(self, fake_video, fake_thumbnail, fake_concept):
+        with patch(
+            "modules.youtube_uploader._get_authenticated_service",
+            side_effect=FileNotFoundError("OAuth client secrets not found"),
+        ):
+            result = upload_to_youtube(fake_video, fake_thumbnail, fake_concept)
+        assert result is None
+
+    def test_thumbnail_failure_not_fatal(self, fake_video, fake_thumbnail, fake_concept):
+        mock_youtube = MagicMock()
+        mock_insert_request = MagicMock()
+        mock_insert_request.next_chunk.return_value = (None, {"id": "thumb_fail"})
+        mock_youtube.videos.return_value.insert.return_value = mock_insert_request
+
+        mock_youtube.thumbnails.return_value.set.return_value.execute.side_effect = \
+            Exception("Account not verified")
+
+        with patch("modules.youtube_uploader._get_authenticated_service", return_value=mock_youtube), \
+             patch("modules.youtube_uploader.MediaFileUpload"):
+            result = upload_to_youtube(fake_video, fake_thumbnail, fake_concept)
+
+        assert result == "https://youtu.be/thumb_fail"
+
+    def test_metadata_limits(self, fake_video, fake_thumbnail, fake_concept):
+        fake_concept.youtube_title = "A" * 200
+        fake_concept.youtube_description = "B" * 10000
+        fake_concept.youtube_tags = [f"tag{i}" for i in range(50)]
+
+        mock_youtube = MagicMock()
+        mock_insert_request = MagicMock()
+        mock_insert_request.next_chunk.return_value = (None, {"id": "limits_test"})
+        mock_youtube.videos.return_value.insert.return_value = mock_insert_request
+        mock_youtube.thumbnails.return_value.set.return_value.execute.return_value = {}
+
+        with patch("modules.youtube_uploader._get_authenticated_service", return_value=mock_youtube), \
+             patch("modules.youtube_uploader.MediaFileUpload"):
+            result = upload_to_youtube(fake_video, fake_thumbnail, fake_concept)
+
+        call_kwargs = mock_youtube.videos.return_value.insert.call_args
+        body = call_kwargs[1]["body"]
+        assert len(body["snippet"]["title"]) <= 100
+        assert len(body["snippet"]["description"]) <= 5000
+        assert len(body["snippet"]["tags"]) <= 30
+        assert result == "https://youtu.be/limits_test"

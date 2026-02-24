@@ -64,12 +64,13 @@ def create_videos(
         audio_codec="aac",
         logger=None,
     )
-    yt_video.close()
     log.info(f"YouTube video saved: {youtube_path}")
 
     # --- TikTok video (9:16 @ 1080x1920) ---
+    # Reload audio — the previous write/close cycle may invalidate the clip.
+    audio_tk = AudioFileClip(str(audio_path))
     log.info("Creating TikTok video (9:16)...")
-    tk_video = _create_portrait_video(thumbnail_path, audio, duration, concept)
+    tk_video = _create_portrait_video(thumbnail_path, audio_tk, duration, concept)
     tk_video.write_videofile(
         str(tiktok_path),
         fps=24,
@@ -77,10 +78,13 @@ def create_videos(
         audio_codec="aac",
         logger=None,
     )
-    tk_video.close()
     log.info(f"TikTok video saved: {tiktok_path}")
 
+    # Clean up all clips
+    yt_video.close()
+    tk_video.close()
     audio.close()
+    audio_tk.close()
     return youtube_path, tiktok_path
 
 
