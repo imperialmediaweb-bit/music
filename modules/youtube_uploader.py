@@ -36,24 +36,20 @@ def _get_authenticated_service():
     if TOKEN_FILE.exists():
         with open(TOKEN_FILE, "rb") as f:
             credentials = pickle.load(f)
+        log.info(f"YouTube token loaded from {TOKEN_FILE}")
 
-    # Check for scope mismatch (e.g. token created with youtube.upload but now need youtube)
-    if credentials and credentials.valid:
-        stored_scopes = getattr(credentials, "scopes", None) or []
-        if stored_scopes and not set(SCOPES).issubset(stored_scopes):
-            log.warning(
-                f"YouTube token scope mismatch: have {stored_scopes}, need {SCOPES}. "
-                "Re-authentication required for playlist support."
-            )
-            credentials = None
-            TOKEN_FILE.unlink(missing_ok=True)
-
-    # If no valid credentials, do the OAuth flow
+    # If no valid credentials, try to refresh or re-authenticate
     if not credentials or not credentials.valid:
         if credentials and credentials.expired and credentials.refresh_token:
             log.info("Refreshing expired YouTube token...")
-            credentials.refresh(Request())
-        else:
+            try:
+                credentials.refresh(Request())
+                log.info("YouTube token refreshed successfully")
+            except Exception as e:
+                log.warning(f"Token refresh failed: {e} — will re-authenticate")
+                credentials = None
+
+        if not credentials or not credentials.valid:
             if not CLIENT_SECRETS_FILE.exists():
                 raise FileNotFoundError(
                     f"OAuth client secrets not found: {CLIENT_SECRETS_FILE}\n"

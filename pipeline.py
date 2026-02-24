@@ -104,7 +104,8 @@ def reupload_track(track_name: str) -> dict:
         if tiktok_url:
             log.info(f"TikTok URL: {tiktok_url}")
         else:
-            log.info("TikTok upload completed (URL not captured — check TikTok account)")
+            log.error("TikTok upload returned None — check cookies/login above")
+            result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
     except Exception as e:
         log.error(f"TikTok upload failed: {e}")
         result["errors"].append(f"tiktok: {e}")
@@ -244,7 +245,8 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         if tiktok_url:
             log.info(f"TikTok URL: {tiktok_url}")
         else:
-            log.info("TikTok upload completed (URL not captured — check TikTok account)")
+            log.error("TikTok upload returned None — check cookies/login above")
+            result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
     except Exception as e:
         log.error(f"TikTok upload failed: {e}")
         result["errors"].append(f"tiktok: {e}")
