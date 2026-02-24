@@ -1,26 +1,14 @@
-"""Tests for modules/video_creator.py — uses real moviepy with tiny files."""
+"""Tests for modules/video_creator.py — uses FFmpeg with tiny files."""
 
+import shutil
 from pathlib import Path
 
 import pytest
-from moviepy import AudioFileClip
 
-from modules.video_creator import create_videos, _resolve_font, _FONT
-
-
-class TestResolveFont:
-    """_resolve_font() should find an available system font."""
-
-    def test_font_is_resolved(self):
-        assert _FONT is not None
-        assert isinstance(_FONT, str)
-        assert len(_FONT) > 0
-
-    def test_resolve_returns_string(self):
-        result = _resolve_font()
-        assert isinstance(result, str)
+from modules.video_creator import create_videos
 
 
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg not installed")
 class TestCreateVideos:
     """create_videos() should produce YouTube and TikTok MP4 files."""
 

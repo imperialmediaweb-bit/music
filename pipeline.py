@@ -1,5 +1,6 @@
+import json
+import subprocess
 from pathlib import Path
-from moviepy import AudioFileClip
 
 from utils.logger import log
 from modules.concept_generator import generate_concept
@@ -39,9 +40,14 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
     try:
         log.info("=" * 60)
         log.info(f"STEP 1: Reading audio file: {mp3_path.name}")
-        audio_clip = AudioFileClip(str(mp3_path))
-        duration_sec = audio_clip.duration
-        audio_clip.close()
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "quiet", "-print_format", "json",
+                "-show_format", str(mp3_path),
+            ],
+            capture_output=True, text=True,
+        )
+        duration_sec = float(json.loads(probe.stdout)["format"]["duration"])
         duration_str = _format_duration(duration_sec)
         result["duration"] = duration_str
         log.info(f"Duration: {duration_str} ({duration_sec:.1f} seconds)")
