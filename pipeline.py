@@ -32,18 +32,25 @@ def reupload_track(track_name: str) -> dict:
         "errors": [],
     }
 
-    # Locate existing files
-    video = OUTPUT_DIR / f"{track_name}_video.mp4"
+    # Locate existing files — check multiple naming conventions
+    video = None
+    for suffix in ["_video.mp4", "_tiktok.mp4", ".mp4"]:
+        candidate = OUTPUT_DIR / f"{track_name}{suffix}"
+        if candidate.exists():
+            video = candidate
+            break
     thumbnail = OUTPUT_DIR / f"{track_name}_thumbnail.png"
     mp3_file = OUTPUT_DIR / f"{track_name}.mp3"
 
     if not thumbnail.exists():
         log.warning(f"Thumbnail not found: {thumbnail} — continuing without it")
 
-    if not video.exists():
-        log.error(f"Video not found: {video}")
-        result["errors"].append(f"missing: {video}")
+    if not video:
+        log.error(f"Video not found in output/ (tried _video.mp4, _tiktok.mp4, .mp4)")
+        result["errors"].append(f"missing: {track_name} video in {OUTPUT_DIR}")
         return result
+
+    log.info(f"Found video: {video}")
 
     # Detect duration from MP3 (if available)
     duration_sec = 0
