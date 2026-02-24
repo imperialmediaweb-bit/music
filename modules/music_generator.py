@@ -34,6 +34,35 @@ GENERATION_COMPLETE_SEC = 240  # 4 min — wait after clicking Generate for song
 DOWNLOAD_READY_SEC = 1080      # 18 min — minimum time from generation before downloads work
 
 
+def _validate_mp3(path: Path) -> bool:
+    """Check if a file is a valid MP3 by inspecting header bytes and size.
+
+    Returns True if the file looks like a real MP3, False otherwise.
+    """
+    if not path.exists():
+        log.warning(f"Validation: file does not exist: {path}")
+        return False
+
+    size = path.stat().st_size
+    if size < 50_000:  # Less than 50KB is suspicious for a music track
+        log.warning(f"Validation: file too small ({size} bytes): {path.name}")
+        return False
+
+    header = path.read_bytes()[:16]
+    log.info(f"Validation: {path.name} — {size} bytes, header: {header[:8].hex()}")
+
+    # Valid MP3 starts with ID3 tag or MPEG audio frame sync (0xFF 0xFB/0xF3/0xF2/0xFA/0xE0-0xFF)
+    if header[:3] == b'ID3':
+        return True
+    if len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0:
+        return True
+
+    # Check if it's HTML (downloaded error page instead of audio)
+    text_preview = header[:16].decode("utf-8", errors="replace")
+    log.warning(f"Validation FAILED: not an MP3 file. Preview: {text_preview!r}")
+    return False
+
+
 def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
     """Generate music on aimusicfactory.ai.
 
@@ -847,7 +876,7 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
     page.wait_for_timeout(2000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_{card_num}_{idx + 1}.png"))
 
-    # Log panel buttons for debugging (strip SVG noise)
+    # Log panel buttons for debugging (strip SVG noise, check enabled state)
     panel_info = page.evaluate("""() => {
         const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
         if (panels.length === 0) return {exists: false, buttons: [], html: 'NO_PANEL'};
@@ -875,7 +904,12 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
                 tag: el.tagName,
                 text: text,
                 href: el.getAttribute('href') || '',
-                hasOnClick: !!el.onclick || el.hasAttribute('onclick'),
+                disabled: el.disabled || el.hasAttribute('disabled')
+                    || el.getAttribute('aria-disabled') === 'true'
+                    || el.classList.contains('opacity-50')
+                    || el.classList.contains('cursor-not-allowed')
+                    || getComputedStyle(el).pointerEvents === 'none'
+                    || getComputedStyle(el).opacity < 0.6,
             });
         }
         return {
@@ -892,7 +926,21 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
 
     log.info(f"Popover panel buttons ({len(panel_info.get('buttons', []))}):")
     for btn in panel_info.get("buttons", []):
-        log.info(f"  <{btn['tag']}> text='{btn['text']}' href='{btn['href']}'")
+        disabled_str = " [DISABLED]" if btn.get("disabled") else ""
+        log.info(f"  <{btn['tag']}> text='{btn['text']}' href='{btn['href']}'{disabled_str}")
+
+    # Check if Audio button is disabled — skip immediately instead of waiting 30s
+    audio_disabled = False
+    for btn in panel_info.get("buttons", []):
+        if btn.get("text", "").strip().lower() == "audio" and btn.get("tag") == "BUTTON":
+            if btn.get("disabled"):
+                audio_disabled = True
+                break
+    if audio_disabled:
+        log.warning(f"Audio button is DISABLED (card {card_num}, btn {idx + 1}) — song not ready, skipping")
+        page.evaluate("document.body.click()")
+        page.wait_for_timeout(500)
+        return None
 
     # Snapshot existing files in OUTPUT_DIR before clicking (for fallback detection)
     existing_files = set(OUTPUT_DIR.glob("*"))
@@ -939,6 +987,10 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
         log.info(f"Strategy 1 (Playwright click): downloaded {output_path.name}")
         page.evaluate("document.body.click()")
         page.wait_for_timeout(1000)
+        if not _validate_mp3(output_path):
+            log.warning(f"Strategy 1: downloaded file is NOT a valid MP3, deleting")
+            output_path.unlink(missing_ok=True)
+            return None
         return output_path
 
     except PlaywrightTimeout:
@@ -955,6 +1007,10 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
             log.info(f"Strategy 1 fallback (CDP auto-save): found {src.name} -> {output_path.name}")
             page.evaluate("document.body.click()")
             page.wait_for_timeout(1000)
+            if not _validate_mp3(output_path):
+                log.warning(f"Strategy 1 fallback: file is NOT a valid MP3, deleting")
+                output_path.unlink(missing_ok=True)
+                return None
             return output_path
         else:
             log.warning(f"No new audio files found in {OUTPUT_DIR}")
@@ -1003,6 +1059,10 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
                 log.info(f"Strategy 2 (direct URL): downloaded {output_path.name} ({len(resp.content)} bytes)")
                 page.evaluate("document.body.click()")
                 page.wait_for_timeout(1000)
+                if not _validate_mp3(output_path):
+                    log.warning(f"Strategy 2: file is NOT a valid MP3, deleting")
+                    output_path.unlink(missing_ok=True)
+                    return None
                 return output_path
             else:
                 log.warning(f"Strategy 2: HTTP {resp.status_code}, size {len(resp.content)}")
@@ -1065,6 +1125,10 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
                 log.info(f"Strategy 3 (intercept): downloaded {output_path.name} ({len(resp.content)} bytes)")
                 page.evaluate("document.body.click()")
                 page.wait_for_timeout(1000)
+                if not _validate_mp3(output_path):
+                    log.warning(f"Strategy 3: file is NOT a valid MP3, deleting")
+                    output_path.unlink(missing_ok=True)
+                    return None
                 return output_path
             else:
                 log.warning(f"Strategy 3: HTTP {resp.status_code}, size {len(resp.content)}")
@@ -1130,6 +1194,10 @@ def _download_via_button(page, idx: int, output_path: Path, card_num: int) -> Pa
         download = dl_info.value
         download.save_as(str(output_path))
         page.wait_for_timeout(2000)
+        if not _validate_mp3(output_path):
+            log.warning(f"Direct download: file is NOT a valid MP3, deleting")
+            output_path.unlink(missing_ok=True)
+            return None
         return output_path
 
     except PlaywrightTimeout:
