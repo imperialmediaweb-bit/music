@@ -109,7 +109,7 @@ def reupload_track(track_name: str) -> dict:
         tiktok_url = upload_to_tiktok(video, concept)
         result["tiktok_url"] = tiktok_url
         if tiktok_url:
-            log.info(f"TikTok URL: {tiktok_url}")
+            log.info(f"TikTok: {tiktok_url}")
         else:
             log.error("TikTok upload returned None — check cookies/login above")
             result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
@@ -250,7 +250,7 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         tiktok_url = upload_to_tiktok(video, concept)
         result["tiktok_url"] = tiktok_url
         if tiktok_url:
-            log.info(f"TikTok URL: {tiktok_url}")
+            log.info(f"TikTok: {tiktok_url}")
         else:
             log.error("TikTok upload returned None — check cookies/login above")
             result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")

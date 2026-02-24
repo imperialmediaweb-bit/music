@@ -365,7 +365,8 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
             # Save updated cookies
             save_cookies(context, TIKTOK_COOKIE_FILE)
 
-            return video_url
+            # Return the URL, or a sentinel indicating success without URL
+            return video_url or "uploaded (URL not available)"
 
         except Exception as e:
             log.error(f"TikTok upload failed: {e}")
