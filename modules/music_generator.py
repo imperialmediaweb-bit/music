@@ -826,66 +826,234 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
     """Download MP3 via HeadlessUI popover dropdown.
 
     From screenshots: clicking Download opens a dropdown with 'Audio' option.
+    Uses Playwright locator clicks (not JS clicks) to trigger download events.
     """
-    # Click the popover button
+    import requests as req
+
+    # Click the popover button to open dropdown
     page.evaluate("""(idx) => {
         const popovers = [...document.querySelectorAll('[id^="headlessui-popover-button"]')]
             .filter(p => p.textContent.includes('Download') && p.offsetParent !== null);
         if (idx < popovers.length) popovers[idx].click();
     }""", idx)
 
-    page.wait_for_timeout(1500)
+    page.wait_for_timeout(2000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_{card_num}_{idx + 1}.png"))
 
-    # Log panel content
-    panel_html = page.evaluate("""() => {
+    # Log panel buttons for debugging (strip SVG noise)
+    panel_info = page.evaluate("""() => {
         const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
-        if (panels.length === 0) return 'NO_PANEL';
-        return panels[panels.length - 1].innerHTML;
-    }""")
-    log.info(f"Popover panel ({len(panel_html)} chars): {panel_html[:300]}")
-
-    try:
-        with page.expect_download(timeout=30_000) as dl_info:
-            page.evaluate("""() => {
-                const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
-                for (const panel of panels) {
-                    const links = panel.querySelectorAll('a, button, div, span, [class*="cursor"]');
-                    for (const link of links) {
-                        const text = link.textContent.trim().toLowerCase();
-                        // Match 'Audio', 'MP3', or 'audio' options
-                        if (text.includes('audio') || text.includes('mp3')) {
-                            link.click();
-                            return 'clicked_audio';
-                        }
-                    }
-                    // Click first clickable option as fallback
-                    const first = panel.querySelector('a, button, div[class*="cursor"], [role="button"]');
-                    if (first) { first.click(); return 'clicked_first'; }
+        if (panels.length === 0) return {exists: false, buttons: [], html: 'NO_PANEL'};
+        const panel = panels[panels.length - 1];
+        const buttons = [];
+        const clickables = panel.querySelectorAll('button, a, li, [role="menuitem"]');
+        for (const el of clickables) {
+            // Get text without SVG content
+            let text = '';
+            for (const node of el.childNodes) {
+                if (node.nodeType === 3) {  // TEXT_NODE
+                    text += node.textContent;
+                } else if (node.nodeType === 1 && node.tagName !== 'SVG' && node.tagName !== 'svg') {
+                    // Skip SVG elements, get text from other children
+                    const inner = node.textContent || '';
+                    if (!node.querySelector('svg')) text += inner;
                 }
-                return 'nothing';
-            }""")
+            }
+            text = text.trim();
+            if (!text) {
+                // Fallback: use full textContent
+                text = el.textContent.trim().substring(0, 50);
+            }
+            buttons.push({
+                tag: el.tagName,
+                text: text,
+                href: el.getAttribute('href') || '',
+                hasOnClick: !!el.onclick || el.hasAttribute('onclick'),
+            });
+        }
+        return {
+            exists: true,
+            buttons: buttons,
+            html: panel.innerHTML.substring(0, 1000),
+            panelId: panel.id || '',
+        };
+    }""")
+
+    if not panel_info.get("exists"):
+        log.warning(f"No popover panel found (card {card_num}, btn {idx + 1})")
+        return None
+
+    log.info(f"Popover panel buttons ({len(panel_info.get('buttons', []))}):")
+    for btn in panel_info.get("buttons", []):
+        log.info(f"  <{btn['tag']}> text='{btn['text']}' href='{btn['href']}'")
+
+    # ── Strategy 1: Playwright locator click (triggers trusted download event) ──
+    try:
+        panel_sel = '[id^="headlessui-popover-panel"]'
+        panel_loc = page.locator(panel_sel).last
+
+        # Try to find "Audio" button
+        audio_loc = None
+        for text_match in ["Audio", "audio", "MP3", "mp3"]:
+            loc = panel_loc.get_by_text(text_match, exact=False)
+            if loc.count() > 0:
+                audio_loc = loc.first
+                log.info(f"Found audio option by text: '{text_match}'")
+                break
+
+        if not audio_loc:
+            # Fallback: click first button/link in panel
+            first_btn = panel_loc.locator("button, a").first
+            if first_btn.count() > 0:
+                audio_loc = first_btn
+                log.info("No 'Audio' text found, clicking first button in panel")
+            else:
+                log.warning("No clickable elements in popover panel")
+                page.evaluate("document.body.click()")
+                return None
+
+        with page.expect_download(timeout=30_000) as dl_info:
+            audio_loc.click()
 
         download = dl_info.value
         download.save_as(str(output_path))
-
-        # Close popover
+        log.info(f"Strategy 1 (Playwright click): downloaded {output_path.name}")
         page.evaluate("document.body.click()")
         page.wait_for_timeout(1000)
         return output_path
 
     except PlaywrightTimeout:
-        log.warning(f"Popover download timeout (card {card_num}, btn {idx + 1})")
-        page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_timeout_{card_num}_{idx + 1}.png"))
-        page.evaluate("document.body.click()")
-        page.wait_for_timeout(1000)
-        return None
+        log.warning(f"Strategy 1 timeout (card {card_num}, btn {idx + 1})")
+        page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_s1_{card_num}_{idx + 1}.png"))
+    except Exception as e:
+        log.warning(f"Strategy 1 error: {e}")
+
+    # ── Strategy 2: Check for <a href> with direct download URL ──
+    try:
+        audio_url = page.evaluate("""() => {
+            const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
+            for (const panel of panels) {
+                // Check <a> tags with href
+                const links = panel.querySelectorAll('a[href]');
+                for (const a of links) {
+                    const text = a.textContent.toLowerCase();
+                    const href = a.href;
+                    if (href && (text.includes('audio') || text.includes('mp3')
+                        || href.includes('.mp3') || href.includes('audio'))) {
+                        return href;
+                    }
+                }
+                // Check buttons with data attributes containing URLs
+                const buttons = panel.querySelectorAll('button[data-url], button[data-href]');
+                for (const btn of buttons) {
+                    const url = btn.getAttribute('data-url') || btn.getAttribute('data-href');
+                    if (url) return url;
+                }
+                // Any <a> with href
+                if (links.length > 0) return links[0].href;
+            }
+            return null;
+        }""")
+
+        if audio_url:
+            log.info(f"Strategy 2: found direct URL: {audio_url[:100]}")
+            # Get cookies from browser for authenticated download
+            cookies = page.context.cookies()
+            cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+            resp = req.get(audio_url, headers={
+                "Cookie": cookie_str,
+                "Referer": page.url,
+            }, timeout=120)
+            if resp.status_code == 200 and len(resp.content) > 10_000:
+                output_path.write_bytes(resp.content)
+                log.info(f"Strategy 2 (direct URL): downloaded {output_path.name} ({len(resp.content)} bytes)")
+                page.evaluate("document.body.click()")
+                page.wait_for_timeout(1000)
+                return output_path
+            else:
+                log.warning(f"Strategy 2: HTTP {resp.status_code}, size {len(resp.content)}")
+    except Exception as e:
+        log.warning(f"Strategy 2 error: {e}")
+
+    # ── Strategy 3: Network interception — click and capture audio response ──
+    try:
+        log.info("Strategy 3: intercepting network responses...")
+        captured_url = []
+
+        def on_response(response):
+            ct = response.headers.get("content-type", "")
+            url = response.url
+            if ("audio" in ct or "octet-stream" in ct
+                    or ".mp3" in url or "download" in url.lower()):
+                captured_url.append(url)
+
+        page.on("response", on_response)
+
+        # Re-open popover if it closed
+        page.evaluate("""(idx) => {
+            // Check if panel is still visible
+            const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
+            const visible = [...panels].some(p => p.offsetParent !== null);
+            if (!visible) {
+                const popovers = [...document.querySelectorAll('[id^="headlessui-popover-button"]')]
+                    .filter(p => p.textContent.includes('Download') && p.offsetParent !== null);
+                if (idx < popovers.length) popovers[idx].click();
+            }
+        }""", idx)
+        page.wait_for_timeout(1500)
+
+        # Click Audio with Playwright click
+        panel_loc = page.locator('[id^="headlessui-popover-panel"]').last
+        for text_match in ["Audio", "audio", "MP3", "mp3"]:
+            loc = panel_loc.get_by_text(text_match, exact=False)
+            if loc.count() > 0:
+                loc.first.click()
+                break
+        else:
+            btn = panel_loc.locator("button, a").first
+            if btn.count() > 0:
+                btn.click()
+
+        # Wait for response
+        page.wait_for_timeout(10_000)
+        page.remove_listener("response", on_response)
+
+        if captured_url:
+            log.info(f"Strategy 3: captured URL: {captured_url[0][:100]}")
+            cookies = page.context.cookies()
+            cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+            resp = req.get(captured_url[0], headers={
+                "Cookie": cookie_str,
+                "Referer": page.url,
+            }, timeout=120)
+            if resp.status_code == 200 and len(resp.content) > 10_000:
+                output_path.write_bytes(resp.content)
+                log.info(f"Strategy 3 (intercept): downloaded {output_path.name} ({len(resp.content)} bytes)")
+                page.evaluate("document.body.click()")
+                page.wait_for_timeout(1000)
+                return output_path
+            else:
+                log.warning(f"Strategy 3: HTTP {resp.status_code}, size {len(resp.content)}")
+        else:
+            log.warning("Strategy 3: no audio response captured")
+    except Exception as e:
+        log.warning(f"Strategy 3 error: {e}")
+
+    # Close popover
+    page.evaluate("document.body.click()")
+    page.wait_for_timeout(1000)
+    log.warning(f"All download strategies failed (card {card_num}, btn {idx + 1})")
+    page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_allfail_{card_num}_{idx + 1}.png"))
+    return None
 
 
 def _download_via_button(page, idx: int, output_path: Path, card_num: int) -> Path | None:
-    """Download MP3 by clicking Download then Audio in the dropdown."""
+    """Download MP3 by clicking Download then Audio in the dropdown.
+
+    Uses Playwright locator clicks for proper download event handling.
+    """
     try:
-        # Click the Download button first
+        # Click the Download button first (JS click to open dropdown)
         page.evaluate("""(idx) => {
             const candidates = [];
             const allEls = document.querySelectorAll('button, div, a, span');
@@ -905,23 +1073,25 @@ def _download_via_button(page, idx: int, output_path: Path, card_num: int) -> Pa
             if (idx < candidates.length) candidates[idx].click();
         }""", idx)
 
-        # Wait for dropdown to appear, then click "Audio"
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(2000)
 
+        # Check if a popover panel appeared
+        panel_exists = page.evaluate("""() => {
+            return document.querySelectorAll('[id^="headlessui-popover-panel"]').length > 0;
+        }""")
+
+        if panel_exists:
+            log.info("Download button opened a popover — using popover download flow")
+            return _download_via_popover(page, 0, output_path, card_num)
+
+        # No popover — try Playwright click on "Audio" text anywhere visible
         with page.expect_download(timeout=30_000) as dl_info:
-            page.evaluate("""() => {
-                // Look for "Audio" option in any visible dropdown/popover/panel
-                const allEls = document.querySelectorAll('a, button, div, span, [role="menuitem"]');
-                for (const el of allEls) {
-                    if (el.offsetParent === null) continue;
-                    const text = el.textContent.trim().toLowerCase();
-                    if (text === 'audio' || text.includes('audio') || text.includes('mp3')) {
-                        el.click();
-                        return 'clicked_audio';
-                    }
-                }
-                return 'not_found';
-            }""")
+            audio_loc = page.get_by_text("Audio", exact=False)
+            if audio_loc.count() > 0:
+                audio_loc.first.click()
+            else:
+                # Click any visible dropdown option
+                page.locator('[role="menuitem"], [role="option"]').first.click()
 
         download = dl_info.value
         download.save_as(str(output_path))
@@ -931,16 +1101,9 @@ def _download_via_button(page, idx: int, output_path: Path, card_num: int) -> Pa
     except PlaywrightTimeout:
         log.warning(f"Direct download timeout (card {card_num}, btn {idx + 1})")
         page.screenshot(path=str(OUTPUT_DIR / f"debug_btn_timeout_{card_num}_{idx + 1}.png"))
-
-        # Maybe the button opened a popover instead — check and try
-        panel_exists = page.evaluate("""() => {
-            return document.querySelectorAll('[id^="headlessui-popover-panel"]').length > 0;
-        }""")
-
-        if panel_exists:
-            log.info("A popover opened — trying to download MP3 from it...")
-            return _download_via_popover(page, 0, output_path, card_num)
-
+        return None
+    except Exception as e:
+        log.warning(f"Direct download error (card {card_num}, btn {idx + 1}): {e}")
         return None
 
 
