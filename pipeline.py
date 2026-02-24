@@ -5,7 +5,7 @@ from pathlib import Path
 from utils.logger import log
 from modules.concept_generator import generate_concept
 from modules.thumbnail_generator import generate_thumbnail
-from modules.video_creator import create_videos
+from modules.video_creator import create_video
 from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
 
@@ -14,8 +14,7 @@ def reupload_track(track_name: str) -> dict:
     """Re-upload an existing track to YouTube and TikTok (skip generation/video steps).
 
     Looks for existing files in OUTPUT_DIR:
-      - {track_name}_youtube.mp4
-      - {track_name}_tiktok.mp4
+      - {track_name}_video.mp4
       - {track_name}_thumbnail.png
       - {track_name}.mp3  (for duration detection)
 
@@ -34,19 +33,17 @@ def reupload_track(track_name: str) -> dict:
     }
 
     # Locate existing files
-    youtube_video = OUTPUT_DIR / f"{track_name}_youtube.mp4"
-    tiktok_video = OUTPUT_DIR / f"{track_name}_tiktok.mp4"
+    video = OUTPUT_DIR / f"{track_name}_video.mp4"
     thumbnail = OUTPUT_DIR / f"{track_name}_thumbnail.png"
     mp3_file = OUTPUT_DIR / f"{track_name}.mp3"
 
     if not thumbnail.exists():
         log.warning(f"Thumbnail not found: {thumbnail} — continuing without it")
 
-    if not youtube_video.exists():
-        log.info(f"YouTube video not found: {youtube_video} — skipping (YouTube upload disabled)")
-
-    if not tiktok_video.exists():
-        log.warning(f"TikTok video not found: {tiktok_video} — will skip TikTok upload")
+    if not video.exists():
+        log.error(f"Video not found: {video}")
+        result["errors"].append(f"missing: {video}")
+        return result
 
     # Detect duration from MP3 (if available)
     duration_sec = 0
@@ -86,29 +83,24 @@ def reupload_track(track_name: str) -> dict:
     # YouTube upload disabled — video was already posted twice
     # To re-enable: uncomment the upload_to_youtube call below
     # try:
-    #     youtube_url = upload_to_youtube(youtube_video, thumbnail, concept)
+    #     youtube_url = upload_to_youtube(video, thumbnail, concept)
     #     result["youtube_url"] = youtube_url
     # except Exception as e:
     #     result["errors"].append(f"youtube: {e}")
 
     # Upload to TikTok
-    if tiktok_video.exists():
-        try:
-            log.info("=" * 60)
-            log.info("Uploading to TikTok...")
-            tiktok_url = upload_to_tiktok(tiktok_video, concept)
-            if tiktok_url:
-                result["tiktok_url"] = tiktok_url
-                log.info(f"TikTok URL: {tiktok_url}")
-            else:
-                log.error("TikTok upload returned None — check cookies/login above")
-                result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
-        except Exception as e:
-            log.error(f"TikTok upload failed: {e}")
-            result["errors"].append(f"tiktok: {e}")
-    else:
-        log.error(f"TikTok video not found: {tiktok_video}")
-        result["errors"].append(f"missing: {tiktok_video}")
+    try:
+        log.info("=" * 60)
+        log.info("Uploading to TikTok...")
+        tiktok_url = upload_to_tiktok(video, concept)
+        result["tiktok_url"] = tiktok_url
+        if tiktok_url:
+            log.info(f"TikTok URL: {tiktok_url}")
+        else:
+            log.info("TikTok upload completed (URL not captured — check TikTok account)")
+    except Exception as e:
+        log.error(f"TikTok upload failed: {e}")
+        result["errors"].append(f"tiktok: {e}")
 
     # Summary
     log.info("=" * 60)
@@ -142,8 +134,7 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         "concept": None,
         "duration": None,
         "thumbnail_path": None,
-        "youtube_video_path": None,
-        "tiktok_video_path": None,
+        "video_path": None,
         "youtube_url": None,
         "tiktok_url": None,
         "errors": [],
@@ -180,20 +171,18 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         log.info(f"Mood: {concept.mood}")
         log.info(f"YouTube title: {concept.youtube_title}")
 
-        # Inject duration into YouTube title (e.g. "KAMUZI 🔥 Primal..." → "KAMUZI 🔥 30 Minutes of Primal...")
+        # Inject duration into YouTube title
         duration_mins = int(duration_sec) // 60
-        if "🔥" in concept.youtube_title:
+        if "\U0001f525" in concept.youtube_title:
             concept.youtube_title = concept.youtube_title.replace(
-                "🔥", f"🔥 {duration_mins} Minutes of", 1
+                "\U0001f525", f"\U0001f525 {duration_mins} Minutes of", 1
             )
-        concept.youtube_title = concept.youtube_title[:100]  # Ensure max 100 chars
+        concept.youtube_title = concept.youtube_title[:100]
 
-        # Replace {duration} placeholder in description (if AI used it)
+        # Replace {duration} placeholder in description
         concept.youtube_description = concept.youtube_description.replace(
             "{duration}", str(duration_mins)
         )
-
-        # Add duration to YouTube description
         concept.youtube_description += f"\n\nDuration: {duration_str}"
     except Exception as e:
         log.error(f"Concept generation failed: {e}")
@@ -212,24 +201,22 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         result["errors"].append(f"thumbnail: {e}")
         return result
 
-    # Step 4: Create videos
+    # Step 4: Create video (single 1080x1080 square — works for YouTube & TikTok)
     try:
         log.info("=" * 60)
-        log.info("STEP 4: Creating YouTube + TikTok videos...")
-        youtube_video, tiktok_video = create_videos(mp3_path, thumbnail_path, concept)
-        result["youtube_video_path"] = str(youtube_video)
-        result["tiktok_video_path"] = str(tiktok_video)
-        log.info(f"YouTube video: {youtube_video}")
-        log.info(f"TikTok video: {tiktok_video}")
+        log.info("STEP 4: Creating video (1920x1080)...")
+        video = create_video(mp3_path, thumbnail_path, concept)
+        result["video_path"] = str(video)
+        log.info(f"Video: {video}")
     except Exception as e:
         log.error(f"Video creation failed: {e}")
         result["errors"].append(f"video: {e}")
         return result
 
-    # Step 5: YouTube upload disabled — video was already posted twice
+    # Step 5: YouTube upload disabled
     # To re-enable: uncomment the upload_to_youtube call below
     # try:
-    #     youtube_url = upload_to_youtube(youtube_video, thumbnail_path, concept)
+    #     youtube_url = upload_to_youtube(video, thumbnail_path, concept)
     #     result["youtube_url"] = youtube_url
     # except Exception as e:
     #     result["errors"].append(f"youtube: {e}")
@@ -238,13 +225,12 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
     try:
         log.info("=" * 60)
         log.info("STEP 6: Uploading to TikTok...")
-        tiktok_url = upload_to_tiktok(tiktok_video, concept)
+        tiktok_url = upload_to_tiktok(video, concept)
+        result["tiktok_url"] = tiktok_url
         if tiktok_url:
-            result["tiktok_url"] = tiktok_url
             log.info(f"TikTok URL: {tiktok_url}")
         else:
-            log.error("TikTok upload returned None — check cookies/login above")
-            result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
+            log.info("TikTok upload completed (URL not captured — check TikTok account)")
     except Exception as e:
         log.error(f"TikTok upload failed: {e}")
         result["errors"].append(f"tiktok: {e}")

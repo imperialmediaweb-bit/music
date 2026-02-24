@@ -1,7 +1,7 @@
-"""Create YouTube and TikTok videos from a thumbnail image + audio using FFmpeg.
+"""Create a 1920x1080 video from a thumbnail image + audio using FFmpeg.
 
-Uses FFmpeg directly instead of MoviePy for dramatically faster rendering.
-A static image is looped over the audio duration — simple and fast.
+Single video works for both YouTube and TikTok.
+Uses FFmpeg directly — a static image is looped over the audio duration.
 """
 
 import subprocess
@@ -39,23 +39,22 @@ def _run_ffmpeg(args: list[str], label: str):
         raise RuntimeError(f"FFmpeg failed for {label}: {result.stderr[-200:]}")
 
 
-def create_videos(
+def create_video(
     audio_path: Path,
     thumbnail_path: Path,
     concept: MusicConcept,
-) -> tuple[Path, Path]:
-    """Create YouTube (16:9) and TikTok (9:16) videos from image + audio."""
+) -> Path:
+    """Create a 1920x1080 video from image + audio (works for YouTube & TikTok)."""
     _check_ffmpeg()
-    log.info(f"Creating videos for: {concept.track_name}")
+    log.info(f"Creating video for: {concept.track_name}")
 
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in concept.track_name)
     safe_name = safe_name.strip().replace(" ", "_")[:50]
 
-    youtube_path = OUTPUT_DIR / f"{safe_name}_youtube.mp4"
-    tiktok_path = OUTPUT_DIR / f"{safe_name}_tiktok.mp4"
+    video_path = OUTPUT_DIR / f"{safe_name}_video.mp4"
 
-    # --- YouTube video (16:9 @ 1920x1080) ---
-    log.info("Creating YouTube video (16:9)...")
+    # --- YouTube format (16:9 @ 1920x1080) — works on TikTok too ---
+    log.info("Creating video (1920x1080)...")
     _run_ffmpeg(
         [
             "-loop", "1",
@@ -72,34 +71,10 @@ def create_videos(
             "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
             "-shortest",
             "-movflags", "+faststart",
-            str(youtube_path),
+            str(video_path),
         ],
-        label="YouTube video",
+        label="video",
     )
-    log.info(f"YouTube video saved: {youtube_path}")
+    log.info(f"Video saved: {video_path}")
 
-    # --- TikTok video (9:16 @ 1080x1920) ---
-    log.info("Creating TikTok video (9:16)...")
-    _run_ffmpeg(
-        [
-            "-loop", "1",
-            "-framerate", "2",
-            "-i", str(thumbnail_path),
-            "-i", str(audio_path),
-            "-c:v", "libx264",
-            "-tune", "stillimage",
-            "-preset", "ultrafast",
-            "-crf", "28",
-            "-r", "2",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
-            "-shortest",
-            "-movflags", "+faststart",
-            str(tiktok_path),
-        ],
-        label="TikTok video",
-    )
-    log.info(f"TikTok video saved: {tiktok_path}")
-
-    return youtube_path, tiktok_path
+    return video_path

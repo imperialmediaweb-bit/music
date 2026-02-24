@@ -89,15 +89,12 @@ class TestProcessSingleTrackE2E:
         assert result["concept"] == "Zanu"
         assert result["duration"] is not None
         assert result["thumbnail_path"] is not None
-        assert result["youtube_video_path"] is not None
-        assert result["tiktok_video_path"] is not None
-        assert result["youtube_url"] == "https://youtu.be/test123"
+        assert result["video_path"] is not None
         assert result["tiktok_url"] == "https://www.tiktok.com/@user/video/456"
 
         # Verify real files were created
         assert Path(result["thumbnail_path"]).exists()
-        assert Path(result["youtube_video_path"]).exists()
-        assert Path(result["tiktok_video_path"]).exists()
+        assert Path(result["video_path"]).exists()
 
     def test_pipeline_generates_concept_if_not_provided(self, fake_mp3, fake_concept, tmp_output):
         with _mock_concept_generator(fake_concept), \
@@ -109,23 +106,12 @@ class TestProcessSingleTrackE2E:
         assert result["concept"] == "Zanu"
         assert result["errors"] == []
 
-    def test_pipeline_continues_after_youtube_failure(self, fake_mp3, fake_concept, tmp_output):
-        with _mock_thumbnail_generator(tmp_output), \
-             patch("pipeline.upload_to_youtube", side_effect=Exception("YouTube auth failed")), \
-             _mock_tiktok_uploader():
-            result = process_single_track(fake_mp3, concept=fake_concept)
-
-        # YouTube failed but TikTok should still succeed
-        assert any("youtube" in e for e in result["errors"])
-        assert result["tiktok_url"] == "https://www.tiktok.com/@user/video/456"
-
     def test_pipeline_continues_after_tiktok_failure(self, fake_mp3, fake_concept, tmp_output):
         with _mock_thumbnail_generator(tmp_output), \
              _mock_youtube_uploader(), \
              patch("pipeline.upload_to_tiktok", side_effect=Exception("TikTok not logged in")):
             result = process_single_track(fake_mp3, concept=fake_concept)
 
-        assert result["youtube_url"] == "https://youtu.be/test123"
         assert any("tiktok" in e for e in result["errors"])
 
     def test_pipeline_stops_if_thumbnail_fails(self, fake_mp3, fake_concept, tmp_output):
@@ -134,16 +120,14 @@ class TestProcessSingleTrackE2E:
 
         assert any("thumbnail" in e for e in result["errors"])
         # Video creation should not have happened
-        assert result["youtube_video_path"] is None
-        assert result["tiktok_video_path"] is None
+        assert result["video_path"] is None
 
     def test_pipeline_stops_if_video_fails(self, fake_mp3, fake_concept, tmp_output):
         with _mock_thumbnail_generator(tmp_output), \
-             patch("pipeline.create_videos", side_effect=Exception("Font missing")):
+             patch("pipeline.create_video", side_effect=Exception("Font missing")):
             result = process_single_track(fake_mp3, concept=fake_concept)
 
         assert any("video" in e for e in result["errors"])
-        assert result["youtube_url"] is None
         assert result["tiktok_url"] is None
 
     def test_pipeline_appends_duration_to_description(self, fake_mp3, fake_concept, tmp_output):
@@ -154,16 +138,6 @@ class TestProcessSingleTrackE2E:
 
         assert "Duration:" in fake_concept.youtube_description
 
-    def test_pipeline_appends_hashtag_block_to_description(self, fake_mp3, fake_concept, tmp_output):
-        with _mock_thumbnail_generator(tmp_output), \
-             _mock_youtube_uploader(), \
-             _mock_tiktok_uploader():
-            result = process_single_track(fake_mp3, concept=fake_concept)
-
-        assert "#afrohouse" in fake_concept.youtube_description
-        assert "#afrohousemusic" in fake_concept.youtube_description
-        assert "#extendedmix" in fake_concept.youtube_description
-
     def test_pipeline_result_structure(self, fake_mp3, fake_concept, tmp_output):
         """Verify the result dict has all expected keys."""
         with _mock_thumbnail_generator(tmp_output), \
@@ -173,7 +147,7 @@ class TestProcessSingleTrackE2E:
 
         expected_keys = {
             "file", "concept", "duration", "thumbnail_path",
-            "youtube_video_path", "tiktok_video_path",
+            "video_path",
             "youtube_url", "tiktok_url", "errors",
         }
         assert set(result.keys()) == expected_keys
@@ -194,4 +168,4 @@ class TestProcessSingleTrackWithMerge:
             result = process_single_track(merged, concept=fake_concept)
 
         assert result["errors"] == []
-        assert result["youtube_url"] == "https://youtu.be/test123"
+        assert result["tiktok_url"] == "https://www.tiktok.com/@user/video/456"

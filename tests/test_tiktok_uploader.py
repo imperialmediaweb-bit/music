@@ -34,7 +34,7 @@ def _build_playwright_mocks(logged_in=True, post_success=True, video_url=None):
     mock_success_el = MagicMock()
     mock_success_el.get_attribute.return_value = video_url
 
-    def wait_for_selector(selector, timeout=5000):
+    def wait_for_selector(selector, timeout=5000, state=None):
         if 'file' in selector:
             return mock_file_input
         if 'contenteditable' in selector:
