@@ -123,7 +123,7 @@ def cmd_tiktok_login(args):
             viewport={"width": 1920, "height": 1080},
         )
         page = context.new_page()
-        page.goto("https://www.tiktok.com/login", wait_until="networkidle", timeout=60_000)
+        page.goto("https://www.tiktok.com/login", wait_until="domcontentloaded", timeout=60_000)
 
         log.info("=" * 60)
         log.info("Browser is open. Please:")

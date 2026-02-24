@@ -58,8 +58,11 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
         try:
             # Navigate to TikTok upload page
             log.info(f"Navigating to {TIKTOK_UPLOAD_URL}...")
-            page.goto(TIKTOK_UPLOAD_URL, wait_until="networkidle", timeout=60_000)
-            page.wait_for_timeout(5000)
+            # Use 'domcontentloaded' — TikTok keeps background requests active
+            # forever (analytics, websockets) so 'networkidle' always times out.
+            page.goto(TIKTOK_UPLOAD_URL, wait_until="domcontentloaded", timeout=60_000)
+            # Give the SPA time to render after DOM is ready
+            page.wait_for_timeout(8000)
 
             actual_url = page.url
             log.info(f"TikTok page loaded. URL: {actual_url}")
