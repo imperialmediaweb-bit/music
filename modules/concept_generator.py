@@ -61,10 +61,28 @@ Return ONLY valid JSON with these exact fields:
 }"""
 
 
-def generate_concept() -> MusicConcept:
+def generate_concept(track_name: str = "") -> MusicConcept:
+    """Generate an Afro House track concept via OpenAI.
+
+    Args:
+        track_name: If provided, forces this name instead of letting AI pick one.
+    """
     log.info("Generating Afro House music concept...")
 
     client = OpenAI(api_key=OPENAI_API_KEY)
+
+    user_msg = (
+        "Generate a fresh, original Afro House track concept. "
+        "The track name MUST be invented African-sounding nonsense words "
+        "(like Zanu, Maku, Piku, Dakora, Mbawu). NOT English words. "
+        "Everything else (title, description, tags) must be in English."
+    )
+    if track_name:
+        user_msg = (
+            f"Generate an Afro House track concept for a track called '{track_name}'. "
+            f"Use '{track_name}' as the track_name. "
+            "Everything (title, description, tags) must be in English."
+        )
 
     # Retry with exponential backoff for transient connection errors
     last_err = None
@@ -74,15 +92,7 @@ def generate_concept() -> MusicConcept:
                 model="gpt-4o-mini",
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": (
-                            "Generate a fresh, original Afro House track concept. "
-                            "The track name MUST be invented African-sounding nonsense words "
-                            "(like Zanu, Maku, Piku, Dakora, Mbawu). NOT English words. "
-                            "Everything else (title, description, tags) must be in English."
-                        ),
-                    },
+                    {"role": "user", "content": user_msg},
                 ],
                 temperature=1.0,
                 response_format={"type": "json_object"},
@@ -103,8 +113,11 @@ def generate_concept() -> MusicConcept:
 
     raw = response.choices[0].message.content
     data = json.loads(raw)
-    track_name = data.get("track_name", "Tribal Pulse")
-    log.info(f"Generated concept: {track_name}")
+    # Force track_name if provided (don't trust AI to follow instructions 100%)
+    if track_name:
+        data["track_name"] = track_name
+    final_name = data.get("track_name", "Tribal Pulse")
+    log.info(f"Generated concept: {final_name}")
 
     # Build thumbnail prompt: African mask (text is added by Pillow, not DALL-E)
     thumbnail_prompt = (
@@ -120,20 +133,20 @@ def generate_concept() -> MusicConcept:
     if not music_prompt:
         music_prompt = (
             f"{AFRO_HOUSE_STYLE}\n"
-            f"Track name: {track_name}\n"
+            f"Track name: {final_name}\n"
             f"Mood: {data.get('mood', 'ritualistic, primal, powerful, transcendent')}"
         )
 
     return MusicConcept(
-        track_name=track_name,
+        track_name=final_name,
         genre="Afro House",
         mood=data.get("mood", "ritualistic, primal, powerful, transcendent"),
-        description=data.get("description", f"A deep, hypnotic Afro House track called {track_name}"),
+        description=data.get("description", f"A deep, hypnotic Afro House track called {final_name}"),
         music_prompt=music_prompt,
         hashtags=data.get("hashtags", ["afrohouse", "tribalbass", "deephouse", "carbass", "music"]),
         thumbnail_prompt=thumbnail_prompt,
-        youtube_title=data.get("youtube_title", f"{track_name} - Afro House"),
-        youtube_description=data.get("youtube_description", f"{track_name} - A deep Afro House track."),
+        youtube_title=data.get("youtube_title", f"{final_name} - Afro House"),
+        youtube_description=data.get("youtube_description", f"{final_name} - A deep Afro House track."),
         youtube_tags=data.get("youtube_tags", ["afro house", "deep house", "tribal", "car bass"]),
-        tiktok_caption=data.get("tiktok_caption", f"{track_name} #afrohouse #tribal #deepbass"),
+        tiktok_caption=data.get("tiktok_caption", f"{final_name} #afrohouse #tribal #deepbass"),
     )

@@ -140,6 +140,7 @@ def cmd_download(args):
     """
     from modules.music_generator import download_existing_tracks
     from modules.audio_merger import merge_mp3s
+    from modules.concept_generator import MusicConcept, generate_concept
     from pipeline import process_single_track
 
     track_name = args.name or ""
@@ -158,7 +159,12 @@ def cmd_download(args):
     log.info(f"Merged file: {merged_path}")
 
     # Step 3-6: Process (concept, thumbnail, video, upload)
-    result = process_single_track(merged_path)
+    # Use the track name from --name so AI doesn't pick a random name
+    if track_name:
+        concept = generate_concept(track_name=track_name)
+    else:
+        concept = None
+    result = process_single_track(merged_path, concept=concept)
 
     if result["errors"]:
         log.warning(f"Completed with {len(result['errors'])} error(s)")
