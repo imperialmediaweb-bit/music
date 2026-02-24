@@ -863,7 +863,8 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
     """Download MP3 via HeadlessUI popover dropdown.
 
     From screenshots: clicking Download opens a dropdown with 'Audio' option.
-    Uses Playwright locator clicks (not JS clicks) to trigger download events.
+    The site uses JS fetch → blob → <a download> pattern, so we set up network
+    interception BEFORE clicking to capture the actual audio URL/data.
     """
     import requests as req
 
@@ -946,85 +947,135 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
     # Snapshot existing files in OUTPUT_DIR before clicking (for fallback detection)
     existing_files = set(OUTPUT_DIR.glob("*"))
 
-    # ── Strategy 1: Playwright locator click (triggers trusted download event) ──
-    try:
-        panel_sel = '[id^="headlessui-popover-panel"]'
-        panel_loc = page.locator(panel_sel).last
+    # ── Set up network interception BEFORE clicking Audio ──
+    # The site uses JS fetch → blob → <a download>, so the actual audio data
+    # travels as a network response BEFORE the download event fires.
+    captured_responses = []
 
-        # Try to find "Audio" <button> specifically (not <li> wrapper)
-        audio_loc = None
+    def on_response(response):
+        url = response.url
+        ct = response.headers.get("content-type", "")
+        size = int(response.headers.get("content-length", "0") or "0")
+        is_audio = ("audio" in ct or "octet-stream" in ct
+                    or ".mp3" in url or ".wav" in url)
+        is_api_dl = ("download" in url.lower() and size > 10_000) or is_audio
+        if is_audio or is_api_dl:
+            log.info(f"  [network] {url[:100]} ct={ct} size={size}")
+            captured_responses.append({"url": url, "ct": ct, "size": size})
+
+    page.on("response", on_response)
+
+    # Find the Audio button locator
+    panel_sel = '[id^="headlessui-popover-panel"]'
+    panel_loc = page.locator(panel_sel).last
+
+    audio_loc = None
+    for text_match in ["Audio", "audio", "MP3", "mp3"]:
+        loc = panel_loc.locator("button").filter(has_text=text_match)
+        if loc.count() > 0:
+            audio_loc = loc.first
+            log.info(f"Found audio <button> by text: '{text_match}'")
+            break
+
+    if not audio_loc:
         for text_match in ["Audio", "audio", "MP3", "mp3"]:
-            loc = panel_loc.locator("button").filter(has_text=text_match)
+            loc = panel_loc.get_by_text(text_match, exact=False)
             if loc.count() > 0:
                 audio_loc = loc.first
-                log.info(f"Found audio <button> by text: '{text_match}'")
+                log.info(f"Found audio option by text: '{text_match}'")
                 break
 
-        # Fallback: try any element with Audio text
-        if not audio_loc:
-            for text_match in ["Audio", "audio", "MP3", "mp3"]:
-                loc = panel_loc.get_by_text(text_match, exact=False)
-                if loc.count() > 0:
-                    audio_loc = loc.first
-                    log.info(f"Found audio option by text: '{text_match}'")
-                    break
+    if not audio_loc:
+        first_btn = panel_loc.locator("button, a").first
+        if first_btn.count() > 0:
+            audio_loc = first_btn
+            log.info("No 'Audio' text found, clicking first button in panel")
+        else:
+            log.warning("No clickable elements in popover panel")
+            page.remove_listener("response", on_response)
+            page.evaluate("document.body.click()")
+            return None
 
-        if not audio_loc:
-            # Fallback: click first button/link in panel
-            first_btn = panel_loc.locator("button, a").first
-            if first_btn.count() > 0:
-                audio_loc = first_btn
-                log.info("No 'Audio' text found, clicking first button in panel")
-            else:
-                log.warning("No clickable elements in popover panel")
-                page.evaluate("document.body.click()")
-                return None
-
+    # ── Strategy 1: Playwright click + expect_download ──
+    download_ok = False
+    try:
         with page.expect_download(timeout=30_000) as dl_info:
             audio_loc.click()
 
         download = dl_info.value
-        download.save_as(str(output_path))
-        log.info(f"Strategy 1 (Playwright click): downloaded {output_path.name}")
-        page.evaluate("document.body.click()")
-        page.wait_for_timeout(1000)
-        if not _validate_mp3(output_path):
-            log.warning(f"Strategy 1: downloaded file is NOT a valid MP3, deleting")
-            output_path.unlink(missing_ok=True)
-            return None
-        return output_path
+        # Wait for the download to fully complete
+        failure = download.failure()
+        if failure:
+            log.warning(f"Strategy 1: download failed: {failure}")
+        else:
+            download.save_as(str(output_path))
+            log.info(f"Strategy 1 (Playwright click): downloaded {output_path.name}")
+            if _validate_mp3(output_path):
+                download_ok = True
+            else:
+                log.warning(f"Strategy 1: downloaded file is NOT a valid MP3 (0 bytes or bad header)")
+                output_path.unlink(missing_ok=True)
 
     except PlaywrightTimeout:
         log.warning(f"Strategy 1 timeout (card {card_num}, btn {idx + 1})")
-        page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_s1_{card_num}_{idx + 1}.png"))
-
-        # Fallback: check if CDP auto-saved the file to OUTPUT_DIR
-        new_files = set(OUTPUT_DIR.glob("*")) - existing_files
-        audio_files = [f for f in new_files if f.suffix.lower() in (".mp3", ".wav", ".m4a")]
-        if audio_files:
-            # Take the newest file
-            src = max(audio_files, key=lambda f: f.stat().st_mtime)
-            src.rename(output_path)
-            log.info(f"Strategy 1 fallback (CDP auto-save): found {src.name} -> {output_path.name}")
-            page.evaluate("document.body.click()")
-            page.wait_for_timeout(1000)
-            if not _validate_mp3(output_path):
-                log.warning(f"Strategy 1 fallback: file is NOT a valid MP3, deleting")
-                output_path.unlink(missing_ok=True)
-                return None
-            return output_path
-        else:
-            log.warning(f"No new audio files found in {OUTPUT_DIR}")
 
     except Exception as e:
         log.warning(f"Strategy 1 error: {e}")
 
-    # ── Strategy 2: Check for <a href> with direct download URL ──
+    if download_ok:
+        page.remove_listener("response", on_response)
+        page.evaluate("document.body.click()")
+        page.wait_for_timeout(1000)
+        return output_path
+
+    # ── Strategy 2: Check captured network responses (set up BEFORE click) ──
+    # Give extra time for async fetch to complete
+    page.wait_for_timeout(5_000)
+    page.remove_listener("response", on_response)
+
+    if captured_responses:
+        # Pick the best captured URL (prefer audio content-type, largest size)
+        captured_responses.sort(key=lambda r: (
+            1 if "audio" in r["ct"] else 0,
+            r["size"],
+        ), reverse=True)
+        best = captured_responses[0]
+        log.info(f"Strategy 2: using captured URL: {best['url'][:100]} (ct={best['ct']}, size={best['size']})")
+
+        try:
+            cookies = page.context.cookies()
+            cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
+            resp = req.get(best["url"], headers={
+                "Cookie": cookie_str,
+                "Referer": page.url,
+                "User-Agent": page.evaluate("() => navigator.userAgent"),
+            }, timeout=120, stream=True)
+
+            # Stream to file to handle large responses
+            total = 0
+            with open(output_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=65536):
+                    f.write(chunk)
+                    total += len(chunk)
+
+            log.info(f"Strategy 2 (network capture): saved {output_path.name} ({total} bytes)")
+            if _validate_mp3(output_path):
+                page.evaluate("document.body.click()")
+                page.wait_for_timeout(1000)
+                return output_path
+            else:
+                log.warning(f"Strategy 2: file is NOT a valid MP3, deleting")
+                output_path.unlink(missing_ok=True)
+        except Exception as e:
+            log.warning(f"Strategy 2 download error: {e}")
+    else:
+        log.warning(f"Strategy 2: no audio network responses captured")
+
+    # ── Strategy 3: Check for <a href> with direct download URL in popover ──
     try:
         audio_url = page.evaluate("""() => {
             const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
             for (const panel of panels) {
-                // Check <a> tags with href
                 const links = panel.querySelectorAll('a[href]');
                 for (const a of links) {
                     const text = a.textContent.toLowerCase();
@@ -1034,21 +1085,18 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
                         return href;
                     }
                 }
-                // Check buttons with data attributes containing URLs
                 const buttons = panel.querySelectorAll('button[data-url], button[data-href]');
                 for (const btn of buttons) {
                     const url = btn.getAttribute('data-url') || btn.getAttribute('data-href');
                     if (url) return url;
                 }
-                // Any <a> with href
                 if (links.length > 0) return links[0].href;
             }
             return null;
         }""")
 
         if audio_url:
-            log.info(f"Strategy 2: found direct URL: {audio_url[:100]}")
-            # Get cookies from browser for authenticated download
+            log.info(f"Strategy 3: found direct URL: {audio_url[:100]}")
             cookies = page.context.cookies()
             cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
             resp = req.get(audio_url, headers={
@@ -1057,86 +1105,95 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
             }, timeout=120)
             if resp.status_code == 200 and len(resp.content) > 10_000:
                 output_path.write_bytes(resp.content)
-                log.info(f"Strategy 2 (direct URL): downloaded {output_path.name} ({len(resp.content)} bytes)")
+                log.info(f"Strategy 3 (direct URL): downloaded {output_path.name} ({len(resp.content)} bytes)")
                 page.evaluate("document.body.click()")
                 page.wait_for_timeout(1000)
-                if not _validate_mp3(output_path):
-                    log.warning(f"Strategy 2: file is NOT a valid MP3, deleting")
+                if _validate_mp3(output_path):
+                    return output_path
+                else:
+                    log.warning(f"Strategy 3: file is NOT a valid MP3, deleting")
                     output_path.unlink(missing_ok=True)
-                    return None
-                return output_path
             else:
-                log.warning(f"Strategy 2: HTTP {resp.status_code}, size {len(resp.content)}")
+                log.warning(f"Strategy 3: HTTP {resp.status_code}, size {len(resp.content)}")
     except Exception as e:
-        log.warning(f"Strategy 2 error: {e}")
+        log.warning(f"Strategy 3 error: {e}")
 
-    # ── Strategy 3: Network interception — click and capture audio response ──
+    # ── Strategy 4: Check if CDP auto-saved the file to OUTPUT_DIR ──
+    new_files = set(OUTPUT_DIR.glob("*")) - existing_files
+    audio_files = [f for f in new_files if f.suffix.lower() in (".mp3", ".wav", ".m4a")]
+    if audio_files:
+        src = max(audio_files, key=lambda f: f.stat().st_mtime)
+        if _validate_mp3(src):
+            src.rename(output_path)
+            log.info(f"Strategy 4 (CDP auto-save): found {src.name} -> {output_path.name}")
+            page.evaluate("document.body.click()")
+            page.wait_for_timeout(1000)
+            return output_path
+        else:
+            log.warning(f"Strategy 4: {src.name} is not a valid MP3")
+            src.unlink(missing_ok=True)
+
+    # ── Strategy 5: Re-open popover, click Audio again with fresh network capture ──
     try:
-        log.info("Strategy 3: intercepting network responses...")
-        captured_url = []
+        log.info("Strategy 5: re-clicking Audio with fresh network capture...")
+        captured_retry = []
 
-        def on_response(response):
-            ct = response.headers.get("content-type", "")
+        def on_response_retry(response):
             url = response.url
+            ct = response.headers.get("content-type", "")
             if ("audio" in ct or "octet-stream" in ct
-                    or ".mp3" in url or "download" in url.lower()):
-                captured_url.append(url)
+                    or ".mp3" in url or ".wav" in url):
+                captured_retry.append(url)
 
-        page.on("response", on_response)
+        page.on("response", on_response_retry)
 
-        # Re-open popover if it closed
+        # Re-open popover
         page.evaluate("""(idx) => {
-            // Check if panel is still visible
-            const panels = document.querySelectorAll('[id^="headlessui-popover-panel"]');
-            const visible = [...panels].some(p => p.offsetParent !== null);
-            if (!visible) {
+            document.body.click();  // close any open popover
+            setTimeout(() => {
                 const popovers = [...document.querySelectorAll('[id^="headlessui-popover-button"]')]
                     .filter(p => p.textContent.includes('Download') && p.offsetParent !== null);
                 if (idx < popovers.length) popovers[idx].click();
-            }
+            }, 500);
         }""", idx)
-        page.wait_for_timeout(1500)
+        page.wait_for_timeout(2000)
 
-        # Click Audio with Playwright click
+        # Click Audio again
         panel_loc = page.locator('[id^="headlessui-popover-panel"]').last
         for text_match in ["Audio", "audio", "MP3", "mp3"]:
             loc = panel_loc.get_by_text(text_match, exact=False)
             if loc.count() > 0:
                 loc.first.click()
                 break
-        else:
-            btn = panel_loc.locator("button, a").first
-            if btn.count() > 0:
-                btn.click()
 
-        # Wait for response
-        page.wait_for_timeout(10_000)
-        page.remove_listener("response", on_response)
+        # Wait longer for the network response
+        page.wait_for_timeout(15_000)
+        page.remove_listener("response", on_response_retry)
 
-        if captured_url:
-            log.info(f"Strategy 3: captured URL: {captured_url[0][:100]}")
+        if captured_retry:
+            log.info(f"Strategy 5: captured URL: {captured_retry[0][:100]}")
             cookies = page.context.cookies()
             cookie_str = "; ".join(f"{c['name']}={c['value']}" for c in cookies)
-            resp = req.get(captured_url[0], headers={
+            resp = req.get(captured_retry[0], headers={
                 "Cookie": cookie_str,
                 "Referer": page.url,
             }, timeout=120)
             if resp.status_code == 200 and len(resp.content) > 10_000:
                 output_path.write_bytes(resp.content)
-                log.info(f"Strategy 3 (intercept): downloaded {output_path.name} ({len(resp.content)} bytes)")
+                log.info(f"Strategy 5 (retry capture): {output_path.name} ({len(resp.content)} bytes)")
                 page.evaluate("document.body.click()")
                 page.wait_for_timeout(1000)
-                if not _validate_mp3(output_path):
-                    log.warning(f"Strategy 3: file is NOT a valid MP3, deleting")
+                if _validate_mp3(output_path):
+                    return output_path
+                else:
+                    log.warning(f"Strategy 5: file is NOT a valid MP3, deleting")
                     output_path.unlink(missing_ok=True)
-                    return None
-                return output_path
             else:
-                log.warning(f"Strategy 3: HTTP {resp.status_code}, size {len(resp.content)}")
+                log.warning(f"Strategy 5: HTTP {resp.status_code}, size {len(resp.content)}")
         else:
-            log.warning("Strategy 3: no audio response captured")
+            log.warning("Strategy 5: no audio response captured on retry")
     except Exception as e:
-        log.warning(f"Strategy 3 error: {e}")
+        log.warning(f"Strategy 5 error: {e}")
 
     # Close popover
     page.evaluate("document.body.click()")
