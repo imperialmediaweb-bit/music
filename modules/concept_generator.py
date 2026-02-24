@@ -1,4 +1,5 @@
 import json
+import time
 from dataclasses import dataclass
 from openai import OpenAI
 from config import OPENAI_API_KEY
@@ -64,23 +65,41 @@ def generate_concept() -> MusicConcept:
     log.info("Generating Afro House music concept...")
 
     client = OpenAI(api_key=OPENAI_API_KEY)
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    "Generate a fresh, original Afro House track concept. "
-                    "The track name MUST be invented African-sounding nonsense words "
-                    "(like Zanu, Maku, Piku, Dakora, Mbawu). NOT English words. "
-                    "Everything else (title, description, tags) must be in English."
-                ),
-            },
-        ],
-        temperature=1.0,
-        response_format={"type": "json_object"},
-    )
+
+    # Retry with exponential backoff for transient connection errors
+    last_err = None
+    for attempt in range(1, 5):
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": (
+                            "Generate a fresh, original Afro House track concept. "
+                            "The track name MUST be invented African-sounding nonsense words "
+                            "(like Zanu, Maku, Piku, Dakora, Mbawu). NOT English words. "
+                            "Everything else (title, description, tags) must be in English."
+                        ),
+                    },
+                ],
+                temperature=1.0,
+                response_format={"type": "json_object"},
+            )
+            break
+        except Exception as e:
+            last_err = e
+            if attempt < 4:
+                wait = 2 ** attempt  # 2s, 4s, 8s
+                log.warning(f"OpenAI API error (attempt {attempt}/4): {e}")
+                log.info(f"Retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                raise RuntimeError(
+                    f"OpenAI API failed after 4 attempts: {last_err}\n"
+                    "Check your OPENAI_API_KEY in .env and internet connection."
+                ) from last_err
 
     raw = response.choices[0].message.content
     data = json.loads(raw)

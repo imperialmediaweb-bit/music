@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 import requests
 from io import BytesIO
@@ -57,13 +58,31 @@ def generate_thumbnail(thumbnail_prompt: str, track_name: str) -> Path:
     log.info(f"Generating African mask thumbnail for: {track_name}")
 
     client = OpenAI(api_key=OPENAI_API_KEY)
-    response = client.images.generate(
-        model="dall-e-3",
-        prompt=thumbnail_prompt,
-        size="1792x1024",
-        quality="hd",
-        n=1,
-    )
+
+    # Retry with exponential backoff for transient connection errors
+    last_err = None
+    for attempt in range(1, 5):
+        try:
+            response = client.images.generate(
+                model="dall-e-3",
+                prompt=thumbnail_prompt,
+                size="1792x1024",
+                quality="hd",
+                n=1,
+            )
+            break
+        except Exception as e:
+            last_err = e
+            if attempt < 4:
+                wait = 2 ** attempt
+                log.warning(f"DALL-E API error (attempt {attempt}/4): {e}")
+                log.info(f"Retrying in {wait}s...")
+                time.sleep(wait)
+            else:
+                raise RuntimeError(
+                    f"DALL-E API failed after 4 attempts: {last_err}\n"
+                    "Check your OPENAI_API_KEY in .env and internet connection."
+                ) from last_err
 
     image_url = response.data[0].url
     log.info("Thumbnail generated, downloading...")
