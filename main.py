@@ -15,8 +15,12 @@ DEFAULT_CLIPS_PER_DAY = 4
 MP3S_PER_CLIP = 8
 
 
-def _run_full_pipeline():
-    """Full pipeline: generate music on aimusicfactory → merge → thumbnail → video → upload."""
+def _run_full_pipeline(gen_count: int = 1):
+    """Full pipeline: generate music on aimusicfactory → merge → thumbnail → video → upload.
+
+    Args:
+        gen_count: Number of times to hit Generate (each gives 2 MP3s).
+    """
     from modules.music_generator import generate_music_batch
     from modules.audio_merger import merge_mp3s
     from modules.concept_generator import generate_concept
@@ -28,10 +32,10 @@ def _run_full_pipeline():
     concept = generate_concept()
     log.info(f"Track name: {concept.track_name}")
 
-    # Step 2: Generate music on aimusicfactory.ai (1 generation × 2 MP3s = 2)
+    # Step 2: Generate music on aimusicfactory.ai
     log.info("=" * 60)
-    log.info("STEP 2: Generating music on aimusicfactory.ai...")
-    mp3_files = generate_music_batch(concept, count=1)
+    log.info(f"STEP 2: Generating music on aimusicfactory.ai ({gen_count} generation(s) = {gen_count * 2} MP3s)...")
+    mp3_files = generate_music_batch(concept, count=gen_count)
     log.info(f"Generated {len(mp3_files)} MP3 files")
 
     # Step 3: Merge all MP3s into one track
@@ -206,22 +210,29 @@ def cmd_run(args):
 
 
 def cmd_schedule(args):
-    """Schedule 4 clips per day, uploaded to YouTube automatically.
+    """Schedule 4 clips per day, uploaded to YouTube + TikTok automatically.
 
-    Default: runs at 08:00, 12:00, 16:00, 20:00 every day.
-    Each run = generate music → merge → thumbnail → video → upload.
+    Default schedule:
+      09:00 — 1 generate (2 MP3s) → 1 clip
+      14:00 — 1 generate (2 MP3s) → 1 clip
+      18:00 — 2 generates (4 MP3s) → 1 clip
+      20:00 — 2 generates (4 MP3s) → 1 clip
     """
     from apscheduler.schedulers.blocking import BlockingScheduler
     from apscheduler.triggers.cron import CronTrigger
 
     scheduler = BlockingScheduler()
 
-    # 4 clips per day: 07:00, 12:00, 16:00, 20:00
-    hours = [7, 12, 16, 20]
-    clips_per_day = args.clips or DEFAULT_CLIPS_PER_DAY
+    # (hour, gen_count) — gen_count × 2 MP3s merged into one clip
+    SCHEDULE_SLOTS = [
+        (9,  1),   # 09:00 → 1 gen = 2 MP3s
+        (14, 1),   # 14:00 → 1 gen = 2 MP3s
+        (18, 2),   # 18:00 → 2 gen = 4 MP3s
+        (20, 2),   # 20:00 → 2 gen = 4 MP3s
+    ]
 
     if args.cron:
-        # Custom cron - run clips_per_day times at that schedule
+        # Custom cron - run with default gen_count=1
         parts = args.cron.split()
         if len(parts) != 5:
             log.error(f"Invalid cron: {args.cron}")
@@ -238,16 +249,19 @@ def cmd_schedule(args):
         )
         log.info(f"Scheduled with cron: {args.cron}")
     else:
-        # Default: spread clips across the day
-        selected_hours = hours[:clips_per_day]
-        for i, h in enumerate(selected_hours):
+        # Default schedule with variable generation counts
+        clips_per_day = args.clips or len(SCHEDULE_SLOTS)
+        selected_slots = SCHEDULE_SLOTS[:clips_per_day]
+        for i, (hour, gen_count) in enumerate(selected_slots):
             scheduler.add_job(
                 _run_full_pipeline,
-                CronTrigger(hour=h, minute=0),
+                CronTrigger(hour=hour, minute=0),
+                kwargs={"gen_count": gen_count},
                 id=f"music_pipeline_{i + 1}",
-                name=f"Music Pipeline Clip {i + 1} ({h}:00)",
+                name=f"Clip {i + 1} ({hour}:00, {gen_count} gen)",
             )
-        log.info(f"Scheduled {clips_per_day} clips per day at: {', '.join(f'{h}:00' for h in selected_hours)}")
+        schedule_desc = ", ".join(f"{h}:00 ({g} gen)" for h, g in selected_slots)
+        log.info(f"Scheduled {len(selected_slots)} clips per day: {schedule_desc}")
 
     def shutdown(signum, frame):
         log.info("Shutting down scheduler...")

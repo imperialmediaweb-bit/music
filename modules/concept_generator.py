@@ -53,11 +53,11 @@ Return ONLY valid JSON with these exact fields:
   "mood": "emotional mood/vibe (e.g. ritualistic, primal, powerful, transcendent)",
   "description": "2-3 sentence vivid description of the track's atmosphere and energy (in English)",
   "music_prompt": "detailed prompt for AI music generation - describe instruments, rhythm, bass, mood, tempo 122 BPM, Afro House style with car bass",
-  "hashtags": ["afrohouse", "tribalbass", "deephouse", + 7 more relevant tags],
-  "youtube_title": "catchy YouTube title in English with emoji, include track name and Afro House (max 100 chars)",
-  "youtube_description": "full YouTube description in English: track name, genre (Afro House), mood, style description, call to subscribe, 3-5 sentences",
-  "youtube_tags": ["afro house", "deep house", "tribal", "car bass", + 10 more relevant SEO tags],
-  "tiktok_caption": "short TikTok caption in English with hashtags (max 150 chars)"
+  "hashtags": ["afrohouse", "afrohousemusic", "deepafrohouse", "tribalafrohouse", "organicafrohouse", "primalafrohouse", "afrohouseritual", "undergroundafrohouse", "afrohousemix", "warehousevibes", "ritualgroove", "deephouse", "tribalhouse", "afrohouse2025", "extendedmix"],
+  "youtube_title": "MUST follow this EXACT format: TRACKNAME 🔥 [Descriptive Afro House Subtitle] | [Deep Tribal/Underground Element] #afrohouse — Example: KAMUZI 🔥 Primal Afro House Ritual | Deep Tribal Drums & Hypnotic Underground Groove #afrohouse — Rules: track name UPPERCASE, include 🔥 emoji, end with #afrohouse, max 100 chars. Do NOT include duration (it will be added automatically).",
+  "youtube_description": "Write a LONG detailed YouTube description following this EXACT structure (at least 20 lines):\n\nLine 1: [TRACK_NAME] is a deep Afro House ritual built around [describe: raw tribal percussion, rolling basslines, hypnotic rhythms etc].\n\nLine 2-3: This [X]-minute extended mix blends:\n• primal African drums\n• organic percussion layers\n• deep rolling bass\n• ritual fire atmosphere\n• immersive underground energy\n(Customize the bullet points to match the track mood)\n\nNext paragraph: No commercial breaks. No pop drops. No shortcuts.\n\nNext paragraph with fire emojis:\nJust pure Afro House flow designed for:\n🔥 warehouse sessions\n🔥 night drives\n🔥 deep focus listening\n🔥 underground DJ vibes\n🔥 long-form YouTube journeys\n\nNext paragraph: [TRACK_NAME] carries ancestral rhythm energy with a modern Afro House pulse — steady, hypnotic, and powerful from start to finish.\n\nFinal line: Turn it up. Let the drums take control. Enter the ritual.\n\nContact line: 📩 For collaborations & promo: imperialmediaweb@gmail.com",
+  "youtube_tags": ["afro house", "afro house music", "deep afro house", "tribal afro house", "organic afro house", "afro house mix", "underground afro house", "afro house ritual", "deep house", "tribal house", "warehouse vibes", "afro house 2025", "extended mix", "car bass", "afro house DJ set"],
+  "tiktok_caption": "short TikTok caption in English with hashtags including #afrohouse #afrohousemusic #deepafrohouse #tribalhouse (max 150 chars)"
 }"""
 
 
@@ -143,10 +143,10 @@ def generate_concept(track_name: str = "") -> MusicConcept:
         mood=data.get("mood", "ritualistic, primal, powerful, transcendent"),
         description=data.get("description", f"A deep, hypnotic Afro House track called {final_name}"),
         music_prompt=music_prompt,
-        hashtags=data.get("hashtags", ["afrohouse", "tribalbass", "deephouse", "carbass", "music"]),
+        hashtags=data.get("hashtags", ["afrohouse", "afrohousemusic", "deepafrohouse", "tribalafrohouse", "organicafrohouse", "primalafrohouse", "afrohouseritual", "undergroundafrohouse", "afrohousemix", "warehousevibes", "ritualgroove", "deephouse", "tribalhouse", "afrohouse2025", "extendedmix"]),
         thumbnail_prompt=thumbnail_prompt,
         youtube_title=data.get("youtube_title", f"{final_name} - Afro House"),
         youtube_description=data.get("youtube_description", f"{final_name} - A deep Afro House track."),
-        youtube_tags=data.get("youtube_tags", ["afro house", "deep house", "tribal", "car bass"]),
+        youtube_tags=data.get("youtube_tags", ["afro house", "afro house music", "deep afro house", "tribal afro house", "organic afro house", "afro house mix", "underground afro house", "afro house ritual", "deep house", "tribal house", "warehouse vibes", "afro house 2025", "extended mix", "car bass", "afro house DJ set"]),
         tiktok_caption=data.get("tiktok_caption", f"{final_name} #afrohouse #tribal #deepbass"),
     )

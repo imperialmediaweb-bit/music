@@ -18,8 +18,8 @@ from modules.concept_generator import MusicConcept
 from config import BASE_DIR, OUTPUT_DIR
 from utils.logger import log
 
-# OAuth2 scopes needed for YouTube upload
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+# OAuth2 scopes — full youtube scope for upload + playlist management
+SCOPES = ["https://www.googleapis.com/auth/youtube"]
 
 # Paths for OAuth credentials
 CLIENT_SECRETS_FILE = BASE_DIR / "client_secrets.json"
@@ -62,6 +62,50 @@ def _get_authenticated_service():
         log.info("YouTube token saved")
 
     return build("youtube", "v3", credentials=credentials)
+
+
+def _find_or_create_playlist(youtube, playlist_title="Afro House") -> str:
+    """Find existing playlist by title, or create a new one.
+
+    Returns the playlist ID.
+    """
+    # Search existing playlists
+    request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
+    response = request.execute()
+    for item in response.get("items", []):
+        if item["snippet"]["title"].lower() == playlist_title.lower():
+            log.info(f"Found existing playlist '{playlist_title}' (id={item['id']})")
+            return item["id"]
+
+    # Create new playlist
+    log.info(f"Creating new playlist '{playlist_title}'...")
+    body = {
+        "snippet": {
+            "title": playlist_title,
+            "description": "Afro House Music Collection — Deep Tribal Drums & Underground Grooves",
+        },
+        "status": {"privacyStatus": "public"},
+    }
+    result = youtube.playlists().insert(part="snippet,status", body=body).execute()
+    log.info(f"Created playlist '{playlist_title}' (id={result['id']})")
+    return result["id"]
+
+
+def _add_to_playlist(youtube, playlist_id: str, video_id: str):
+    """Add a video to a YouTube playlist."""
+    youtube.playlistItems().insert(
+        part="snippet",
+        body={
+            "snippet": {
+                "playlistId": playlist_id,
+                "resourceId": {
+                    "kind": "youtube#video",
+                    "videoId": video_id,
+                },
+            }
+        },
+    ).execute()
+    log.info(f"Video {video_id} added to playlist {playlist_id}")
 
 
 def upload_to_youtube(
@@ -139,5 +183,13 @@ def upload_to_youtube(
         log.info("Thumbnail uploaded successfully")
     except Exception as e:
         log.warning(f"Thumbnail upload failed (may need verified account): {e}")
+
+    # Add to "Afro House" playlist
+    try:
+        playlist_id = _find_or_create_playlist(youtube, "Afro House")
+        _add_to_playlist(youtube, playlist_id, video_id)
+        log.info("Added to 'Afro House' playlist")
+    except Exception as e:
+        log.warning(f"Playlist add failed: {e}")
 
     return video_url

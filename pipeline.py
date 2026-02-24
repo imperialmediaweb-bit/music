@@ -67,6 +67,14 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         log.info(f"Mood: {concept.mood}")
         log.info(f"YouTube title: {concept.youtube_title}")
 
+        # Inject duration into YouTube title (e.g. "KAMUZI 🔥 Primal..." → "KAMUZI 🔥 30 Minutes of Primal...")
+        duration_mins = int(duration_sec) // 60
+        if "🔥" in concept.youtube_title:
+            concept.youtube_title = concept.youtube_title.replace(
+                "🔥", f"🔥 {duration_mins} Minutes of", 1
+            )
+        concept.youtube_title = concept.youtube_title[:100]  # Ensure max 100 chars
+
         # Add duration to YouTube description
         concept.youtube_description += f"\n\nDuration: {duration_str}"
     except Exception as e:

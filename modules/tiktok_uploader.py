@@ -14,33 +14,57 @@ def upload_to_tiktok(
 ) -> str | None:
     log.info(f"Uploading to TikTok: {concept.track_name}")
 
+    # Validate cookies exist
+    if not TIKTOK_COOKIE_FILE.exists():
+        log.error(f"TikTok cookies not found: {TIKTOK_COOKIE_FILE}")
+        log.error("Please export your TikTok cookies to this file first.")
+        return None
+
+    debug_dir = Path("output")
+
     with sync_playwright() as p:
         browser, context = get_browser_context(p, TIKTOK_COOKIE_FILE)
         page = context.new_page()
 
         try:
             # Navigate to TikTok upload page
-            page.goto(TIKTOK_UPLOAD_URL, wait_until="networkidle", timeout=30_000)
-            page.wait_for_timeout(3000)
+            log.info(f"Navigating to {TIKTOK_UPLOAD_URL}...")
+            page.goto(TIKTOK_UPLOAD_URL, wait_until="networkidle", timeout=60_000)
+            page.wait_for_timeout(5000)
 
-            # Check if logged in
-            if "login" in page.url.lower():
-                log.error("Not logged in to TikTok. Please export cookies first.")
+            actual_url = page.url
+            log.info(f"TikTok page loaded. URL: {actual_url}")
+            page.screenshot(path=str(debug_dir / "debug_tiktok_01_loaded.png"))
+
+            # Check if logged in — multiple patterns
+            if ("login" in actual_url.lower()
+                    or page.query_selector('[data-e2e="login-modal"]')
+                    or page.query_selector('div[class*="login"]')):
+                log.error(f"Not logged in to TikTok (redirected to: {actual_url})")
+                log.error("Cookies may be expired. Please re-export TikTok cookies.")
+                page.screenshot(path=str(debug_dir / "debug_tiktok_login_fail.png"))
                 browser.close()
                 return None
 
+            log.info("TikTok login check passed")
+
             # Upload video file
-            log.info("Selecting video file...")
+            log.info("Looking for video file input...")
             file_input = page.wait_for_selector(
                 'input[type="file"][accept*="video"]',
                 timeout=15_000,
             )
             file_input.set_input_files(str(video_path))
-            log.info("Video file selected, waiting for processing...")
-            page.wait_for_timeout(10_000)
+            log.info(f"Video file selected: {video_path.name}")
+            page.screenshot(path=str(debug_dir / "debug_tiktok_02_file_selected.png"))
+
+            # Wait longer for video processing
+            log.info("Waiting for TikTok to process video (20s)...")
+            page.wait_for_timeout(20_000)
+            page.screenshot(path=str(debug_dir / "debug_tiktok_03_after_processing.png"))
 
             # Fill in the caption
-            log.info("Filling in caption...")
+            log.info(f"Filling caption: {concept.tiktok_caption[:50]}...")
             caption_selectors = [
                 '[contenteditable="true"]',
                 'div[data-text="true"]',
@@ -60,7 +84,7 @@ def upload_to_tiktok(
                         page.keyboard.press("Backspace")
                         page.keyboard.type(concept.tiktok_caption)
                         filled = True
-                        log.info(f"Caption filled using selector: {selector}")
+                        log.info(f"Caption filled using: {selector}")
                         break
                 except PlaywrightTimeout:
                     continue
@@ -69,34 +93,53 @@ def upload_to_tiktok(
                 log.warning("Could not find caption input, continuing without caption")
 
             page.wait_for_timeout(2000)
+            page.screenshot(path=str(debug_dir / "debug_tiktok_04_caption_filled.png"))
 
             # Click the Post button
-            log.info("Clicking Post button...")
+            log.info("Looking for Post/Publish button...")
             post_selectors = [
                 'button:has-text("Post")',
                 'div[class*="btn-post"]',
                 'button[data-e2e="post-button"]',
                 'button:has-text("Publish")',
+                'button:has-text("Upload")',
             ]
 
             posted = False
             for selector in post_selectors:
                 try:
                     post_btn = page.wait_for_selector(selector, timeout=5_000)
-                    if post_btn and post_btn.is_visible() and post_btn.is_enabled():
-                        post_btn.click()
-                        posted = True
-                        log.info(f"Post button clicked: {selector}")
-                        break
+                    if post_btn and post_btn.is_visible():
+                        is_enabled = post_btn.is_enabled()
+                        log.info(f"Found button '{selector}' — enabled={is_enabled}")
+                        if is_enabled:
+                            post_btn.click()
+                            posted = True
+                            log.info(f"Post button clicked: {selector}")
+                            break
+                        else:
+                            log.warning(f"Button '{selector}' found but disabled, trying next...")
                 except PlaywrightTimeout:
                     continue
 
             if not posted:
-                page.screenshot(path=str(Path("output") / "debug_tiktok_no_post.png"))
+                page.screenshot(path=str(debug_dir / "debug_tiktok_no_post.png"))
+                # Log all visible buttons for debugging
+                buttons = page.evaluate("""() => {
+                    return [...document.querySelectorAll('button')]
+                        .filter(b => b.offsetParent !== null)
+                        .map(b => b.textContent.trim().substring(0, 50))
+                        .slice(0, 20);
+                }""")
+                log.error(f"Visible buttons on page: {buttons}")
                 raise RuntimeError("Could not find Post button on TikTok")
 
+            page.screenshot(path=str(debug_dir / "debug_tiktok_05_post_clicked.png"))
+
             # Wait for upload completion
-            page.wait_for_timeout(15_000)
+            log.info("Waiting for upload to complete (30s)...")
+            page.wait_for_timeout(30_000)
+            page.screenshot(path=str(debug_dir / "debug_tiktok_06_after_upload.png"))
 
             # Try to detect success
             video_url = None
@@ -105,6 +148,7 @@ def upload_to_tiktok(
                     'a[href*="/@"]',
                     ':text("uploaded")',
                     ':text("Your video")',
+                    ':text("successfully")',
                 ]
                 for sel in success_selectors:
                     try:
@@ -119,6 +163,8 @@ def upload_to_tiktok(
             except Exception:
                 pass
 
+            page.screenshot(path=str(debug_dir / "debug_tiktok_07_final.png"))
+
             if video_url:
                 log.info(f"TikTok video URL: {video_url}")
             else:
@@ -131,7 +177,10 @@ def upload_to_tiktok(
 
         except Exception as e:
             log.error(f"TikTok upload failed: {e}")
-            page.screenshot(path=str(Path("output") / "debug_tiktok_error.png"))
+            try:
+                page.screenshot(path=str(debug_dir / "debug_tiktok_error.png"))
+            except Exception:
+                pass
             raise
         finally:
             browser.close()
