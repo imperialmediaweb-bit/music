@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from modules.concept_generator import MusicConcept
-from config import OUTPUT_DIR, HEADLESS, AIMUSICFACTORY_STATE_FILE
+from config import OUTPUT_DIR, INPUT_DIR, HEADLESS, AIMUSICFACTORY_STATE_FILE
 from utils.logger import log
 
 # The fixed Afro House style prompt (goes into "Style of Music" field)
@@ -32,6 +32,21 @@ STYLE_OF_MUSIC_PROMPT = (
 
 GENERATION_COMPLETE_SEC = 240  # 4 min — wait after clicking Generate for songs to appear
 DOWNLOAD_READY_SEC = 1080      # 18 min — minimum time from generation before downloads work
+
+# JS to block File System Access API "Save As" dialogs
+_BLOCK_SAVE_PICKER_JS = """
+window.showSaveFilePicker = undefined;
+window.showOpenFilePicker = undefined;
+"""
+
+
+def _send_cdp_download_behavior(cdp, download_dir: Path):
+    """(Re-)send CDP command to auto-save downloads without 'Save As' dialog."""
+    cdp.send("Browser.setDownloadBehavior", {
+        "behavior": "allowAndName",
+        "downloadPath": str(download_dir.resolve()),
+        "eventsEnabled": True,
+    })
 
 
 def _validate_mp3(path: Path) -> bool:
@@ -102,13 +117,12 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
         context.set_default_timeout(60_000)
         page = context.new_page()
 
+        # Block "Save As" dialog from File System Access API
+        page.add_init_script(_BLOCK_SAVE_PICKER_JS)
+
         # Force Chrome to auto-save downloads without "Save As" dialog
         cdp = context.new_cdp_session(page)
-        cdp.send("Browser.setDownloadBehavior", {
-            "behavior": "allowAndName",
-            "downloadPath": str(OUTPUT_DIR.resolve()),
-            "eventsEnabled": True,
-        })
+        _send_cdp_download_behavior(cdp, OUTPUT_DIR)
 
         # Check if logged in, prompt if not
         logged_in = _check_logged_in(page)
@@ -156,6 +170,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
         log.info(f"\nGoing to My Music to find '{concept.track_name}' cards...")
         all_mp3s = _download_from_mymusic(
             page, concept, safe_name, len(generation_start_times),
+            cdp=cdp, download_dir=OUTPUT_DIR,
         )
 
         browser.close()
@@ -242,7 +257,8 @@ def _wait_with_progress(page, seconds: float):
 
 # ── Phase 3: My Music -> click cards -> download from detail pages ──
 
-def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected_cards: int) -> list[Path]:
+def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected_cards: int,
+                           cdp=None, download_dir: Path = None) -> list[Path]:
     """Navigate to My Music, find track cards by name, open each, download MP3s.
 
     The site renders a CSS grid of square cards on /myMusic. Each card has:
@@ -255,7 +271,11 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
     Clicking a card navigates to a detail page with a green "Download" button
     that opens a popover with "Audio" option to download the MP3.
     """
+    if download_dir is None:
+        download_dir = OUTPUT_DIR
     page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
+    if cdp:
+        _send_cdp_download_behavior(cdp, download_dir)
     page.wait_for_timeout(15_000)
 
     # Scroll down to load all cards (lazy loading / infinite scroll)
@@ -289,6 +309,8 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
     if not grid_cards:
         log.warning(f"Still no cards — reloading My Music page...")
         page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
+        if cdp:
+            _send_cdp_download_behavior(cdp, download_dir)
         page.wait_for_timeout(15_000)
         _scroll_page(page)
         grid_cards = _find_grid_cards(page, track_name)
@@ -320,6 +342,8 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
             if i > 0:
                 page.goto("https://aimusicfactory.ai/myMusic",
                           wait_until="domcontentloaded", timeout=60_000)
+                if cdp:
+                    _send_cdp_download_behavior(cdp, download_dir)
                 page.wait_for_timeout(10_000)
                 _scroll_page(page)
 
@@ -331,6 +355,8 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
 
             page.wait_for_timeout(5_000)
             new_url = page.url
+            if cdp:
+                _send_cdp_download_behavior(cdp, download_dir)
             log.info(f"Card {card_num}: navigated {old_url} -> {new_url}")
             page.screenshot(path=str(OUTPUT_DIR / f"debug_detail_{card_num}.png"))
 
@@ -346,7 +372,8 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
                 song_id = song_id_match.group(1)
 
             _wait_for_download_button(page, card_num)
-            downloaded = _download_mp3s_from_detail(page, safe_name, card_num, song_id)
+            downloaded = _download_mp3s_from_detail(page, safe_name, card_num, song_id,
+                                                    download_dir=download_dir)
             all_mp3s.extend(downloaded)
             log.info(f"Card {card_num}: downloaded {len(downloaded)} MP3(s)")
 
@@ -757,13 +784,16 @@ def _wait_for_download_button(page, card_num: int):
     page.screenshot(path=str(OUTPUT_DIR / f"debug_dl_notfound_{card_num}.png"))
 
 
-def _download_mp3s_from_detail(page, safe_name: str, card_num: int, song_id: str = "") -> list[Path]:
+def _download_mp3s_from_detail(page, safe_name: str, card_num: int, song_id: str = "",
+                               download_dir: Path = None) -> list[Path]:
     """Click all Download buttons on a track detail page and save MP3s.
 
     From screenshots: each track has a green gradient "Download" button.
     Clicking it opens a popover with "Audio" option.
-    Files are saved as: TrackName_SongID.mp3
+    Files are saved as: TrackName_1.mp3, TrackName_2.mp3, etc. (sequential).
     """
+    if download_dir is None:
+        download_dir = OUTPUT_DIR
     # Save page HTML for debugging
     try:
         html = page.content()
@@ -835,10 +865,12 @@ def _download_mp3s_from_detail(page, safe_name: str, card_num: int, song_id: str
 
     for i in range(btn_count):
         try:
-            # Name file as: TrackName_SongID_N.mp3 (or TrackName_SongID.mp3 if only one)
-            id_part = f"_{song_id}" if song_id else f"_{int(time.time())}"
-            suffix = f"_{i + 1}" if btn_count > 1 else ""
-            output_path = OUTPUT_DIR / f"{safe_name}{id_part}{suffix}.mp3"
+            # Sequential naming: TrackName_1.mp3, TrackName_2.mp3, ...
+            # Find next available number to avoid overwriting existing files
+            seq = 1
+            while (download_dir / f"{safe_name}_{seq}.mp3").exists():
+                seq += 1
+            output_path = download_dir / f"{safe_name}_{seq}.mp3"
 
             log.info(f"Clicking Download button {i + 1}/{btn_count}...")
 
@@ -944,8 +976,9 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
         page.wait_for_timeout(500)
         return None
 
-    # Snapshot existing files in OUTPUT_DIR before clicking (for fallback detection)
-    existing_files = set(OUTPUT_DIR.glob("*"))
+    # Snapshot existing files in download dir before clicking (for fallback detection)
+    dl_dir = output_path.parent
+    existing_files = set(dl_dir.glob("*"))
 
     # ── Set up network interception BEFORE clicking Audio ──
     # The site uses JS fetch → blob → <a download>, so the actual audio data
@@ -1118,8 +1151,8 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
     except Exception as e:
         log.warning(f"Strategy 3 error: {e}")
 
-    # ── Strategy 4: Check if CDP auto-saved the file to OUTPUT_DIR ──
-    new_files = set(OUTPUT_DIR.glob("*")) - existing_files
+    # ── Strategy 4: Check if CDP auto-saved the file to download dir ──
+    new_files = set(dl_dir.glob("*")) - existing_files
     audio_files = [f for f in new_files if f.suffix.lower() in (".mp3", ".wav", ".m4a")]
     if audio_files:
         src = max(audio_files, key=lambda f: f.stat().st_mtime)
@@ -1435,12 +1468,11 @@ def download_existing_tracks(track_name: str, max_cards: int = 4) -> list[Path]:
         context.set_default_timeout(60_000)
         page = context.new_page()
 
+        # Block "Save As" dialog from File System Access API
+        page.add_init_script(_BLOCK_SAVE_PICKER_JS)
+
         cdp = context.new_cdp_session(page)
-        cdp.send("Browser.setDownloadBehavior", {
-            "behavior": "allowAndName",
-            "downloadPath": str(OUTPUT_DIR.resolve()),
-            "eventsEnabled": True,
-        })
+        _send_cdp_download_behavior(cdp, INPUT_DIR)
 
         logged_in = _check_logged_in(page)
         if logged_in:
@@ -1454,7 +1486,8 @@ def download_existing_tracks(track_name: str, max_cards: int = 4) -> list[Path]:
             context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
             page.evaluate("window.moveTo(-2400, -2400)")
 
-        all_mp3s = _download_from_mymusic(page, concept, safe_name, max_cards)
+        all_mp3s = _download_from_mymusic(page, concept, safe_name, max_cards,
+                                          cdp=cdp, download_dir=INPUT_DIR)
         browser.close()
 
     if not all_mp3s:
