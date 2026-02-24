@@ -185,26 +185,37 @@ def upload_to_youtube(
     }
 
     log.info("Uploading video file...")
-    media = MediaFileUpload(
-        str(video_path),
-        mimetype="video/mp4",
-        resumable=True,
-        chunksize=10 * 1024 * 1024,  # 10MB chunks
-    )
 
-    request = youtube.videos().insert(
-        part="snippet,status",
-        body=body,
-        media_body=media,
-    )
+    def _execute_upload(upload_body):
+        media = MediaFileUpload(
+            str(video_path),
+            mimetype="video/mp4",
+            resumable=True,
+            chunksize=10 * 1024 * 1024,  # 10MB chunks
+        )
+        req = youtube.videos().insert(
+            part="snippet,status",
+            body=upload_body,
+            media_body=media,
+        )
+        resp = None
+        while resp is None:
+            st, resp = req.next_chunk()
+            if st:
+                progress = int(st.progress() * 100)
+                log.info(f"Upload progress: {progress}%")
+        return resp
 
-    # Execute upload with progress
-    response = None
-    while response is None:
-        status, response = request.next_chunk()
-        if status:
-            progress = int(status.progress() * 100)
-            log.info(f"Upload progress: {progress}%")
+    try:
+        response = _execute_upload(body)
+    except Exception as e:
+        if "invalidTags" in str(e):
+            log.warning(f"YouTube rejected tags, retrying without tags: {e}")
+            log.warning(f"Rejected tags were: {body['snippet'].get('tags')}")
+            body["snippet"].pop("tags", None)
+            response = _execute_upload(body)
+        else:
+            raise
 
     video_id = response["id"]
     video_url = f"https://youtu.be/{video_id}"
