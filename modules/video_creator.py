@@ -32,7 +32,7 @@ def _run_ffmpeg(args: list[str], label: str):
         cmd,
         capture_output=True,
         text=True,
-        timeout=300,  # 5 min max
+        timeout=600,  # 10 min max
     )
     if result.returncode != 0:
         log.error(f"FFmpeg stderr: {result.stderr[-500:]}")
@@ -59,10 +59,14 @@ def create_videos(
     _run_ffmpeg(
         [
             "-loop", "1",
+            "-framerate", "2",
             "-i", str(thumbnail_path),
             "-i", str(audio_path),
             "-c:v", "libx264",
             "-tune", "stillimage",
+            "-preset", "ultrafast",
+            "-crf", "28",
+            "-r", "2",
             "-c:a", "aac",
             "-b:a", "192k",
             "-vf", "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
@@ -79,10 +83,14 @@ def create_videos(
     _run_ffmpeg(
         [
             "-loop", "1",
+            "-framerate", "2",
             "-i", str(thumbnail_path),
             "-i", str(audio_path),
             "-c:v", "libx264",
             "-tune", "stillimage",
+            "-preset", "ultrafast",
+            "-crf", "28",
+            "-r", "2",
             "-c:a", "aac",
             "-b:a", "192k",
             "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,format=yuv420p",
