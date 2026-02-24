@@ -324,14 +324,23 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
 
             # Wait for TikTok to finish publishing — poll for success indicators
             # for up to 5 minutes instead of a blind sleep.
+            # IMPORTANT: Wait a few seconds first so the page can transition after
+            # clicking Post. Otherwise we may match stale text like "Uploaded" from
+            # the file-upload step and get a false positive.
             log.info("Waiting for TikTok to finish publishing (up to 5 min)...")
+            page.wait_for_timeout(5_000)
             video_url = None
+            # Only use selectors that indicate the POST was published, not file upload.
+            # ':text("uploaded")' was removed — it matches the file-upload indicator
+            # that is already on the page and causes false positives.
             success_selectors = [
-                'a[href*="/@"]',
-                ':text("uploaded")',
-                ':text("Your video")',
-                ':text("successfully")',
                 ':text("Manage your posts")',
+                ':text("Your video is being uploaded to TikTok")',
+                ':text("Your videos")',
+                ':text("successfully")',
+                ':text("Your video")',
+                'a[href*="/video/"]',
+                'a[href*="/@"]',
             ]
             for wait_attempt in range(30):
                 for sel in success_selectors:
@@ -339,7 +348,7 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
                         el = page.query_selector(sel)
                         if el:
                             href = el.get_attribute("href")
-                            if href and "/@" in href:
+                            if href and ("/@" in href or "/video/" in href):
                                 video_url = f"https://www.tiktok.com{href}" if href.startswith("/") else href
                             log.info(f"Success indicator found: {sel}")
                             break
