@@ -6,7 +6,9 @@ from config import TIKTOK_COOKIE_FILE, HEADLESS
 from utils.browser import get_browser_context, save_cookies
 from utils.logger import log
 
-TIKTOK_UPLOAD_URL = "https://www.tiktok.com/upload"
+# TikTok migrated to TikTok Studio — /upload redirects there anyway,
+# but going directly avoids an extra redirect and potential issues.
+TIKTOK_UPLOAD_URL = "https://www.tiktok.com/tiktokstudio/upload"
 MAX_RETRIES = 2
 
 
@@ -85,6 +87,71 @@ def _dismiss_tiktok_popups(page) -> None:
                 page.wait_for_timeout(500)
         except Exception:
             continue
+
+
+def _click_post_button(page, post_btn, selector: str, debug_dir: Path) -> None:
+    """Try multiple click strategies on the Post button, retrying if the page
+    doesn't change. TikTok sometimes ignores the first click silently."""
+    pre_click_url = page.url
+
+    for click_attempt in range(3):
+        if click_attempt > 0:
+            log.info(f"Post click retry #{click_attempt + 1}...")
+            # Re-query the button — DOM may have changed
+            post_btn = page.query_selector(selector)
+            if not post_btn or not post_btn.is_visible():
+                log.info("Post button gone after previous click — assuming success")
+                return
+            _dismiss_tiktok_popups(page)
+            page.wait_for_timeout(1_000)
+            post_btn.scroll_into_view_if_needed()
+            page.wait_for_timeout(500)
+
+        # Strategy 1: normal Playwright click (respects actionability)
+        try:
+            post_btn.click(timeout=5_000)
+            log.info(f"Post button clicked (normal) on attempt {click_attempt + 1}")
+        except (PlaywrightTimeout, Exception) as click_err:
+            log.warning(f"Normal click failed: {click_err}")
+            # Strategy 2: JS click (bypasses overlay issues)
+            try:
+                page.evaluate("(el) => el.click()", post_btn)
+                log.info(f"Post button clicked (JS) on attempt {click_attempt + 1}")
+            except Exception as js_err:
+                log.warning(f"JS click also failed: {js_err}")
+                # Strategy 3: click by coordinates
+                box = post_btn.bounding_box()
+                if box:
+                    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+                    log.info(f"Post button clicked (mouse coords) on attempt {click_attempt + 1}")
+
+        page.screenshot(path=str(debug_dir / f"debug_tiktok_05_post_clicked_{click_attempt}.png"))
+
+        # Wait and check if the click had any effect
+        page.wait_for_timeout(5_000)
+        current_url = page.url
+        btn_after = page.query_selector(selector)
+        btn_still_visible = btn_after and btn_after.is_visible()
+        log.info(
+            f"After click attempt {click_attempt + 1} — "
+            f"URL changed: {current_url != pre_click_url}, "
+            f"Post button still visible: {btn_still_visible}"
+        )
+        page.screenshot(path=str(debug_dir / f"debug_tiktok_05b_after_click_{click_attempt}.png"))
+
+        # If URL changed or Post button disappeared, click worked
+        if current_url != pre_click_url or not btn_still_visible:
+            return
+
+        # Check for error messages that might have appeared
+        errors = page.evaluate("""() => {
+            const els = [...document.querySelectorAll('[class*="error"], [class*="alert"], [role="alert"]')];
+            return els.filter(e => e.offsetParent !== null).map(e => e.textContent.trim().substring(0, 100));
+        }""")
+        if errors:
+            log.warning(f"Error messages on page after click: {errors}")
+
+    log.warning("Post button click may not have worked after 3 attempts")
 
 
 def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
@@ -294,37 +361,18 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
                             btn_text = post_btn.text_content().strip()
                             btn_box = post_btn.bounding_box()
                             log.info(f"Post button found: '{btn_text}' at {btn_box} via {selector}")
+                            posted = True
 
                             # Dismiss any overlays that may intercept the click
                             _dismiss_tiktok_popups(page)
                             page.wait_for_timeout(500)
 
-                            # Scroll button into view
+                            # Scroll button into view and re-query (DOM may have changed)
                             post_btn.scroll_into_view_if_needed()
                             page.wait_for_timeout(500)
 
-                            # Click normally first (no force) to ensure it lands
-                            try:
-                                post_btn.click(timeout=10_000)
-                            except (PlaywrightTimeout, Exception) as click_err:
-                                log.warning(f"Normal click failed: {click_err}, trying force click")
-                                try:
-                                    post_btn.click(force=True, timeout=10_000)
-                                except (PlaywrightTimeout, Exception):
-                                    log.warning("Force click also failed, trying JS click")
-                                    page.evaluate("(el) => el.click()", post_btn)
-
-                            posted = True
-                            log.info(f"Post button clicked: {selector}")
-                            page.screenshot(path=str(debug_dir / "debug_tiktok_05_post_clicked.png"))
-
-                            # Wait a moment and check if anything changed
-                            page.wait_for_timeout(3_000)
-                            post_url = page.url
-                            post_btn_after = page.query_selector(selector)
-                            btn_still_visible = post_btn_after and post_btn_after.is_visible()
-                            log.info(f"After click — URL: {post_url}, Post button still visible: {btn_still_visible}")
-                            page.screenshot(path=str(debug_dir / "debug_tiktok_05b_after_click.png"))
+                            # Try clicking — multiple strategies
+                            _click_post_button(page, post_btn, selector, debug_dir)
                             break
                     except Exception as e:
                         log.info(f"Post selector '{selector}' failed: {e}")
