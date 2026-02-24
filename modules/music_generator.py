@@ -73,6 +73,13 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
         context.set_default_timeout(60_000)
         page = context.new_page()
 
+        # Force Chrome to auto-save downloads without "Save As" dialog
+        cdp = context.new_cdp_session(page)
+        cdp.send("Page.setDownloadBehavior", {
+            "behavior": "allow",
+            "downloadPath": str(OUTPUT_DIR.resolve()),
+        })
+
         # Check if logged in, prompt if not
         logged_in = _check_logged_in(page)
         if logged_in:
@@ -887,19 +894,31 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
     for btn in panel_info.get("buttons", []):
         log.info(f"  <{btn['tag']}> text='{btn['text']}' href='{btn['href']}'")
 
+    # Snapshot existing files in OUTPUT_DIR before clicking (for fallback detection)
+    existing_files = set(OUTPUT_DIR.glob("*"))
+
     # ── Strategy 1: Playwright locator click (triggers trusted download event) ──
     try:
         panel_sel = '[id^="headlessui-popover-panel"]'
         panel_loc = page.locator(panel_sel).last
 
-        # Try to find "Audio" button
+        # Try to find "Audio" <button> specifically (not <li> wrapper)
         audio_loc = None
         for text_match in ["Audio", "audio", "MP3", "mp3"]:
-            loc = panel_loc.get_by_text(text_match, exact=False)
+            loc = panel_loc.locator("button").filter(has_text=text_match)
             if loc.count() > 0:
                 audio_loc = loc.first
-                log.info(f"Found audio option by text: '{text_match}'")
+                log.info(f"Found audio <button> by text: '{text_match}'")
                 break
+
+        # Fallback: try any element with Audio text
+        if not audio_loc:
+            for text_match in ["Audio", "audio", "MP3", "mp3"]:
+                loc = panel_loc.get_by_text(text_match, exact=False)
+                if loc.count() > 0:
+                    audio_loc = loc.first
+                    log.info(f"Found audio option by text: '{text_match}'")
+                    break
 
         if not audio_loc:
             # Fallback: click first button/link in panel
@@ -925,6 +944,21 @@ def _download_via_popover(page, idx: int, output_path: Path, card_num: int) -> P
     except PlaywrightTimeout:
         log.warning(f"Strategy 1 timeout (card {card_num}, btn {idx + 1})")
         page.screenshot(path=str(OUTPUT_DIR / f"debug_popover_s1_{card_num}_{idx + 1}.png"))
+
+        # Fallback: check if CDP auto-saved the file to OUTPUT_DIR
+        new_files = set(OUTPUT_DIR.glob("*")) - existing_files
+        audio_files = [f for f in new_files if f.suffix.lower() in (".mp3", ".wav", ".m4a")]
+        if audio_files:
+            # Take the newest file
+            src = max(audio_files, key=lambda f: f.stat().st_mtime)
+            src.rename(output_path)
+            log.info(f"Strategy 1 fallback (CDP auto-save): found {src.name} -> {output_path.name}")
+            page.evaluate("document.body.click()")
+            page.wait_for_timeout(1000)
+            return output_path
+        else:
+            log.warning(f"No new audio files found in {OUTPUT_DIR}")
+
     except Exception as e:
         log.warning(f"Strategy 1 error: {e}")
 
