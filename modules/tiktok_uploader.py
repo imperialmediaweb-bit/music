@@ -80,6 +80,20 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
 
             log.info("TikTok login check passed")
 
+            # Dismiss cookie consent banner if present
+            for cookie_btn_text in ["Allow all", "Decline optional cookies"]:
+                try:
+                    cookie_btn = page.wait_for_selector(
+                        f'button:has-text("{cookie_btn_text}")', timeout=3_000
+                    )
+                    if cookie_btn and cookie_btn.is_visible():
+                        cookie_btn.click(force=True)
+                        log.info(f"Dismissed cookie banner: '{cookie_btn_text}'")
+                        page.wait_for_timeout(1000)
+                        break
+                except PlaywrightTimeout:
+                    continue
+
             # Upload video file (input is hidden by design, use state="attached")
             log.info("Looking for video file input...")
             file_input = page.wait_for_selector(
@@ -91,42 +105,110 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
             log.info(f"Video file selected: {video_path.name}")
             page.screenshot(path=str(debug_dir / "debug_tiktok_02_file_selected.png"))
 
-            # Wait longer for video processing
-            log.info("Waiting for TikTok to process video (20s)...")
-            page.wait_for_timeout(20_000)
+            # Wait for "Uploaded" indicator to appear
+            log.info("Waiting for TikTok to finish uploading...")
+            try:
+                page.wait_for_selector(':text("Uploaded")', timeout=60_000)
+                log.info("Video upload confirmed (Uploaded indicator found)")
+            except PlaywrightTimeout:
+                log.warning("Upload indicator not found after 60s, continuing anyway")
+            page.wait_for_timeout(3000)
+
             page.screenshot(path=str(debug_dir / "debug_tiktok_03_after_processing.png"))
 
-            # Fill in the caption
+            # Dismiss any popups ("Got it", "New editing features", etc.)
+            for popup_text in ["Got it", "OK", "Close", "Maybe later", "Not now"]:
+                try:
+                    popup_btn = page.wait_for_selector(
+                        f'button:has-text("{popup_text}")', timeout=2_000
+                    )
+                    if popup_btn and popup_btn.is_visible():
+                        popup_btn.click(force=True)
+                        log.info(f"Dismissed popup: '{popup_text}'")
+                        page.wait_for_timeout(1000)
+                except PlaywrightTimeout:
+                    continue
+
+            # Dump all editable elements for debugging
+            editables = page.evaluate("""() => {
+                return [...document.querySelectorAll('[contenteditable="true"], [role="textbox"], textarea')]
+                    .map(e => ({
+                        tag: e.tagName,
+                        classes: e.className.substring(0, 80),
+                        role: e.getAttribute('role'),
+                        visible: e.offsetParent !== null,
+                        text: e.textContent.substring(0, 30)
+                    }));
+            }""")
+            log.info(f"Editable elements found: {editables}")
+
+            # Fill in the caption / description
+            # TikTok Studio shows "Description" field with the filename pre-filled
             log.info(f"Filling caption: {concept.tiktok_caption[:50]}...")
             caption_selectors = [
+                'div[role="textbox"][contenteditable="true"]',
+                '[contenteditable="true"][data-text="true"]',
+                '.public-DraftEditor-content [contenteditable="true"]',
                 '[contenteditable="true"]',
-                'div[data-text="true"]',
-                '.public-DraftEditor-content',
-                '#caption-editor',
                 'div[role="textbox"]',
+                '.DraftEditor-root',
             ]
 
             filled = False
             for selector in caption_selectors:
                 try:
-                    caption_el = page.wait_for_selector(selector, timeout=5_000)
-                    if caption_el and caption_el.is_visible():
-                        caption_el.click()
-                        # Clear existing text
-                        page.keyboard.select_all()
-                        page.keyboard.press("Backspace")
-                        page.keyboard.type(concept.tiktok_caption)
-                        filled = True
-                        log.info(f"Caption filled using: {selector}")
+                    elements = page.query_selector_all(selector)
+                    for caption_el in elements:
+                        if caption_el and caption_el.is_visible():
+                            # Click into the editor
+                            caption_el.click(force=True)
+                            page.wait_for_timeout(500)
+                            # Select all and delete existing text
+                            page.keyboard.press("Control+a")
+                            page.wait_for_timeout(200)
+                            page.keyboard.press("Backspace")
+                            page.wait_for_timeout(200)
+                            # Type the caption
+                            page.keyboard.type(concept.tiktok_caption, delay=20)
+                            filled = True
+                            log.info(f"Caption filled using: {selector}")
+                            break
+                    if filled:
                         break
-                except PlaywrightTimeout:
+                except Exception as e:
+                    log.info(f"Caption selector '{selector}' failed: {e}")
                     continue
 
             if not filled:
-                log.warning("Could not find caption input, continuing without caption")
+                log.warning("Could not fill caption via selectors, trying JS fallback")
+                try:
+                    # Use JavaScript to find and fill the description
+                    page.evaluate("""(text) => {
+                        const el = document.querySelector('[contenteditable="true"]');
+                        if (el) { el.focus(); el.textContent = text; }
+                    }""", concept.tiktok_caption)
+                    filled = True
+                    log.info("Caption filled using JS fallback")
+                except Exception as e:
+                    log.warning(f"JS fallback also failed: {e}")
 
             page.wait_for_timeout(2000)
             page.screenshot(path=str(debug_dir / "debug_tiktok_04_caption_filled.png"))
+
+            # Scroll down to make sure Post button is visible
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(1000)
+
+            # Dismiss any remaining popups before clicking Post
+            for popup_text in ["Got it", "OK", "Close"]:
+                try:
+                    popup_btn = page.query_selector(f'button:has-text("{popup_text}")')
+                    if popup_btn and popup_btn.is_visible():
+                        popup_btn.click(force=True)
+                        log.info(f"Dismissed popup before Post: '{popup_text}'")
+                        page.wait_for_timeout(1000)
+                except Exception:
+                    continue
 
             # Click the Post button
             log.info("Looking for Post/Publish button...")
