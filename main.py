@@ -252,6 +252,27 @@ def cmd_run(args):
         sys.exit(1)
 
 
+def cmd_reupload(args):
+    """Re-upload an existing track to YouTube and TikTok (skip generation steps).
+
+    Uses existing video/thumbnail files from output/ and regenerates only the
+    concept metadata (title, description, tags) before uploading.
+
+    Usage: python main.py reupload Tikasa
+    """
+    from pipeline import reupload_track
+
+    track_name = args.name
+    log.info(f"Re-uploading existing track: {track_name}")
+    result = reupload_track(track_name)
+
+    if result["errors"]:
+        log.warning(f"Completed with {len(result['errors'])} error(s)")
+        sys.exit(1)
+    else:
+        log.info("Done!")
+
+
 def cmd_schedule(args):
     """Schedule 4 clips per day, uploaded to YouTube + TikTok automatically.
 
@@ -363,6 +384,17 @@ def main():
         help="Max number of cards to download from (default: 4)",
     )
     dl_parser.set_defaults(func=cmd_download)
+
+    # reupload - re-upload existing track (skip generation, just upload)
+    reupload_parser = subparsers.add_parser(
+        "reupload",
+        help="Re-upload existing track to YouTube + TikTok (skip generation)",
+    )
+    reupload_parser.add_argument(
+        "name", type=str,
+        help="Track name (e.g. Tikasa) — must match files in output/",
+    )
+    reupload_parser.set_defaults(func=cmd_reupload)
 
     # run - full pipeline (generate music + merge + upload) × N
     run_parser = subparsers.add_parser(

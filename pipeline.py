@@ -10,6 +10,117 @@ from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
 
 
+def reupload_track(track_name: str) -> dict:
+    """Re-upload an existing track to YouTube and TikTok (skip generation/video steps).
+
+    Looks for existing files in OUTPUT_DIR:
+      - {track_name}_youtube.mp4
+      - {track_name}_tiktok.mp4
+      - {track_name}_thumbnail.png
+      - {track_name}.mp3  (for duration detection)
+
+    Regenerates concept metadata (title, description, tags) via OpenAI,
+    then uploads to both platforms.
+    """
+    from config import OUTPUT_DIR
+    from modules.concept_generator import generate_concept
+
+    result = {
+        "concept": track_name,
+        "duration": None,
+        "youtube_url": None,
+        "tiktok_url": None,
+        "errors": [],
+    }
+
+    # Locate existing files
+    youtube_video = OUTPUT_DIR / f"{track_name}_youtube.mp4"
+    tiktok_video = OUTPUT_DIR / f"{track_name}_tiktok.mp4"
+    thumbnail = OUTPUT_DIR / f"{track_name}_thumbnail.png"
+    mp3_file = OUTPUT_DIR / f"{track_name}.mp3"
+
+    for label, path in [("YouTube video", youtube_video), ("thumbnail", thumbnail)]:
+        if not path.exists():
+            log.error(f"{label} not found: {path}")
+            result["errors"].append(f"missing: {path}")
+            return result
+
+    if not tiktok_video.exists():
+        log.warning(f"TikTok video not found: {tiktok_video} — will skip TikTok upload")
+
+    # Detect duration from MP3 (if available)
+    duration_sec = 0
+    if mp3_file.exists():
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "quiet", "-print_format", "json",
+                 "-show_format", str(mp3_file)],
+                capture_output=True, text=True,
+            )
+            duration_sec = float(json.loads(probe.stdout)["format"]["duration"])
+            result["duration"] = _format_duration(duration_sec)
+            log.info(f"Duration: {result['duration']}")
+        except Exception:
+            log.warning("Could not detect duration — continuing without it")
+
+    # Generate fresh concept metadata
+    log.info("=" * 60)
+    log.info(f"Generating concept metadata for '{track_name}'...")
+    concept = generate_concept(track_name=track_name)
+
+    # Inject duration into title (same logic as process_single_track)
+    if duration_sec:
+        duration_mins = int(duration_sec) // 60
+        if "\U0001f525" in concept.youtube_title:
+            concept.youtube_title = concept.youtube_title.replace(
+                "\U0001f525", f"\U0001f525 {duration_mins} Minutes of", 1
+            )
+        concept.youtube_title = concept.youtube_title[:100]
+        concept.youtube_description = concept.youtube_description.replace(
+            "{duration}", str(duration_mins)
+        )
+        concept.youtube_description += f"\n\nDuration: {result['duration']}"
+
+    log.info(f"YouTube title: {concept.youtube_title}")
+
+    # Upload to YouTube
+    try:
+        log.info("=" * 60)
+        log.info("Uploading to YouTube...")
+        youtube_url = upload_to_youtube(youtube_video, thumbnail, concept)
+        result["youtube_url"] = youtube_url
+        log.info(f"YouTube URL: {youtube_url}")
+    except Exception as e:
+        log.error(f"YouTube upload failed: {e}")
+        result["errors"].append(f"youtube: {e}")
+
+    # Upload to TikTok
+    if tiktok_video.exists():
+        try:
+            log.info("=" * 60)
+            log.info("Uploading to TikTok...")
+            tiktok_url = upload_to_tiktok(tiktok_video, concept)
+            result["tiktok_url"] = tiktok_url
+            log.info(f"TikTok URL: {tiktok_url}")
+        except Exception as e:
+            log.error(f"TikTok upload failed: {e}")
+            result["errors"].append(f"tiktok: {e}")
+    else:
+        log.warning("Skipping TikTok upload (no video file)")
+
+    # Summary
+    log.info("=" * 60)
+    if result["errors"]:
+        log.warning(f"Completed with errors: {result['errors']}")
+    else:
+        log.info("REUPLOAD DONE! Track uploaded successfully!")
+    log.info(f"Track: {track_name}")
+    log.info(f"YouTube: {result.get('youtube_url', 'N/A')}")
+    log.info(f"TikTok: {result.get('tiktok_url', 'N/A')}")
+
+    return result
+
+
 def _format_duration(seconds: float) -> str:
     """Format seconds into mm:ss string."""
     mins = int(seconds) // 60
