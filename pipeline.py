@@ -39,11 +39,11 @@ def reupload_track(track_name: str) -> dict:
     thumbnail = OUTPUT_DIR / f"{track_name}_thumbnail.png"
     mp3_file = OUTPUT_DIR / f"{track_name}.mp3"
 
-    for label, path in [("YouTube video", youtube_video), ("thumbnail", thumbnail)]:
-        if not path.exists():
-            log.error(f"{label} not found: {path}")
-            result["errors"].append(f"missing: {path}")
-            return result
+    if not thumbnail.exists():
+        log.warning(f"Thumbnail not found: {thumbnail} — continuing without it")
+
+    if not youtube_video.exists():
+        log.info(f"YouTube video not found: {youtube_video} — skipping (YouTube upload disabled)")
 
     if not tiktok_video.exists():
         log.warning(f"TikTok video not found: {tiktok_video} — will skip TikTok upload")
