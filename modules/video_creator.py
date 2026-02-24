@@ -13,13 +13,17 @@ from utils.logger import log
 
 # Resolve a usable font at import time. MoviePy's TextClip delegates to
 # Pillow, so we probe with ImageFont.truetype to find the first available font.
+# Candidates cover Windows (C:\Windows\Fonts) and Linux (/usr/share/fonts).
 _FONT_CANDIDATES = [
+    # Windows fonts
     "Arial",
+    "arial.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",
+    # Linux fonts
     "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-    "DejaVu-Sans-Bold",
-    "Liberation-Sans-Bold",
 ]
 
 
@@ -30,8 +34,8 @@ def _resolve_font() -> str:
             return candidate
         except (OSError, IOError):
             continue
-    # Last resort — return a name and let MoviePy try its own lookup
-    return "DejaVu-Sans"
+    log.warning("No suitable font found — video text overlays may fail")
+    return "Arial"
 
 
 _FONT = _resolve_font()
