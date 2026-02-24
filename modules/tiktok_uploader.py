@@ -94,6 +94,8 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
     with sync_playwright() as p:
         browser, context = get_browser_context(p, TIKTOK_COOKIE_FILE)
         page = context.new_page()
+        # Auto-accept any "Leave page?" / beforeunload dialogs
+        page.on("dialog", lambda d: d.accept())
 
         try:
             # Navigate to TikTok upload page
@@ -134,14 +136,14 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
             log.info(f"Video file selected: {video_path.name}")
             page.screenshot(path=str(debug_dir / "debug_tiktok_02_file_selected.png"))
 
-            # Wait for "Uploaded" indicator to appear
-            log.info("Waiting for TikTok to finish uploading...")
+            # Wait for "Uploaded" indicator — large videos can take several minutes
+            log.info("Waiting for TikTok to finish uploading (up to 5 min)...")
             try:
-                page.wait_for_selector(':text("Uploaded")', timeout=60_000)
+                page.wait_for_selector(':text("Uploaded")', timeout=300_000)
                 log.info("Video upload confirmed (Uploaded indicator found)")
             except PlaywrightTimeout:
-                log.warning("Upload indicator not found after 60s, continuing anyway")
-            page.wait_for_timeout(3000)
+                log.warning("Upload indicator not found after 5 min, continuing anyway")
+            page.wait_for_timeout(5000)
 
             page.screenshot(path=str(debug_dir / "debug_tiktok_03_after_processing.png"))
 
@@ -221,8 +223,9 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
             # Dismiss popups again before clicking Post
             _dismiss_tiktok_popups(page)
 
-            # Click the Post button
-            log.info("Looking for Post/Publish button...")
+            # Wait for Post button to become enabled (red) — video must finish
+            # processing first, which can take several minutes for large files.
+            log.info("Waiting for Post button to become enabled (up to 5 min)...")
             post_selectors = [
                 'button:has-text("Post")',
                 'div[class*="btn-post"]',
@@ -232,16 +235,13 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
             ]
 
             posted = False
-            for selector in post_selectors:
-                try:
-                    post_btn = page.wait_for_selector(selector, timeout=5_000)
-                    if post_btn and post_btn.is_visible():
-                        is_enabled = post_btn.is_enabled()
-                        log.info(f"Found button '{selector}' — enabled={is_enabled}")
-                        if is_enabled:
-                            # Use force=True — TikTok Studio often has overlay
-                            # elements that block normal actionability checks,
-                            # causing a 30s timeout on click().
+            # Poll for up to 5 minutes, checking every 10 seconds
+            for attempt in range(30):
+                for selector in post_selectors:
+                    try:
+                        post_btn = page.query_selector(selector)
+                        if post_btn and post_btn.is_visible() and post_btn.is_enabled():
+                            log.info(f"Post button enabled: {selector}")
                             try:
                                 post_btn.click(force=True, timeout=10_000)
                             except PlaywrightTimeout:
@@ -250,53 +250,63 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
                             posted = True
                             log.info(f"Post button clicked: {selector}")
                             break
-                        else:
-                            log.warning(f"Button '{selector}' found but disabled, trying next...")
-                except PlaywrightTimeout:
-                    continue
+                    except Exception:
+                        continue
+                if posted:
+                    break
+                if attempt < 29:
+                    if attempt % 3 == 0:
+                        page.screenshot(path=str(debug_dir / f"debug_tiktok_waiting_post_{attempt}.png"))
+                        log.info(f"Post button not ready yet, waiting... ({(attempt + 1) * 10}s / 300s)")
+                    page.wait_for_timeout(10_000)
 
             if not posted:
                 page.screenshot(path=str(debug_dir / "debug_tiktok_no_post.png"))
-                # Log all visible buttons for debugging
                 buttons = page.evaluate("""() => {
                     return [...document.querySelectorAll('button')]
                         .filter(b => b.offsetParent !== null)
-                        .map(b => b.textContent.trim().substring(0, 50))
+                        .map(b => ({text: b.textContent.trim().substring(0, 50), enabled: !b.disabled}))
                         .slice(0, 20);
                 }""")
                 log.error(f"Visible buttons on page: {buttons}")
-                raise RuntimeError("Could not find Post button on TikTok")
+                raise RuntimeError("Post button not enabled after 5 minutes")
 
             page.screenshot(path=str(debug_dir / "debug_tiktok_05_post_clicked.png"))
 
-            # Wait for upload completion
-            log.info("Waiting for upload to complete (30s)...")
-            page.wait_for_timeout(30_000)
-            page.screenshot(path=str(debug_dir / "debug_tiktok_06_after_upload.png"))
-
-            # Try to detect success
+            # Wait for TikTok to finish publishing — poll for success indicators
+            # for up to 5 minutes instead of a blind sleep.
+            log.info("Waiting for TikTok to finish publishing (up to 5 min)...")
             video_url = None
-            try:
-                success_selectors = [
-                    'a[href*="/@"]',
-                    ':text("uploaded")',
-                    ':text("Your video")',
-                    ':text("successfully")',
-                ]
+            success_selectors = [
+                'a[href*="/@"]',
+                ':text("uploaded")',
+                ':text("Your video")',
+                ':text("successfully")',
+                ':text("Manage your posts")',
+            ]
+            for wait_attempt in range(30):
                 for sel in success_selectors:
                     try:
-                        el = page.wait_for_selector(sel, timeout=10_000)
+                        el = page.query_selector(sel)
                         if el:
                             href = el.get_attribute("href")
                             if href and "/@" in href:
                                 video_url = f"https://www.tiktok.com{href}" if href.startswith("/") else href
-                                break
-                    except PlaywrightTimeout:
+                            log.info(f"Success indicator found: {sel}")
+                            break
+                    except Exception:
                         continue
-            except Exception:
-                pass
+                else:
+                    # No success indicator found yet — keep waiting
+                    if wait_attempt % 3 == 0:
+                        page.screenshot(path=str(debug_dir / f"debug_tiktok_publishing_{wait_attempt}.png"))
+                        log.info(f"Still publishing... ({(wait_attempt + 1) * 10}s / 300s)")
+                    page.wait_for_timeout(10_000)
+                    continue
+                # Success indicator found — break outer loop
+                break
 
-            page.screenshot(path=str(debug_dir / "debug_tiktok_07_final.png"))
+            page.screenshot(path=str(debug_dir / "debug_tiktok_06_final.png"))
 
             if video_url:
                 log.info(f"TikTok video URL: {video_url}")

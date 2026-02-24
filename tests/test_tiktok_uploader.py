@@ -13,17 +13,9 @@ def _build_playwright_mocks(logged_in=True, post_success=True, video_url=None):
     mock_page = MagicMock()
     mock_page.url = "https://www.tiktok.com/upload" if logged_in else "https://www.tiktok.com/login"
 
-    # Login check: query_selector returns None when logged in (no login modal found)
-    if logged_in:
-        mock_page.query_selector = MagicMock(return_value=None)
-
     # File input
     mock_file_input = MagicMock()
     mock_file_input.set_input_files = MagicMock()
-
-    # Caption element
-    mock_caption = MagicMock()
-    mock_caption.is_visible.return_value = True
 
     # Post button
     mock_post_btn = MagicMock()
@@ -34,15 +26,22 @@ def _build_playwright_mocks(logged_in=True, post_success=True, video_url=None):
     mock_success_el = MagicMock()
     mock_success_el.get_attribute.return_value = video_url
 
+    # query_selector: used for login check, Post button polling, and success detection
+    def query_selector(selector):
+        if not logged_in:
+            return MagicMock()  # login modal found
+        if 'Post' in selector or 'post' in selector:
+            return mock_post_btn
+        if 'href' in selector or 'uploaded' in selector.lower() or 'video' in selector.lower() or 'success' in selector.lower() or 'Manage' in selector:
+            return mock_success_el
+        return None  # no login modal, no cookie banner, etc.
+
+    mock_page.query_selector = MagicMock(side_effect=query_selector)
+
+    # wait_for_selector: used for file input and "Uploaded" indicator
     def wait_for_selector(selector, timeout=5000, state=None):
         if 'file' in selector:
             return mock_file_input
-        if 'contenteditable' in selector:
-            return mock_caption
-        if 'Post' in selector or 'post' in selector:
-            return mock_post_btn
-        if 'href' in selector:
-            return mock_success_el
         return MagicMock()
 
     mock_page.wait_for_selector = MagicMock(side_effect=wait_for_selector)
