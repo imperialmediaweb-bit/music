@@ -90,7 +90,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
         ]
 
         # Visible browser required — SPA won't render in headless mode
-        context_opts = {"viewport": {"width": 1920, "height": 1080}}
+        context_opts = {"viewport": {"width": 1920, "height": 1080}, "accept_downloads": True}
         if AIMUSICFACTORY_STATE_FILE.exists():
             context_opts["storage_state"] = str(AIMUSICFACTORY_STATE_FILE)
             log.info("Loading saved cookies")
@@ -104,9 +104,10 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
 
         # Force Chrome to auto-save downloads without "Save As" dialog
         cdp = context.new_cdp_session(page)
-        cdp.send("Page.setDownloadBehavior", {
-            "behavior": "allow",
+        cdp.send("Browser.setDownloadBehavior", {
+            "behavior": "allowAndName",
             "downloadPath": str(OUTPUT_DIR.resolve()),
+            "eventsEnabled": True,
         })
 
         # Check if logged in, prompt if not
