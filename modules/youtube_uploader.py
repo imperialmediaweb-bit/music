@@ -13,9 +13,11 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 from modules.concept_generator import MusicConcept
-from config import BASE_DIR, OUTPUT_DIR
+from config import BASE_DIR, OUTPUT_DIR, YOUTUBE_COOKIE_FILE, HEADLESS
+from utils.browser import get_browser_context, save_cookies
 from utils.logger import log
 
 # OAuth2 scopes — full youtube scope for upload + playlist management
@@ -117,6 +119,125 @@ def _add_to_playlist(youtube, playlist_id: str, video_id: str):
         },
     ).execute()
     log.info(f"Video {video_id} added to playlist {playlist_id}")
+
+
+def _complete_self_certification(video_id: str) -> bool:
+    """Complete YouTube Studio self-certification for monetization.
+
+    Opens YouTube Studio via Playwright, navigates to the video's
+    monetization page, selects 'None of the above' and clicks Submit.
+    Returns True on success, False on failure.
+    """
+    studio_url = f"https://studio.youtube.com/video/{video_id}/monetization"
+    debug_dir = OUTPUT_DIR
+
+    log.info(f"Opening YouTube Studio for self-certification: {studio_url}")
+
+    with sync_playwright() as p:
+        browser, context = get_browser_context(p, YOUTUBE_COOKIE_FILE)
+        page = context.new_page()
+
+        try:
+            page.goto(studio_url, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(5000)
+
+            actual_url = page.url
+            log.info(f"YouTube Studio loaded. URL: {actual_url}")
+            page.screenshot(path=str(debug_dir / "debug_yt_monetization_01.png"))
+
+            # Check if we're redirected to login
+            if "accounts.google.com" in actual_url:
+                log.error("Not logged into YouTube Studio. Cookies may be expired.")
+                log.error("Run: python main.py login  (and login with your YouTube account)")
+                return False
+
+            # Look for the "None of the above" radio button / checkbox
+            # YouTube Studio self-certification has radio options; we want the "none" option
+            none_selectors = [
+                'tp-yt-paper-radio-button:has-text("None of the above")',
+                'label:has-text("None of the above")',
+                'div[role="radio"]:has-text("None of the above")',
+                'div[role="radiogroup"] :has-text("None of the above")',
+                ':text("None of the above")',
+            ]
+
+            clicked_none = False
+            for selector in none_selectors:
+                try:
+                    el = page.wait_for_selector(selector, timeout=5_000)
+                    if el and el.is_visible():
+                        el.click(force=True)
+                        clicked_none = True
+                        log.info(f"Clicked 'None of the above' using: {selector}")
+                        break
+                except PlaywrightTimeout:
+                    continue
+
+            if not clicked_none:
+                # Maybe self-certification is already done or UI is different
+                page.screenshot(path=str(debug_dir / "debug_yt_monetization_no_none.png"))
+                log.warning("Could not find 'None of the above' option — may already be certified")
+                # Check if already certified / monetization is on
+                page_text = page.text_content("body") or ""
+                if "on" in page_text.lower() and "monetization" in page_text.lower():
+                    log.info("Monetization appears to be already enabled")
+                    return True
+                return False
+
+            page.wait_for_timeout(1000)
+            page.screenshot(path=str(debug_dir / "debug_yt_monetization_02_selected.png"))
+
+            # Click the Submit / Save button
+            submit_selectors = [
+                'button:has-text("Submit")',
+                'ytcp-button:has-text("Submit")',
+                '#submit-button',
+                'button:has-text("Save")',
+                'ytcp-button:has-text("Save")',
+            ]
+
+            submitted = False
+            for selector in submit_selectors:
+                try:
+                    btn = page.wait_for_selector(selector, timeout=5_000)
+                    if btn and btn.is_visible() and btn.is_enabled():
+                        btn.click(force=True)
+                        submitted = True
+                        log.info(f"Clicked Submit using: {selector}")
+                        break
+                except PlaywrightTimeout:
+                    continue
+
+            if not submitted:
+                page.screenshot(path=str(debug_dir / "debug_yt_monetization_no_submit.png"))
+                buttons = page.evaluate("""() => {
+                    return [...document.querySelectorAll('button, ytcp-button, tp-yt-paper-button')]
+                        .filter(b => b.offsetParent !== null)
+                        .map(b => b.textContent.trim().substring(0, 50))
+                        .slice(0, 20);
+                }""")
+                log.warning(f"Could not find Submit button. Visible buttons: {buttons}")
+                return False
+
+            # Wait for save to complete
+            page.wait_for_timeout(3000)
+            page.screenshot(path=str(debug_dir / "debug_yt_monetization_03_done.png"))
+
+            # Save updated cookies
+            save_cookies(context, YOUTUBE_COOKIE_FILE)
+
+            log.info("YouTube self-certification completed successfully")
+            return True
+
+        except Exception as e:
+            log.error(f"YouTube self-certification failed: {e}")
+            try:
+                page.screenshot(path=str(debug_dir / "debug_yt_monetization_error.png"))
+            except Exception:
+                pass
+            return False
+        finally:
+            browser.close()
 
 
 def upload_to_youtube(
@@ -239,5 +360,13 @@ def upload_to_youtube(
         log.info("Added to 'Afro House' playlist")
     except Exception as e:
         log.warning(f"Playlist add failed: {e}")
+
+    # Complete self-certification for monetization
+    try:
+        certified = _complete_self_certification(video_id)
+        if not certified:
+            log.warning("Self-certification incomplete — check YouTube Studio manually")
+    except Exception as e:
+        log.warning(f"Self-certification failed (non-fatal): {e}")
 
     return video_url
