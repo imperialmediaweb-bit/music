@@ -135,7 +135,29 @@ def _dismiss_tiktok_popups(page) -> None:
             continue
 
 
-def _click_post_button(page, post_btn, selector: str, debug_dir: Path) -> None:
+def _find_post_button(page):
+    """Find the exact 'Post' button using JavaScript (not Playwright pseudo-selectors).
+
+    Playwright's :text-is("Post") fails on TikTok Studio, but JS works fine.
+    This finds a <button> whose trimmed textContent is exactly 'Post' or 'Publish',
+    excluding the sidebar 'Posts' navigation link.
+    """
+    handle = page.evaluate_handle("""() => {
+        const btns = [...document.querySelectorAll('button')];
+        // Look for exact "Post" or "Publish" text (not "Posts" nav)
+        const post = btns.find(b => {
+            const text = b.textContent.trim();
+            return (text === 'Post' || text === 'Publish')
+                && !b.disabled
+                && b.offsetParent !== null;
+        });
+        return post || null;
+    }""")
+    el = handle.as_element()
+    return el
+
+
+def _click_post_button(page, post_btn, debug_dir: Path) -> None:
     """Try multiple click strategies on the Post button, retrying if the page
     doesn't change. TikTok sometimes ignores the first click silently."""
     pre_click_url = page.url
@@ -144,8 +166,8 @@ def _click_post_button(page, post_btn, selector: str, debug_dir: Path) -> None:
         if click_attempt > 0:
             log.info(f"Post click retry #{click_attempt + 1}...")
             # Re-query the button — DOM may have changed
-            post_btn = page.query_selector(selector)
-            if not post_btn or not post_btn.is_visible():
+            post_btn = _find_post_button(page)
+            if not post_btn:
                 log.info("Post button gone after previous click — assuming success")
                 return
             _dismiss_tiktok_popups(page)
@@ -176,17 +198,16 @@ def _click_post_button(page, post_btn, selector: str, debug_dir: Path) -> None:
         # Wait and check if the click had any effect
         page.wait_for_timeout(5_000)
         current_url = page.url
-        btn_after = page.query_selector(selector)
-        btn_still_visible = btn_after and btn_after.is_visible()
+        btn_after = _find_post_button(page)
         log.info(
             f"After click attempt {click_attempt + 1} — "
             f"URL changed: {current_url != pre_click_url}, "
-            f"Post button still visible: {btn_still_visible}"
+            f"Post button still visible: {btn_after is not None}"
         )
         page.screenshot(path=str(debug_dir / f"debug_tiktok_05b_after_click_{click_attempt}.png"))
 
         # If URL changed or Post button disappeared, click worked
-        if current_url != pre_click_url or not btn_still_visible:
+        if current_url != pre_click_url or btn_after is None:
             return
 
         # Check for error messages that might have appeared
@@ -378,8 +399,19 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
             page.wait_for_timeout(2000)
             page.screenshot(path=str(debug_dir / "debug_tiktok_04_caption_filled.png"))
 
-            # Scroll down to make sure Post button is visible
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            # Scroll down to make sure Post button is visible.
+            # TikTok Studio uses a scrollable container, not body scroll.
+            page.evaluate("""() => {
+                // Try scrolling the main content area
+                const containers = document.querySelectorAll('[class*="content"], [class*="upload"], main, [role="main"]');
+                for (const c of containers) {
+                    if (c.scrollHeight > c.clientHeight) {
+                        c.scrollTo(0, c.scrollHeight);
+                    }
+                }
+                // Also scroll body as fallback
+                window.scrollTo(0, document.body.scrollHeight);
+            }""")
             page.wait_for_timeout(1000)
 
             # Dismiss popups again before clicking Post
@@ -388,44 +420,33 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
             # Wait for Post button to become enabled (red) — video must finish
             # processing first, which can take several minutes for large files.
             log.info("Waiting for Post button to become enabled (up to 5 min)...")
-            # IMPORTANT: use :text-is() for EXACT text match.
-            # :has-text("Post") matches "Posts" sidebar nav — WRONG button!
-            post_selectors = [
-                'button:text-is("Post")',
-                'button[data-e2e="post-button"]',
-                'div[class*="btn-post"] button',
-                'button:text-is("Publish")',
-            ]
 
             posted = False
             # Poll for up to 5 minutes, checking every 10 seconds
             for attempt in range(30):
-                for selector in post_selectors:
-                    try:
-                        post_btn = page.query_selector(selector)
-                        if post_btn and post_btn.is_visible() and post_btn.is_enabled():
-                            # Log button details before clicking
-                            btn_text = post_btn.text_content().strip()
-                            btn_box = post_btn.bounding_box()
-                            log.info(f"Post button found: '{btn_text}' at {btn_box} via {selector}")
-                            posted = True
+                # Use JavaScript to find the exact "Post" button.
+                # Playwright's :text-is("Post") pseudo-selector fails on TikTok Studio,
+                # but JS querySelectorAll('button') + textContent matching works.
+                post_btn = _find_post_button(page)
 
-                            # Dismiss any overlays that may intercept the click
-                            _dismiss_tiktok_popups(page)
-                            page.wait_for_timeout(500)
+                if post_btn:
+                    btn_text = post_btn.text_content().strip()
+                    btn_box = post_btn.bounding_box()
+                    log.info(f"Post button found: '{btn_text}' at {btn_box}")
+                    posted = True
 
-                            # Scroll button into view and re-query (DOM may have changed)
-                            post_btn.scroll_into_view_if_needed()
-                            page.wait_for_timeout(500)
+                    # Dismiss any overlays that may intercept the click
+                    _dismiss_tiktok_popups(page)
+                    page.wait_for_timeout(500)
 
-                            # Try clicking — multiple strategies
-                            _click_post_button(page, post_btn, selector, debug_dir)
-                            break
-                    except Exception as e:
-                        log.info(f"Post selector '{selector}' failed: {e}")
-                        continue
-                if posted:
+                    # Scroll button into view
+                    post_btn.scroll_into_view_if_needed()
+                    page.wait_for_timeout(500)
+
+                    # Try clicking — multiple strategies
+                    _click_post_button(page, post_btn, debug_dir)
                     break
+
                 if attempt < 29:
                     if attempt % 3 == 0:
                         page.screenshot(path=str(debug_dir / f"debug_tiktok_waiting_post_{attempt}.png"))
@@ -468,8 +489,8 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
                     break
 
                 # 2. Upload form disappeared (Post button gone = page transitioned)
-                post_btn = page.query_selector('button:text-is("Post")')
-                if not post_btn or not post_btn.is_visible():
+                post_btn = _find_post_button(page)
+                if not post_btn:
                     log.info("Post button disappeared — page transitioned")
                     link = page.query_selector('a[href*="/video/"]')
                     if link:
