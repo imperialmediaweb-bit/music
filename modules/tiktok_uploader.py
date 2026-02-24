@@ -77,10 +77,11 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
 
             log.info("TikTok login check passed")
 
-            # Upload video file
+            # Upload video file (input is hidden by design, use state="attached")
             log.info("Looking for video file input...")
             file_input = page.wait_for_selector(
                 'input[type="file"][accept*="video"]',
+                state="attached",
                 timeout=15_000,
             )
             file_input.set_input_files(str(video_path))
