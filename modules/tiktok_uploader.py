@@ -146,7 +146,14 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
                         is_enabled = post_btn.is_enabled()
                         log.info(f"Found button '{selector}' — enabled={is_enabled}")
                         if is_enabled:
-                            post_btn.click()
+                            # Use force=True — TikTok Studio often has overlay
+                            # elements that block normal actionability checks,
+                            # causing a 30s timeout on click().
+                            try:
+                                post_btn.click(force=True, timeout=10_000)
+                            except PlaywrightTimeout:
+                                log.warning(f"click() timed out for '{selector}', trying dispatch_event")
+                                post_btn.dispatch_event("click")
                             posted = True
                             log.info(f"Post button clicked: {selector}")
                             break
