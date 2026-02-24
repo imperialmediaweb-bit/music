@@ -1327,6 +1327,79 @@ def _ensure_toggle_on(page, label_text: str):
         log.info(f"{label_text} toggle: {e}")
 
 
+def download_existing_tracks(track_name: str, max_cards: int = 4) -> list[Path]:
+    """Go to My Music and download MP3s for tracks already generated.
+
+    Skips generation and waiting — just opens the browser, finds cards, downloads.
+
+    Args:
+        track_name: Name to search for (or empty to grab latest cards).
+        max_cards: Maximum number of cards to download from.
+
+    Returns:
+        List of downloaded MP3 file paths.
+    """
+    log.info(f"Downloading existing tracks from My Music (name='{track_name}', max={max_cards})")
+
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in track_name) if track_name else "track"
+    safe_name = safe_name.strip().replace(" ", "_")[:50] or "track"
+
+    # Build a minimal MusicConcept for _download_from_mymusic
+    concept = MusicConcept(
+        track_name=track_name or "latest",
+        music_prompt="",
+        youtube_title=track_name or "Afro House Mix",
+        youtube_description="",
+        thumbnail_prompt="",
+    )
+
+    with sync_playwright() as p:
+        chrome_args = [
+            "--disable-blink-features=AutomationControlled",
+            "--window-position=-2400,-2400",
+        ]
+
+        context_opts = {"viewport": {"width": 1920, "height": 1080}, "accept_downloads": True}
+        if AIMUSICFACTORY_STATE_FILE.exists():
+            context_opts["storage_state"] = str(AIMUSICFACTORY_STATE_FILE)
+            log.info("Loading saved cookies")
+
+        browser = p.chromium.launch(
+            headless=False, channel="chrome", args=chrome_args,
+        )
+        context = browser.new_context(**context_opts)
+        context.set_default_timeout(60_000)
+        page = context.new_page()
+
+        cdp = context.new_cdp_session(page)
+        cdp.send("Browser.setDownloadBehavior", {
+            "behavior": "allowAndName",
+            "downloadPath": str(OUTPUT_DIR.resolve()),
+            "eventsEnabled": True,
+        })
+
+        logged_in = _check_logged_in(page)
+        if logged_in:
+            log.info("Already logged in!")
+            context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
+        else:
+            page.evaluate("window.moveTo(100, 100)")
+            log.info("Not logged in — please log in with Google.")
+            input("\n>>> Press ENTER after you've logged in... ")
+            AIMUSICFACTORY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            context.storage_state(path=str(AIMUSICFACTORY_STATE_FILE))
+            page.evaluate("window.moveTo(-2400, -2400)")
+
+        all_mp3s = _download_from_mymusic(page, concept, safe_name, max_cards)
+        browser.close()
+
+    if not all_mp3s:
+        raise RuntimeError("No MP3s downloaded from My Music")
+
+    log.info(f"Total MP3s downloaded: {len(all_mp3s)}")
+    return all_mp3s
+
+
 def generate_music(concept: MusicConcept) -> Path:
     """Generate a single music track (backward compatibility)."""
     mp3s = generate_music_batch(concept, count=1)

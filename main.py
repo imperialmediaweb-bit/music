@@ -132,6 +132,41 @@ def cmd_process(args):
         log.info("Done!")
 
 
+def cmd_download(args):
+    """Download existing tracks from My Music on aimusicfactory.ai, then process them.
+
+    Goes to My Music, finds the latest (or named) tracks, downloads MP3s,
+    then merges → thumbnail → video → upload.
+    """
+    from modules.music_generator import download_existing_tracks
+    from modules.audio_merger import merge_mp3s
+    from pipeline import process_single_track
+
+    track_name = args.name or ""
+    max_cards = args.cards
+
+    # Step 1: Download from My Music
+    log.info("=" * 60)
+    log.info("STEP 1: Downloading from My Music...")
+    mp3_files = download_existing_tracks(track_name, max_cards=max_cards)
+    log.info(f"Downloaded {len(mp3_files)} MP3 files")
+
+    # Step 2: Merge
+    log.info("=" * 60)
+    log.info("STEP 2: Merging MP3 files...")
+    merged_path = merge_mp3s(mp3_files, output_name=track_name or None)
+    log.info(f"Merged file: {merged_path}")
+
+    # Step 3-6: Process (concept, thumbnail, video, upload)
+    result = process_single_track(merged_path)
+
+    if result["errors"]:
+        log.warning(f"Completed with {len(result['errors'])} error(s)")
+        sys.exit(1)
+    else:
+        log.info("Done!")
+
+
 def cmd_run(args):
     """Run full pipeline N times (generate music + merge + process + upload).
 
@@ -243,6 +278,21 @@ def main():
         help="Folder with MP3 files (default: input/)",
     )
     proc_parser.set_defaults(func=cmd_process)
+
+    # download - grab existing tracks from My Music and process
+    dl_parser = subparsers.add_parser(
+        "download",
+        help="Download existing tracks from My Music → merge → thumbnail → video → YouTube",
+    )
+    dl_parser.add_argument(
+        "--name", type=str, default=None,
+        help="Track name to search for (default: grab latest)",
+    )
+    dl_parser.add_argument(
+        "--cards", type=int, default=4,
+        help="Max number of cards to download from (default: 4)",
+    )
+    dl_parser.set_defaults(func=cmd_download)
 
     # run - full pipeline (generate music + merge + upload) × N
     run_parser = subparsers.add_parser(
