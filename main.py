@@ -293,7 +293,7 @@ def cmd_schedule(args):
         (9,  1),   # 09:00 → 1 gen = 2 MP3s
         (14, 1),   # 14:00 → 1 gen = 2 MP3s
         (18, 2),   # 18:00 → 2 gen = 4 MP3s
-        (20, 2),   # 20:00 → 2 gen = 4 MP3s
+        (20, 4),   # 20:00 → 4 gen = 8 MP3s
     ]
 
     if args.cron:
