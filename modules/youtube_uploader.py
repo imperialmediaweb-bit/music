@@ -125,7 +125,8 @@ def _complete_self_certification(video_id: str) -> bool:
     """Complete YouTube Studio self-certification for monetization.
 
     Opens YouTube Studio via Playwright, navigates to the video's
-    monetization page, selects 'None of the above' and clicks Submit.
+    monetization page, turns monetization ON, selects 'None of the above'
+    for ALL categories, and clicks Submit.
     Returns True on success, False on failure.
     """
     studio_url = f"https://studio.youtube.com/video/{video_id}/monetization"
@@ -139,7 +140,7 @@ def _complete_self_certification(video_id: str) -> bool:
 
         try:
             page.goto(studio_url, wait_until="domcontentloaded", timeout=60_000)
-            page.wait_for_timeout(5000)
+            page.wait_for_timeout(8000)
 
             actual_url = page.url
             log.info(f"YouTube Studio loaded. URL: {actual_url}")
@@ -151,49 +152,88 @@ def _complete_self_certification(video_id: str) -> bool:
                 log.error("Run: python main.py login  (and login with your YouTube account)")
                 return False
 
-            # Look for the "None of the above" radio button / checkbox
-            # YouTube Studio self-certification has radio options; we want the "none" option
+            # Log page state for debugging
+            page_text = (page.text_content("body") or "")[:500]
+            log.info(f"Page text preview: {page_text[:200]}")
+
+            # Step 1: Turn ON monetization if there's a toggle
+            toggle_selectors = [
+                '#monetize-with-ads',
+                'tp-yt-paper-toggle-button',
+                'div[id*="monetize"]',
+                '#onoff-toggle',
+                'ytcp-toggle-button',
+            ]
+            for sel in toggle_selectors:
+                try:
+                    toggle = page.query_selector(sel)
+                    if toggle and toggle.is_visible():
+                        # Check if it's already ON
+                        aria = toggle.get_attribute("aria-pressed") or toggle.get_attribute("checked") or ""
+                        classes = toggle.get_attribute("class") or ""
+                        if aria == "true" or "checked" in classes or "selected" in classes:
+                            log.info(f"Monetization toggle already ON ({sel})")
+                        else:
+                            toggle.click(force=True)
+                            log.info(f"Turned ON monetization toggle: {sel}")
+                            page.wait_for_timeout(2000)
+                        break
+                except Exception as e:
+                    log.info(f"Toggle selector {sel} failed: {e}")
+
+            page.screenshot(path=str(debug_dir / "debug_yt_monetization_02_toggle.png"))
+
+            # Step 2: Click ALL "None of the above" options (one per category)
+            # YouTube self-certification has multiple sections (drugs, violence, etc.)
             none_selectors = [
                 'tp-yt-paper-radio-button:has-text("None of the above")',
                 'label:has-text("None of the above")',
                 'div[role="radio"]:has-text("None of the above")',
-                'div[role="radiogroup"] :has-text("None of the above")',
                 ':text("None of the above")',
             ]
 
-            clicked_none = False
+            total_clicked = 0
             for selector in none_selectors:
                 try:
-                    el = page.wait_for_selector(selector, timeout=5_000)
-                    if el and el.is_visible():
-                        el.click(force=True)
-                        clicked_none = True
-                        log.info(f"Clicked 'None of the above' using: {selector}")
-                        break
-                except PlaywrightTimeout:
+                    elements = page.query_selector_all(selector)
+                    for el in elements:
+                        if el.is_visible():
+                            el.click(force=True)
+                            total_clicked += 1
+                            page.wait_for_timeout(300)
+                except Exception:
                     continue
 
-            if not clicked_none:
-                # Maybe self-certification is already done or UI is different
+            log.info(f"Clicked 'None of the above' {total_clicked} time(s)")
+
+            if total_clicked == 0:
                 page.screenshot(path=str(debug_dir / "debug_yt_monetization_no_none.png"))
-                log.warning("Could not find 'None of the above' option — may already be certified")
-                # Check if already certified / monetization is on
-                page_text = page.text_content("body") or ""
-                if "on" in page_text.lower() and "monetization" in page_text.lower():
-                    log.info("Monetization appears to be already enabled")
+                # Dump all radio buttons / checkboxes for debugging
+                radios = page.evaluate("""() => {
+                    return [...document.querySelectorAll('[role="radio"], [role="checkbox"], tp-yt-paper-radio-button, label')]
+                        .filter(e => e.offsetParent !== null)
+                        .map(e => e.textContent.trim().substring(0, 60))
+                        .slice(0, 30);
+                }""")
+                log.warning(f"No 'None of the above' found. Visible radios/labels: {radios}")
+                # Check if already certified
+                if "self-certification" not in page_text.lower():
+                    log.info("Self-certification section not visible — may already be done")
                     return True
                 return False
 
             page.wait_for_timeout(1000)
-            page.screenshot(path=str(debug_dir / "debug_yt_monetization_02_selected.png"))
+            page.screenshot(path=str(debug_dir / "debug_yt_monetization_03_selected.png"))
 
-            # Click the Submit / Save button
+            # Step 3: Click Submit / Save button
             submit_selectors = [
-                'button:has-text("Submit")',
+                'ytcp-button:has-text("Submit rating")',
+                'button:has-text("Submit rating")',
                 'ytcp-button:has-text("Submit")',
+                'button:has-text("Submit")',
                 '#submit-button',
-                'button:has-text("Save")',
                 'ytcp-button:has-text("Save")',
+                'button:has-text("Save")',
             ]
 
             submitted = False
@@ -220,8 +260,8 @@ def _complete_self_certification(video_id: str) -> bool:
                 return False
 
             # Wait for save to complete
-            page.wait_for_timeout(3000)
-            page.screenshot(path=str(debug_dir / "debug_yt_monetization_03_done.png"))
+            page.wait_for_timeout(5000)
+            page.screenshot(path=str(debug_dir / "debug_yt_monetization_04_done.png"))
 
             # Save updated cookies
             save_cookies(context, YOUTUBE_COOKIE_FILE)
