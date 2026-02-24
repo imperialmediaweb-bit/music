@@ -6,9 +6,35 @@ from moviepy import (
     TextClip,
     vfx,
 )
+from PIL import ImageFont
 from modules.concept_generator import MusicConcept
 from config import OUTPUT_DIR
 from utils.logger import log
+
+# Resolve a usable font at import time. MoviePy's TextClip delegates to
+# Pillow, so we probe with ImageFont.truetype to find the first available font.
+_FONT_CANDIDATES = [
+    "Arial",
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    "DejaVu-Sans-Bold",
+    "Liberation-Sans-Bold",
+]
+
+
+def _resolve_font() -> str:
+    for candidate in _FONT_CANDIDATES:
+        try:
+            ImageFont.truetype(candidate, 20)
+            return candidate
+        except (OSError, IOError):
+            continue
+    # Last resort — return a name and let MoviePy try its own lookup
+    return "DejaVu-Sans"
+
+
+_FONT = _resolve_font()
 
 
 def create_videos(
@@ -81,7 +107,7 @@ def _create_landscape_video(
             text=concept.track_name,
             font_size=60,
             color="white",
-            font="Arial",
+            font=_FONT,
             stroke_color="black",
             stroke_width=2,
         )
@@ -95,7 +121,7 @@ def _create_landscape_video(
             text=f"{concept.genre} | {concept.mood}",
             font_size=30,
             color="#cccccc",
-            font="Arial",
+            font=_FONT,
         )
         .with_duration(duration)
         .with_position(("center", H - 60))
@@ -129,7 +155,7 @@ def _create_portrait_video(
             text=concept.track_name,
             font_size=50,
             color="white",
-            font="Arial",
+            font=_FONT,
             stroke_color="black",
             stroke_width=2,
         )
