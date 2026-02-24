@@ -139,13 +139,18 @@ def upload_to_youtube(
     import re
 
     # Build tags for video metadata
-    # YouTube API rules: no < > characters, no # prefix, total chars ≤ 500
+    # YouTube API rules: only letters, digits, spaces, hyphens allowed;
+    # no < > # or special chars; individual tag max 100 chars; total ≤ 500 chars
     raw_tags = concept.youtube_tags[:30]
+    log.info(f"Raw tags before sanitization ({len(raw_tags)}): {raw_tags}")
     tags = []
     total_chars = 0
     for t in raw_tags:
-        t = re.sub(r'[<>]', '', t).strip().lstrip('#')
-        if not t:
+        if not isinstance(t, str):
+            continue
+        # Strip everything except letters, digits, spaces, hyphens, and apostrophes
+        t = re.sub(r'[^a-zA-Z0-9\s\-\']', '', t).strip()
+        if not t or len(t) > 100:
             continue
         # YouTube counts commas between tags; each tag costs len(tag)+1 (except last)
         cost = len(t) + (1 if tags else 0)
@@ -153,6 +158,7 @@ def upload_to_youtube(
             break
         tags.append(t)
         total_chars += cost
+    log.info(f"Sanitized tags ({len(tags)}, {total_chars} chars): {tags}")
 
     # Clean any existing hashtags from end of AI description to avoid duplication
     clean_desc = re.sub(r'(\s*#\w+)+\s*$', '', concept.youtube_description).rstrip()
