@@ -203,21 +203,23 @@ def _wait_with_progress(page, seconds: float):
             log.info(f"  {remaining // 60}m {remaining % 60}s remaining...")
 
 
-# ── Phase 3: My Music → click cards → download from detail pages ──
+# ── Phase 3: My Music -> click cards -> download from detail pages ──
 
 def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected_cards: int) -> list[Path]:
     """Navigate to My Music, find track cards by name, open each, download MP3s.
 
-    Flow (matches site structure from screenshots):
-    1. Go to /myMusic
-    2. Scroll page to load all cards
-    3. Find all cards with the track name (multiple strategies)
-    4. Click each card to open its detail page
-    5. On the detail page, click each green "Download" button
-    6. Go back to My Music for the next card
+    The site renders a CSS grid of square cards on /myMusic. Each card has:
+    - Album art image
+    - Track name text at bottom
+    - v8.0 badge, star icon
+    The first card is a "+" button (create new) — skip it.
+
+    Cards are NOT <a> tags — they are div elements with click handlers.
+    Clicking a card navigates to a detail page with a green "Download" button
+    that opens a popover with "Audio" option to download the MP3.
     """
     page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
-    page.wait_for_timeout(10_000)
+    page.wait_for_timeout(15_000)
 
     # Scroll down to load all cards (lazy loading / infinite scroll)
     _scroll_page(page)
@@ -228,139 +230,85 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
     (OUTPUT_DIR / "debug_mymusic.html").write_text(html, encoding="utf-8")
     log.info(f"My Music page loaded ({len(html)} chars)")
 
-    # Log all visible card names for debugging
-    all_card_names = _get_all_card_names(page)
-    log.info(f"All visible card names on My Music ({len(all_card_names)}):")
-    for name_info in all_card_names[:20]:
-        log.info(f"  card: '{name_info['name']}' → {name_info['href']}")
+    # Check page has actual content (images = track cards)
+    img_count = page.evaluate("() => document.querySelectorAll('img').length")
+    log.info(f"Images on page: {img_count}")
 
-    # Log DOM structure diagnostics if no <a>-based cards found
-    if not all_card_names:
-        _log_page_structure(page)
-
-    # Strategy 1: Find cards matching our track name
     track_name = concept.track_name
-    card_hrefs = _find_track_cards(page, track_name)
 
-    # Strategy 2: Try search box
-    if not card_hrefs:
-        log.warning(f"No cards found for '{track_name}' — trying search box...")
+    # ── PRIMARY STRATEGY: Find grid cards (divs with images + track names) ──
+    grid_cards = _find_grid_cards(page, track_name)
+
+    # If no cards found, try search box
+    if not grid_cards:
+        log.warning(f"No grid cards found for '{track_name}' — trying search box...")
         _search_mymusic(page, track_name)
         page.wait_for_timeout(5000)
         _scroll_page(page)
         page.screenshot(path=str(OUTPUT_DIR / "debug_mymusic_search.png"))
-        card_hrefs = _find_track_cards(page, track_name)
+        grid_cards = _find_grid_cards(page, track_name)
 
-    # Strategy 3: Reload page and try again
-    if not card_hrefs:
+    # If still no cards, reload and retry
+    if not grid_cards:
         log.warning(f"Still no cards — reloading My Music page...")
         page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
         page.wait_for_timeout(15_000)
         _scroll_page(page)
-        card_hrefs = _find_track_cards(page, track_name)
+        grid_cards = _find_grid_cards(page, track_name)
 
-    # Strategy 4: Fallback — get the latest N cards regardless of name
-    if not card_hrefs:
-        log.warning(f"Name match failed — falling back to latest {expected_cards} card(s)...")
-        card_hrefs = _get_latest_card_hrefs(page, expected_cards)
-        if card_hrefs:
-            log.info(f"Fallback: found {len(card_hrefs)} latest card(s)")
-
-    # ── Strategy 5: Click-based approach using DOM structure ──
-    # If href-based strategies all failed, the site probably uses divs with click handlers
-    if not card_hrefs:
-        log.info("All href-based strategies failed — trying click-based card detection...")
-        struct_cards = _find_music_cards_by_structure(page, track_name)
-
-        if struct_cards:
-            log.info(f"Found {len(struct_cards)} card(s) by DOM structure — using click approach")
-            # Filter: prefer name matches, then top-scored, limit to expected count
-            name_matches = [c for c in struct_cards if c.get("nameMatch")]
-            cards_to_use = name_matches if name_matches else struct_cards[:expected_cards]
-
-            all_mp3s = []
-            for i, card_info in enumerate(cards_to_use):
-                card_num = i + 1
-                log.info(f"\n--- Click-Card {card_num}/{len(cards_to_use)}: "
-                         f"'{card_info.get('text', '')[:50]}' ---")
-
-                try:
-                    # Navigate back to My Music before each click
-                    if i > 0:
-                        page.goto("https://aimusicfactory.ai/myMusic",
-                                  wait_until="domcontentloaded", timeout=60_000)
-                        page.wait_for_timeout(8_000)
-                        _scroll_page(page)
-
-                    old_url = page.url
-                    clicked = _click_card_by_index(page, cards_to_use, i)
-                    if not clicked:
-                        log.warning(f"Click-Card {card_num}: click failed, skipping")
-                        continue
-
-                    page.wait_for_timeout(3_000)
-                    new_url = page.url
-                    log.info(f"Click-Card {card_num}: URL changed: {old_url} → {new_url}")
-                    page.screenshot(path=str(OUTPUT_DIR / f"debug_click_card_{card_num}.png"))
-
-                    # Save detail page HTML
-                    detail_html = page.content()
-                    (OUTPUT_DIR / f"debug_click_detail_{card_num}.html").write_text(
-                        detail_html, encoding="utf-8")
-
-                    song_id = str(int(time.time()))
-                    song_id_match = re.search(r'/(\d+)', new_url)
-                    if song_id_match:
-                        song_id = song_id_match.group(1)
-
-                    _wait_for_download_button(page, card_num)
-                    downloaded = _download_mp3s_from_detail(page, safe_name, card_num, song_id)
-                    all_mp3s.extend(downloaded)
-                    log.info(f"Click-Card {card_num}: downloaded {len(downloaded)} MP3(s)")
-
-                except Exception as e:
-                    log.warning(f"Click-Card {card_num} failed: {e}")
-                    page.screenshot(path=str(OUTPUT_DIR / f"debug_click_fail_{card_num}.png"))
-
-            return all_mp3s
-
-    if not card_hrefs:
-        log.error(f"No track cards found on My Music at all!")
+    if not grid_cards:
+        log.error(f"No track cards found on My Music for '{track_name}'!")
+        _log_page_structure(page)
         page.screenshot(path=str(OUTPUT_DIR / "debug_no_cards.png"))
         return []
 
-    log.info(f"Found {len(card_hrefs)} card(s) to download from")
+    # Filter: prefer cards matching our track name, otherwise take latest
+    name_matches = [c for c in grid_cards if c.get("nameMatch")]
+    if name_matches:
+        cards_to_use = name_matches
+        log.info(f"Found {len(cards_to_use)} card(s) matching '{track_name}'")
+    else:
+        cards_to_use = grid_cards[:expected_cards]
+        log.info(f"No name match — using latest {len(cards_to_use)} card(s)")
 
+    # ── Click each card -> navigate to detail -> download MP3 ──
     all_mp3s = []
-    for i, href in enumerate(card_hrefs):
+    for i, card_info in enumerate(cards_to_use):
         card_num = i + 1
-        log.info(f"\n--- Card {card_num}/{len(card_hrefs)}: {href} ---")
-
-        # Extract song ID from href (e.g. /myMusic/12345 → 12345)
-        song_id_match = re.search(r'/(\d+)', href)
-        song_id = song_id_match.group(1) if song_id_match else str(int(time.time()))
+        card_name = card_info.get("name", "?")
+        log.info(f"\n--- Card {card_num}/{len(cards_to_use)}: '{card_name}' ---")
 
         try:
-            # Navigate to the track detail page
-            if href.startswith("/"):
-                full_url = f"https://aimusicfactory.ai{href}"
-            elif href.startswith("http"):
-                full_url = href
-            else:
-                full_url = f"https://aimusicfactory.ai/{href}"
+            # Navigate back to My Music before each click (except the first)
+            if i > 0:
+                page.goto("https://aimusicfactory.ai/myMusic",
+                          wait_until="domcontentloaded", timeout=60_000)
+                page.wait_for_timeout(10_000)
+                _scroll_page(page)
 
-            page.goto(full_url, wait_until="domcontentloaded", timeout=60_000)
-            page.wait_for_timeout(8_000)
-            page.screenshot(path=str(OUTPUT_DIR / f"debug_track_detail_{card_num}.png"))
+            old_url = page.url
+            clicked = _click_grid_card(page, card_info)
+            if not clicked:
+                log.warning(f"Card {card_num}: click failed, skipping")
+                continue
+
+            page.wait_for_timeout(5_000)
+            new_url = page.url
+            log.info(f"Card {card_num}: navigated {old_url} -> {new_url}")
+            page.screenshot(path=str(OUTPUT_DIR / f"debug_detail_{card_num}.png"))
 
             # Save detail page HTML
             detail_html = page.content()
-            (OUTPUT_DIR / f"debug_track_detail_{card_num}.html").write_text(detail_html, encoding="utf-8")
+            (OUTPUT_DIR / f"debug_detail_{card_num}.html").write_text(
+                detail_html, encoding="utf-8")
 
-            # Wait for Download buttons to appear (React hydration)
+            # Extract song ID from URL
+            song_id = str(int(time.time()))
+            song_id_match = re.search(r'/(\d+)', new_url)
+            if song_id_match:
+                song_id = song_id_match.group(1)
+
             _wait_for_download_button(page, card_num)
-
-            # Download all MP3s from this detail page (named: TrackName_SongID.mp3)
             downloaded = _download_mp3s_from_detail(page, safe_name, card_num, song_id)
             all_mp3s.extend(downloaded)
             log.info(f"Card {card_num}: downloaded {len(downloaded)} MP3(s)")
@@ -372,255 +320,217 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
     return all_mp3s
 
 
-def _find_track_cards(page, track_name: str) -> list[str]:
-    """Find all card hrefs on My Music page matching the track name.
+def _find_grid_cards(page, track_name: str) -> list[dict]:
+    """Find track cards in the My Music CSS grid.
 
-    Uses multiple strategies: exact match, case-insensitive, partial match.
-    Returns list of hrefs (URLs) for matching cards.
-    """
-    hrefs = page.evaluate("""(trackName) => {
-        const results = [];
-        const seen = new Set();
-        const lowerName = trackName.toLowerCase();
+    The site renders a grid of square cards. Each card has:
+    - Album art <img>
+    - Track name text at the bottom
+    - v8.0 badge, star icon
+    The first card is a "+" button (create new) — skip it.
 
-        function addHref(href) {
-            if (!href || seen.has(href) || href === '/' || href === '#') return;
-            // Only add music-related hrefs (track detail pages)
-            if (href.includes('/song/') || href.includes('/track/') ||
-                href.includes('/music/') || href.match(/\\/\\d+/) ||
-                href.includes('/myMusic/')) {
-                seen.add(href);
-                results.push(href);
-            }
-        }
+    Cards are NOT <a> tags — they are div elements with click handlers.
 
-        // Strategy 1: Find <a> tags with case-insensitive text match
-        const allLinks = document.querySelectorAll('a');
-        for (const link of allLinks) {
-            const text = link.textContent.trim().toLowerCase();
-            const href = link.getAttribute('href') || '';
-            if (text.includes(lowerName)) {
-                addHref(href);
-            }
-        }
-
-        // Strategy 2: Walk up from text nodes containing track name
-        if (results.length === 0) {
-            const walker = document.createTreeWalker(
-                document.body, NodeFilter.SHOW_TEXT, null);
-            while (walker.nextNode()) {
-                const text = walker.currentNode.textContent.trim().toLowerCase();
-                if (!text.includes(lowerName)) continue;
-
-                let el = walker.currentNode.parentElement;
-                for (let i = 0; i < 15; i++) {
-                    if (!el) break;
-                    if (el.tagName === 'A') {
-                        addHref(el.getAttribute('href') || '');
-                        break;
-                    }
-                    // Also check for onClick or data-href
-                    const href = el.getAttribute('href') || el.dataset?.href || '';
-                    if (href) { addHref(href); break; }
-                    el = el.parentElement;
-                }
-            }
-        }
-
-        // Strategy 3: If href filter was too strict, try without it
-        if (results.length === 0) {
-            for (const link of allLinks) {
-                const text = link.textContent.trim().toLowerCase();
-                const href = link.getAttribute('href') || '';
-                if (!href || seen.has(href) || href === '/' || href === '#') continue;
-                if (text.includes(lowerName)) {
-                    seen.add(href);
-                    results.push(href);
-                }
-            }
-        }
-
-        return results;
-    }""", track_name)
-
-    log.info(f"_find_track_cards('{track_name}'): found {len(hrefs)} card(s)")
-    for h in hrefs:
-        log.info(f"  card href: {h}")
-
-    return hrefs
-
-
-def _find_music_cards_by_structure(page, track_name: str = "") -> list[dict]:
-    """Find music cards by DOM structure, not just <a> tags.
-
-    The site may use <div> elements with click handlers instead of <a> links.
-    Looks for card-like containers: elements with images + text that appear to be
-    track listings (contain duration patterns, play buttons, etc.).
-
-    Returns list of dicts: [{index, text, tag, has_image, has_duration}, ...]
+    Returns list of dicts sorted by name match, then newest first:
+    [{gridIndex, name, nameMatch, hasImage, width, height}, ...]
     """
     cards = page.evaluate("""(trackName) => {
         const lowerName = trackName ? trackName.toLowerCase() : '';
         const results = [];
 
-        // Strategy A: Find elements that look like music cards
-        // (contain an <img> + text, not in nav/header/footer)
-        const candidates = document.querySelectorAll(
-            '[class*="card"], [class*="Card"], [class*="track"], [class*="Track"], ' +
-            '[class*="song"], [class*="Song"], [class*="item"], [class*="Item"], ' +
-            '[class*="music"], [class*="Music"], [class*="list-"] , [class*="grid-"]'
-        );
+        // ── Strategy A: Find the grid container ──
+        // Look for a parent element with many children that each have an <img>.
+        // This matches the card grid layout seen in screenshots.
+        let bestContainer = null;
+        let bestImgCount = 0;
 
-        for (const el of candidates) {
-            if (el.closest('nav') || el.closest('footer') || el.closest('header')) continue;
-            if (el.offsetParent === null) continue;
-            // Must have some text content
-            const text = el.textContent.trim().substring(0, 200);
-            if (text.length < 2) continue;
-            // Skip if it's a huge container (likely page wrapper, not individual card)
-            const rect = el.getBoundingClientRect();
-            if (rect.width > window.innerWidth * 0.9 && rect.height > window.innerHeight * 0.5) continue;
+        const containers = document.querySelectorAll('div, section, main, ul');
+        for (const c of containers) {
+            if (c.closest('nav') || c.closest('footer') || c.closest('header')) continue;
+            const children = c.children;
+            if (children.length < 3 || children.length > 100) continue;
 
-            const hasImage = el.querySelector('img') !== null;
-            const hasDuration = /\\d+:\\d{2}/.test(text);
-            const hasPlayBtn = el.querySelector('[class*="play"], [class*="Play"], svg') !== null;
+            // Count children that have an <img> AND are visible
+            let imgChildren = 0;
+            for (const child of children) {
+                if (child.offsetParent === null) continue;
+                if (child.querySelector('img')) imgChildren++;
+            }
 
-            // Score: more card-like features = higher score
-            let score = 0;
-            if (hasImage) score += 2;
-            if (hasDuration) score += 3;
-            if (hasPlayBtn) score += 1;
-            if (rect.width > 100 && rect.width < 800 && rect.height > 50 && rect.height < 400) score += 2;
+            // The grid with the most image-bearing children is likely our card grid
+            if (imgChildren > bestImgCount) {
+                bestImgCount = imgChildren;
+                bestContainer = c;
+            }
+        }
 
-            if (score >= 2) {
+        if (!bestContainer || bestImgCount < 2) {
+            // ── Strategy B: Find all visible elements with images ──
+            // Fallback: look for any square-ish elements with images
+            const allImgParents = document.querySelectorAll('div, li, article');
+            for (const el of allImgParents) {
+                if (el.closest('nav') || el.closest('footer') || el.closest('header')) continue;
+                if (el.offsetParent === null) continue;
+                if (!el.querySelector('img')) continue;
+
+                const rect = el.getBoundingClientRect();
+                // Card-like: roughly square, between 100-500px
+                if (rect.width < 100 || rect.width > 500) continue;
+                if (rect.height < 100 || rect.height > 500) continue;
+                const ratio = rect.width / rect.height;
+                if (ratio < 0.5 || ratio > 2.0) continue;
+
+                // Get the track name from the card text
+                // Track name is usually the last short text in the card
+                const textNodes = [];
+                const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+                while (walker.nextNode()) {
+                    const t = walker.currentNode.textContent.trim();
+                    if (t.length >= 2 && t.length <= 60) textNodes.push(t);
+                }
+                // Skip cards with no text or only version badges
+                const name = textNodes.filter(t => !t.match(/^v\\d/) && t !== '+')
+                    .pop() || '';
+                if (!name) continue;
+
                 results.push({
-                    index: results.length,
-                    text: text.substring(0, 100),
-                    tag: el.tagName,
-                    className: (el.className || '').toString().substring(0, 100),
-                    hasImage: hasImage,
-                    hasDuration: hasDuration,
-                    hasPlayBtn: hasPlayBtn,
-                    score: score,
-                    nameMatch: lowerName ? text.toLowerCase().includes(lowerName) : false,
+                    gridIndex: results.length,
+                    name: name,
+                    nameMatch: lowerName ? name.toLowerCase() === lowerName : false,
+                    hasImage: true,
                     width: Math.round(rect.width),
                     height: Math.round(rect.height),
                 });
             }
-        }
+        } else {
+            // We found the grid container — iterate its children
+            const children = bestContainer.children;
+            for (let i = 0; i < children.length; i++) {
+                const child = children[i];
+                if (child.offsetParent === null) continue;
+                if (!child.querySelector('img')) continue;
 
-        // Strategy B: Look for repeated sibling elements (typical card pattern)
-        if (results.length === 0) {
-            // Find containers with multiple similar children
-            const containers = document.querySelectorAll('div, section, main, ul');
-            for (const container of containers) {
-                if (container.closest('nav') || container.closest('footer') || container.closest('header')) continue;
-                const children = container.children;
-                if (children.length < 2 || children.length > 50) continue;
+                const rect = child.getBoundingClientRect();
+                if (rect.width < 80 || rect.height < 80) continue;
 
-                // Check if children have same tag and similar structure
-                const firstTag = children[0].tagName;
-                let sameTag = 0;
-                for (const child of children) {
-                    if (child.tagName === firstTag && child.offsetParent !== null) sameTag++;
+                // Get text content to find track name
+                const textNodes = [];
+                const walker = document.createTreeWalker(child, NodeFilter.SHOW_TEXT);
+                while (walker.nextNode()) {
+                    const t = walker.currentNode.textContent.trim();
+                    if (t.length >= 1 && t.length <= 60) textNodes.push(t);
                 }
-                if (sameTag < 2) continue;
 
-                // These repeated children might be cards
-                for (let i = 0; i < children.length; i++) {
-                    const child = children[i];
-                    if (child.tagName !== firstTag || child.offsetParent === null) continue;
-                    const text = child.textContent.trim();
-                    if (text.length < 2 || text.length > 500) continue;
-                    const rect = child.getBoundingClientRect();
-                    if (rect.width < 50 || rect.height < 30) continue;
+                // The track name is typically the last meaningful text
+                // Filter out badges like "v8.0" and the "+" create button
+                const meaningfulTexts = textNodes.filter(
+                    t => !t.match(/^v\\d/) && t !== '+' && t.length >= 2
+                );
+                const name = meaningfulTexts.pop() || '';
 
-                    results.push({
-                        index: results.length,
-                        text: text.substring(0, 100),
-                        tag: child.tagName,
-                        className: (child.className || '').toString().substring(0, 100),
-                        hasImage: child.querySelector('img') !== null,
-                        hasDuration: /\\d+:\\d{2}/.test(text),
-                        hasPlayBtn: child.querySelector('[class*="play"], svg') !== null,
-                        score: 1,
-                        nameMatch: lowerName ? text.toLowerCase().includes(lowerName) : false,
-                        width: Math.round(rect.width),
-                        height: Math.round(rect.height),
-                        parentTag: container.tagName,
-                        siblingCount: sameTag,
-                    });
-                }
-                if (results.length > 0) break;  // Use first matching container
+                // Skip the "+" create card (has no track name)
+                if (!name || name === '+') continue;
+
+                results.push({
+                    gridIndex: i,  // Position in the grid container
+                    name: name,
+                    nameMatch: lowerName ? name.toLowerCase() === lowerName : false,
+                    hasImage: true,
+                    width: Math.round(rect.width),
+                    height: Math.round(rect.height),
+                    containerChildCount: children.length,
+                });
             }
         }
 
-        // Sort by name match first, then by score
+        // Sort: name matches first, then by grid position (newest = first)
         results.sort((a, b) => {
             if (a.nameMatch !== b.nameMatch) return b.nameMatch ? 1 : -1;
-            return b.score - a.score;
+            return a.gridIndex - b.gridIndex;
         });
 
         return results;
     }""", track_name)
 
-    log.info(f"_find_music_cards_by_structure('{track_name}'): found {len(cards)} candidate(s)")
-    for c in cards[:10]:
-        log.info(f"  card: [{c.get('tag')}] score={c.get('score')} match={c.get('nameMatch')} "
-                 f"size={c.get('width')}x{c.get('height')} "
-                 f"img={c.get('hasImage')} dur={c.get('hasDuration')} "
-                 f"text='{c.get('text', '')[:60]}' class='{c.get('className', '')[:40]}'")
+    log.info(f"_find_grid_cards('{track_name}'): found {len(cards)} card(s)")
+    for c in cards[:15]:
+        match_str = "MATCH" if c.get("nameMatch") else ""
+        log.info(f"  [{c.get('gridIndex')}] '{c.get('name')}' "
+                 f"{c.get('width')}x{c.get('height')} {match_str}")
 
     return cards
 
 
-def _click_card_by_index(page, cards: list[dict], idx: int) -> bool:
-    """Click on a music card found by _find_music_cards_by_structure.
+def _click_grid_card(page, card_info: dict) -> bool:
+    """Click a specific grid card on My Music page to navigate to its detail page.
 
-    Returns True if a navigation happened (new page content loaded).
+    Uses the card's grid index and name to re-find and click it.
+    Returns True if navigation happened.
     """
-    card = cards[idx]
-    class_name = card.get("className", "")
-    text_snippet = card.get("text", "")[:30]
+    grid_index = card_info.get("gridIndex", -1)
+    card_name = card_info.get("name", "")
 
-    log.info(f"Clicking card {idx}: '{text_snippet}...' (class: {class_name[:40]})")
+    log.info(f"Clicking grid card [{grid_index}]: '{card_name}'")
 
-    # Click the element matching this card's properties
-    navigated = page.evaluate("""(args) => {
-        const {idx, className, text} = args;
-        const lowerText = text.toLowerCase();
+    result = page.evaluate("""(args) => {
+        const {gridIndex, cardName} = args;
+        const lowerName = cardName.toLowerCase();
 
-        // Re-find the element by matching class + text
-        const candidates = document.querySelectorAll(
-            '[class*="card"], [class*="Card"], [class*="track"], [class*="Track"], ' +
-            '[class*="song"], [class*="Song"], [class*="item"], [class*="Item"], ' +
-            '[class*="music"], [class*="Music"], [class*="list-"], [class*="grid-"], ' +
-            'div, li, article'
-        );
+        // Re-find the grid container (same logic as _find_grid_cards)
+        let bestContainer = null;
+        let bestImgCount = 0;
 
-        let matchIdx = 0;
-        for (const el of candidates) {
-            if (el.closest('nav') || el.closest('footer') || el.closest('header')) continue;
-            if (el.offsetParent === null) continue;
-            const elText = el.textContent.trim().substring(0, 100).toLowerCase();
-            if (!elText.includes(lowerText.substring(0, 20))) continue;
+        const containers = document.querySelectorAll('div, section, main, ul');
+        for (const c of containers) {
+            if (c.closest('nav') || c.closest('footer') || c.closest('header')) continue;
+            const children = c.children;
+            if (children.length < 3 || children.length > 100) continue;
 
-            if (matchIdx === idx) {
-                // Try clicking the most specific clickable child first
-                const clickable = el.querySelector('a') || el.querySelector('button') || el;
-                clickable.click();
-                return 'clicked';
+            let imgChildren = 0;
+            for (const child of children) {
+                if (child.offsetParent === null) continue;
+                if (child.querySelector('img')) imgChildren++;
             }
-            matchIdx++;
-        }
-        return 'not_found';
-    }""", {"idx": idx, "className": class_name, "text": text_snippet})
 
-    if navigated == "not_found":
-        log.warning(f"Card {idx} not found on re-click attempt")
+            if (imgChildren > bestImgCount) {
+                bestImgCount = imgChildren;
+                bestContainer = c;
+            }
+        }
+
+        if (!bestContainer) return 'no_grid';
+
+        // Try to click by grid index first
+        const children = bestContainer.children;
+        if (gridIndex >= 0 && gridIndex < children.length) {
+            const target = children[gridIndex];
+            // Verify it still has the right name
+            const text = target.textContent.toLowerCase();
+            if (text.includes(lowerName) || !cardName) {
+                target.click();
+                return 'clicked_by_index';
+            }
+        }
+
+        // Fallback: find by name match
+        for (const child of children) {
+            if (child.offsetParent === null) continue;
+            const text = child.textContent.toLowerCase();
+            if (text.includes(lowerName)) {
+                child.click();
+                return 'clicked_by_name';
+            }
+        }
+
+        return 'not_found';
+    }""", {"gridIndex": grid_index, "cardName": card_name})
+
+    log.info(f"Click result: {result}")
+
+    if result == "not_found" or result == "no_grid":
+        log.warning(f"Grid card '{card_name}' not found")
         return False
 
-    # Wait for potential navigation
     page.wait_for_timeout(5000)
     return True
 
@@ -738,104 +648,6 @@ def _log_page_structure(page):
 
     log.info(f"=== END PAGE STRUCTURE ===")
 
-
-def _get_all_card_names(page) -> list[dict]:
-    """Get all visible card names and hrefs on My Music page for debugging."""
-    return page.evaluate("""() => {
-        const cards = [];
-        const seen = new Set();
-        const allLinks = document.querySelectorAll('a');
-
-        for (const link of allLinks) {
-            const href = link.getAttribute('href') || '';
-            if (!href || href === '/' || href === '#' || seen.has(href)) continue;
-            // Skip navigation/footer links
-            if (link.closest('nav') || link.closest('footer') || link.closest('header')) continue;
-            if (link.offsetParent === null) continue;  // hidden
-
-            const text = link.textContent.trim().replace(/\\s+/g, ' ');
-            if (text.length > 0 && text.length < 200) {
-                seen.add(href);
-                cards.push({name: text.substring(0, 80), href: href});
-            }
-        }
-        return cards;
-    }""")
-
-
-def _get_latest_card_hrefs(page, count: int) -> list[str]:
-    """Get hrefs of the latest N cards on My Music page (regardless of name).
-
-    Fallback when name matching fails — assumes latest cards are at the top.
-    """
-    # Known site navigation paths to NEVER treat as music cards
-    NAV_BLACKLIST = [
-        '/#Generate', '/#', '/audio-tool', '/persona', '/pricing',
-        '/myMusic', '/ai-image', '/song-mv', '/about', '/contact',
-        '/terms', '/privacy', '/faq', '/blog',
-    ]
-
-    hrefs = page.evaluate("""(args) => {
-        const {count, blacklist} = args;
-        const blackSet = new Set(blacklist.map(b => b.toLowerCase()));
-        const results = [];
-        const seen = new Set();
-        const allLinks = document.querySelectorAll('a');
-
-        function isBlacklisted(href) {
-            const lower = href.toLowerCase();
-            for (const b of blackSet) {
-                if (lower === b || lower.startsWith(b + '/') || lower.startsWith(b + '?')) return true;
-            }
-            // Skip fragment-only links and short paths that look like nav
-            if (lower.startsWith('/#') || (lower.startsWith('/') && lower.split('/').length <= 2 && !lower.match(/\\/\\d+/))) return true;
-            return false;
-        }
-
-        for (const link of allLinks) {
-            const href = link.getAttribute('href') || '';
-            if (!href || href === '/' || href === '#' || seen.has(href)) continue;
-            if (link.closest('nav') || link.closest('footer') || link.closest('header')) continue;
-            if (link.offsetParent === null) continue;
-            if (isBlacklisted(href)) continue;
-
-            // Heuristic: card links typically have numeric IDs or specific paths
-            if (href.includes('/song/') || href.includes('/track/') ||
-                href.includes('/music/') || href.includes('/myMusic/') ||
-                href.match(/\\/\\d{4,}/)) {
-                seen.add(href);
-                results.push(href);
-                if (results.length >= count) break;
-            }
-        }
-
-        // Second pass: content links not in blacklist, with longer paths
-        if (results.length === 0) {
-            for (const link of allLinks) {
-                const href = link.getAttribute('href') || '';
-                if (!href || href === '/' || href === '#' || seen.has(href)) continue;
-                if (link.closest('nav') || link.closest('footer') || link.closest('header')) continue;
-                if (link.offsetParent === null) continue;
-                if (isBlacklisted(href)) continue;
-
-                const text = link.textContent.trim();
-                // Must have text and href must be a deep path (3+ segments)
-                if (text.length >= 2 && text.length <= 100 && href.split('/').length >= 3) {
-                    seen.add(href);
-                    results.push(href);
-                    if (results.length >= count) break;
-                }
-            }
-        }
-
-        return results;
-    }""", {"count": count, "blacklist": NAV_BLACKLIST})
-
-    log.info(f"_get_latest_card_hrefs(count={count}): found {len(hrefs)}")
-    for h in hrefs:
-        log.info(f"  latest card href: {h}")
-
-    return hrefs
 
 
 def _scroll_page(page):
