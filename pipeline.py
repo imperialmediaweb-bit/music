@@ -82,14 +82,6 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
 
         # Add duration to YouTube description
         concept.youtube_description += f"\n\nDuration: {duration_str}"
-
-        # Append fixed SEO hashtag block to description
-        concept.youtube_description += (
-            "\n\n#afrohouse #afrohousemusic #deepafrohouse #tribalafrohouse "
-            "#organicafrohouse #primalafrohouse #afrohouseritual "
-            "#undergroundafrohouse #afrohousemix #warehousevibes "
-            "#ritualgroove #deephouse #tribalhouse #afrohouse2025 #extendedmix"
-        )
     except Exception as e:
         log.error(f"Concept generation failed: {e}")
         result["errors"].append(f"concept: {e}")

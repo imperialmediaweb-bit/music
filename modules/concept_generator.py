@@ -34,7 +34,7 @@ AFRO_HOUSE_STYLE = (
     "and cinematic, mastered for warmth, clarity, and sub-bass impact."
 )
 
-SYSTEM_PROMPT = """You are a creative Afro House music producer and content strategist.
+SYSTEM_PROMPT = """You are a creative Afro House music producer and YouTube SEO expert.
 Generate a unique Afro House track concept. The track style is always:
 """ + AFRO_HOUSE_STYLE + """
 
@@ -44,19 +44,24 @@ IMPORTANT NAMING RULE:
 - Use 1-2 short, punchy, exotic-sounding words. They should sound African/tribal but NOT be real words.
 - Do NOT use English words for the track name.
 
+CRITICAL: Every track MUST have a COMPLETELY DIFFERENT youtube_title and youtube_description.
+- Do NOT reuse phrases from previous tracks.
+- Vary the structure, wording, and style of descriptions each time.
+- Use different adjectives, metaphors, and sentence patterns.
+
 Everything else (youtube_title, youtube_description, hashtags, youtube_tags, tiktok_caption) MUST be in English.
 
 Return ONLY valid JSON with these exact fields:
 
 {
   "track_name": "1-2 invented African-sounding words, no real meaning (e.g. Zanu, Maku, Tikala)",
-  "mood": "emotional mood/vibe (e.g. ritualistic, primal, powerful, transcendent)",
+  "mood": "emotional mood/vibe — pick something UNIQUE each time (e.g. ritualistic, primal, euphoric, hypnotic, volcanic, celestial, nocturnal, cinematic, shamanic, trance-like)",
   "description": "2-3 sentence vivid description of the track's atmosphere and energy (in English)",
   "music_prompt": "detailed prompt for AI music generation - describe instruments, rhythm, bass, mood, tempo 122 BPM, Afro House style with car bass",
   "hashtags": ["afrohouse", "afrohousemusic", "deepafrohouse", "tribalafrohouse", "organicafrohouse", "primalafrohouse", "afrohouseritual", "undergroundafrohouse", "afrohousemix", "warehousevibes", "ritualgroove", "deephouse", "tribalhouse", "afrohouse2025", "extendedmix"],
-  "youtube_title": "MUST follow this EXACT format: TRACKNAME 🔥 [Descriptive Afro House Subtitle] | [Deep Tribal/Underground Element] #afrohouse — Example: KAMUZI 🔥 Primal Afro House Ritual | Deep Tribal Drums & Hypnotic Underground Groove #afrohouse — Rules: track name UPPERCASE, include 🔥 emoji, end with #afrohouse, max 100 chars. Do NOT include duration (it will be added automatically).",
-  "youtube_description": "Write a LONG detailed YouTube description following this EXACT structure (at least 20 lines):\n\nLine 1: [TRACK_NAME] is a deep Afro House ritual built around [describe: raw tribal percussion, rolling basslines, hypnotic rhythms etc].\n\nLine 2-3: This [X]-minute extended mix blends:\n• primal African drums\n• organic percussion layers\n• deep rolling bass\n• ritual fire atmosphere\n• immersive underground energy\n(Customize the bullet points to match the track mood)\n\nNext paragraph: No commercial breaks. No pop drops. No shortcuts.\n\nNext paragraph with fire emojis:\nJust pure Afro House flow designed for:\n🔥 warehouse sessions\n🔥 night drives\n🔥 deep focus listening\n🔥 underground DJ vibes\n🔥 long-form YouTube journeys\n\nNext paragraph: [TRACK_NAME] carries ancestral rhythm energy with a modern Afro House pulse — steady, hypnotic, and powerful from start to finish.\n\nFinal line: Turn it up. Let the drums take control. Enter the ritual.\n\nContact line: 📩 For collaborations & promo: imperialmediaweb@gmail.com",
-  "youtube_tags": ["afro house", "afro house music", "deep afro house", "tribal afro house", "organic afro house", "afro house mix", "underground afro house", "afro house ritual", "deep house", "tribal house", "warehouse vibes", "afro house 2025", "extended mix", "car bass", "afro house DJ set"],
+  "youtube_title": "Create a CLICKBAIT-style YouTube title that makes people NEED to click. Format: TRACKNAME 🔥 [Clickbait Hook] | [Element] #afrohouse. Use power words like: INSANE, MASSIVE, ULTIMATE, LEGENDARY, MIND-BLOWING, EUPHORIC, GODLIKE, UNSTOPPABLE, HEAVIEST, DARKEST. Example titles: 'KAMUZI 🔥 The HEAVIEST Afro House Drop You Will Ever Hear | Insane Tribal Bass #afrohouse' or 'DAKORA 🔥 This Beat Will POSSESS Your Soul | Dark Tribal Afro House Ritual #afrohouse'. Rules: track name UPPERCASE, 🔥 emoji, end with #afrohouse, max 100 chars. Do NOT include duration. EVERY title must be DIFFERENT and attention-grabbing.",
+  "youtube_description": "Write a LONG (20+ lines) SEO-optimized YouTube description. VARY the structure each time — do NOT copy a template. Include:\n\n1. Opening hook: compelling first 2 lines about THIS specific track (YouTube shows these in search results)\n2. Detailed description of the track's sound, instruments, and atmosphere (3-5 lines)\n3. What this track is perfect for: driving, gym, meditation, DJ sets, festivals, etc (use bullet points or emojis, vary the style)\n4. A unique closing statement or call to action\n5. Contact: 📩 imperialmediaweb@gmail.com\n\nIMPORTANT: Do NOT include hashtags in the description. Do NOT use the exact same structure every time — be creative with formatting.",
+  "youtube_tags": ["afro house", "afro house music", "deep afro house", "tribal afro house", "organic afro house", "afro house mix", "underground afro house", "afro house ritual", "deep house", "tribal house", "warehouse vibes", "afro house 2025", "extended mix", "car bass", "afro house DJ set", "afro house playlist", "deep tribal drums", "african drums music", "bass boosted", "car music bass boosted", "afro house new 2025", "best afro house", "afro house workout", "afro house drive", "tribal percussion"],
   "tiktok_caption": "short TikTok caption in English with hashtags including #afrohouse #afrohousemusic #deepafrohouse #tribalhouse (max 150 chars)"
 }"""
 
@@ -142,7 +147,11 @@ def generate_concept(track_name: str = "") -> MusicConcept:
         "afro house", "afro house music", "deep afro house", "tribal afro house",
         "organic afro house", "afro house mix", "underground afro house",
         "afro house ritual", "deep house", "tribal house", "afro house 2025",
-        "car bass music", "warehouse music",
+        "car bass music", "warehouse music", "afro house playlist",
+        "deep tribal drums", "african drums music", "bass boosted",
+        "car music bass boosted", "afro house new 2025", "best afro house",
+        "afro house workout", "afro house drive", "tribal percussion",
+        "afro house extended mix", "afro house live set",
     ]
     ai_tags = data.get("youtube_tags", [])
     seen = set()

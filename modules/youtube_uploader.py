@@ -136,12 +136,16 @@ def upload_to_youtube(
         log.error(str(e))
         return None
 
-    # Build tags string
-    tags = concept.youtube_tags[:30]  # YouTube allows max 30 tags
-    hashtags_line = " ".join("#" + h.replace(" ", "") for h in concept.hashtags)
+    import re
 
-    # Full description with hashtags
-    description = f"{concept.youtube_description}\n\n{hashtags_line}"
+    # Build tags for video metadata (max 30)
+    tags = concept.youtube_tags[:30]
+
+    # Clean any existing hashtags from end of AI description to avoid duplication
+    clean_desc = re.sub(r'(\s*#\w+)+\s*$', '', concept.youtube_description).rstrip()
+
+    # Append exactly 3 hashtags at end (YouTube shows last 3 above the title)
+    description = f"{clean_desc}\n\n#afrohouse #deephouse #tribalhouse"
 
     # Upload the video
     body = {
@@ -155,6 +159,9 @@ def upload_to_youtube(
         "status": {
             "privacyStatus": "public",
             "selfDeclaredMadeForKids": False,
+            "embeddable": True,
+            "license": "youtube",
+            "publicStatsViewable": True,
         },
     }
 
