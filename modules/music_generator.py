@@ -1402,12 +1402,19 @@ def download_existing_tracks(track_name: str, max_cards: int = 4) -> list[Path]:
     safe_name = safe_name.strip().replace(" ", "_")[:50] or "track"
 
     # Build a minimal MusicConcept for _download_from_mymusic
+    name = track_name or "Afro House Mix"
     concept = MusicConcept(
-        track_name=track_name or "latest",
+        track_name=name,
+        genre="Afro House",
+        mood="ritualistic, primal, powerful, transcendent",
+        description=f"A deep, hypnotic Afro House track called {name}",
         music_prompt="",
-        youtube_title=track_name or "Afro House Mix",
-        youtube_description="",
+        hashtags=["afrohouse", "tribalbass", "deephouse", "carbass", "music"],
         thumbnail_prompt="",
+        youtube_title=f"{name} - Afro House",
+        youtube_description=f"{name} - A deep Afro House track.",
+        youtube_tags=["afro house", "deep house", "tribal", "car bass"],
+        tiktok_caption=f"{name} #afrohouse #tribal #deepbass",
     )
 
     with sync_playwright() as p:
