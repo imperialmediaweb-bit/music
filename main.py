@@ -28,10 +28,10 @@ def _run_full_pipeline():
     concept = generate_concept()
     log.info(f"Track name: {concept.track_name}")
 
-    # Step 2: Generate music on aimusicfactory.ai (3 generations × 2 MP3s = 6)
+    # Step 2: Generate music on aimusicfactory.ai (1 generation × 2 MP3s = 2)
     log.info("=" * 60)
     log.info("STEP 2: Generating music on aimusicfactory.ai...")
-    mp3_files = generate_music_batch(concept, count=3)
+    mp3_files = generate_music_batch(concept, count=1)
     log.info(f"Generated {len(mp3_files)} MP3 files")
 
     # Step 3: Merge all MP3s into one track
