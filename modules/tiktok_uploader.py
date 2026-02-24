@@ -157,6 +157,35 @@ def _find_post_button(page):
     return el
 
 
+def _handle_post_confirmation(page, debug_dir: Path) -> None:
+    """Handle TikTok's 'Continue to post?' confirmation dialog.
+
+    When content check is still in progress, TikTok shows a modal asking:
+    'Continue to post? We're still checking your video for potential issues.
+    Do you want to continue posting before the check is complete?'
+    with Cancel and 'Post now' buttons. We click 'Post now'.
+    """
+    confirm_btn = page.evaluate_handle("""() => {
+        const btns = [...document.querySelectorAll('button')];
+        return btns.find(b => {
+            const text = b.textContent.trim().toLowerCase();
+            return (text === 'post now' || text === 'continue' || text === 'post anyway')
+                && b.offsetParent !== null;
+        }) || null;
+    }""")
+    el = confirm_btn.as_element()
+    if el:
+        log.info(f"Confirmation dialog found — clicking '{el.text_content().strip()}'")
+        page.screenshot(path=str(debug_dir / "debug_tiktok_05c_confirmation.png"))
+        try:
+            el.click(timeout=5_000)
+        except Exception:
+            page.evaluate("(el) => el.click()", el)
+        log.info("Confirmation 'Post now' clicked")
+        page.wait_for_timeout(2_000)
+        page.screenshot(path=str(debug_dir / "debug_tiktok_05d_after_confirmation.png"))
+
+
 def _click_post_button(page, post_btn, debug_dir: Path) -> None:
     """Try multiple click strategies on the Post button, retrying if the page
     doesn't change. TikTok sometimes ignores the first click silently."""
@@ -195,8 +224,14 @@ def _click_post_button(page, post_btn, debug_dir: Path) -> None:
 
         page.screenshot(path=str(debug_dir / f"debug_tiktok_05_post_clicked_{click_attempt}.png"))
 
+        # Handle "Continue to post?" confirmation dialog.
+        # TikTok shows this when content check is still in progress:
+        # "We're still checking your video..." with Cancel / "Post now"
+        page.wait_for_timeout(2_000)
+        _handle_post_confirmation(page, debug_dir)
+
         # Wait and check if the click had any effect
-        page.wait_for_timeout(5_000)
+        page.wait_for_timeout(3_000)
         current_url = page.url
         btn_after = _find_post_button(page)
         log.info(
