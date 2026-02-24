@@ -50,7 +50,7 @@ def upload_to_tiktok(
 
 
 def _dismiss_tiktok_popups(page) -> None:
-    """Dismiss cookie consent banner and any popups on TikTok Studio."""
+    """Dismiss cookie consent banner, TUXModal overlays, and any popups."""
     # Cookie banner — use JavaScript to find and click (most reliable)
     dismissed = page.evaluate("""() => {
         // Find banner buttons by text content
@@ -76,6 +76,52 @@ def _dismiss_tiktok_popups(page) -> None:
     if dismissed:
         log.info(f"Cookie banner dismissed: {dismissed}")
         page.wait_for_timeout(1000)
+
+    # Dismiss TUXModal overlays (TikTok's modal system — blocks all interactions)
+    tux_dismissed = page.evaluate("""() => {
+        const results = [];
+        // Find all open TUXModal portals and click any dismiss buttons inside
+        const portal = document.querySelector('#tux-portal-container');
+        if (!portal) return results;
+        const backdrop = portal.querySelector('._TUXModal-backdrop--entered, [class*="TUXModal-backdrop"]');
+        if (!backdrop) return results;
+        // Try clicking buttons inside the modal (close, got it, ok, etc.)
+        const modalBtns = [...portal.querySelectorAll('button')];
+        for (const btn of modalBtns) {
+            const text = btn.textContent.trim().toLowerCase();
+            if (['got it', 'ok', 'close', 'dismiss', 'maybe later', 'not now', 'confirm', 'done'].includes(text)) {
+                btn.click();
+                results.push('btn:' + text);
+            }
+        }
+        // If no dismiss button found, try clicking the close icon (X)
+        if (results.length === 0) {
+            const closeIcon = portal.querySelector('[class*="close"], [aria-label="Close"], [class*="CloseButton"]');
+            if (closeIcon) {
+                closeIcon.click();
+                results.push('close-icon');
+            }
+        }
+        // Last resort: remove the backdrop entirely so it stops blocking clicks
+        if (results.length === 0) {
+            backdrop.remove();
+            results.push('backdrop-removed');
+        }
+        return results;
+    }""")
+    if tux_dismissed and len(tux_dismissed) > 0:
+        log.info(f"TUXModal dismissed: {tux_dismissed}")
+        page.wait_for_timeout(1000)
+
+    # Also try Escape key to close any modal
+    try:
+        backdrop = page.query_selector('[class*="TUXModal-backdrop"]')
+        if backdrop:
+            page.keyboard.press("Escape")
+            log.info("Pressed Escape to dismiss modal")
+            page.wait_for_timeout(500)
+    except Exception:
+        pass
 
     # Dismiss popups ("Got it", "New editing features", etc.)
     for popup_text in ["Got it", "OK", "Close", "Maybe later", "Not now"]:
@@ -342,12 +388,13 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
             # Wait for Post button to become enabled (red) — video must finish
             # processing first, which can take several minutes for large files.
             log.info("Waiting for Post button to become enabled (up to 5 min)...")
+            # IMPORTANT: use :text-is() for EXACT text match.
+            # :has-text("Post") matches "Posts" sidebar nav — WRONG button!
             post_selectors = [
-                'button:has-text("Post")',
-                'div[class*="btn-post"]',
+                'button:text-is("Post")',
                 'button[data-e2e="post-button"]',
-                'button:has-text("Publish")',
-                'button:has-text("Upload")',
+                'div[class*="btn-post"] button',
+                'button:text-is("Publish")',
             ]
 
             posted = False
@@ -421,7 +468,7 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
                     break
 
                 # 2. Upload form disappeared (Post button gone = page transitioned)
-                post_btn = page.query_selector('button:has-text("Post")')
+                post_btn = page.query_selector('button:text-is("Post")')
                 if not post_btn or not post_btn.is_visible():
                     log.info("Post button disappeared — page transitioned")
                     link = page.query_selector('a[href*="/video/"]')
