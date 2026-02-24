@@ -89,7 +89,8 @@ def reupload_track(track_name: str) -> dict:
         if youtube_url:
             log.info(f"YouTube URL: {youtube_url}")
         else:
-            log.info("YouTube upload completed (URL not captured)")
+            log.error("YouTube upload returned None — check client_secrets.json and OAuth token")
+            result["errors"].append("youtube: upload returned None (check client_secrets.json / OAuth)")
     except Exception as e:
         log.error(f"YouTube upload failed: {e}")
         result["errors"].append(f"youtube: {e}")
@@ -228,7 +229,8 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         if youtube_url:
             log.info(f"YouTube URL: {youtube_url}")
         else:
-            log.info("YouTube upload completed (URL not captured)")
+            log.error("YouTube upload returned None — check client_secrets.json and OAuth token")
+            result["errors"].append("youtube: upload returned None (check client_secrets.json / OAuth)")
     except Exception as e:
         log.error(f"YouTube upload failed: {e}")
         result["errors"].append(f"youtube: {e}")

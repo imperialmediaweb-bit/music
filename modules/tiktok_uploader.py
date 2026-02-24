@@ -136,14 +136,63 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
             log.info(f"Video file selected: {video_path.name}")
             page.screenshot(path=str(debug_dir / "debug_tiktok_02_file_selected.png"))
 
-            # Wait for "Uploaded" indicator — large videos can take several minutes
+            # Wait for video to finish uploading to TikTok servers.
+            # IMPORTANT: Don't just check for ':text("Uploaded")' immediately —
+            # that text may already exist on the page and cause a false positive.
+            # Instead, first detect that upload is in progress, then wait for it
+            # to finish, then wait extra time for TikTok to process the video.
             log.info("Waiting for TikTok to finish uploading (up to 5 min)...")
+
+            # Give TikTok a few seconds to register the file and start uploading
+            page.wait_for_timeout(5_000)
+
+            # Try to detect active upload progress ("Uploading" text or percentage)
+            upload_in_progress = False
             try:
-                page.wait_for_selector(':text("Uploaded")', timeout=300_000)
-                log.info("Video upload confirmed (Uploaded indicator found)")
+                page.wait_for_selector(':text("Uploading")', timeout=15_000)
+                upload_in_progress = True
+                log.info("Upload in progress — waiting for completion...")
             except PlaywrightTimeout:
-                log.warning("Upload indicator not found after 5 min, continuing anyway")
-            page.wait_for_timeout(5000)
+                log.info("No 'Uploading' progress indicator found")
+
+            if upload_in_progress:
+                # Wait for "Uploading" text to disappear (= upload finished)
+                try:
+                    page.wait_for_selector(
+                        ':text("Uploading")', state="hidden", timeout=300_000
+                    )
+                    log.info("Video upload confirmed ('Uploading' indicator gone)")
+                except PlaywrightTimeout:
+                    log.warning("Upload still showing after 5 min, continuing anyway")
+            else:
+                # No "Uploading" indicator — poll manually with a minimum 30s wait
+                log.info("Polling for upload completion...")
+                upload_start = time.time()
+                while time.time() - upload_start < 300:
+                    uploaded_el = page.query_selector(':text("Uploaded")')
+                    uploading_el = page.query_selector(':text("Uploading")')
+                    if uploaded_el and not uploading_el:
+                        log.info("Video upload confirmed (Uploaded indicator found)")
+                        break
+                    elapsed = int(time.time() - upload_start)
+                    if elapsed % 15 == 0 and elapsed > 0:
+                        log.info(f"Still waiting for upload... ({elapsed}s)")
+                    page.wait_for_timeout(5_000)
+                else:
+                    log.warning("Upload not confirmed after 5 min, continuing anyway")
+
+            # Wait 5 minutes for TikTok to process the video on their servers.
+            # Without this, the Post button may be enabled but the video won't
+            # actually publish correctly.
+            log.info("Waiting 5 minutes for TikTok to process the video...")
+            for i in range(30):  # 30 × 10s = 5 minutes
+                page.wait_for_timeout(10_000)
+                if (i + 1) % 6 == 0:  # Log + screenshot every 60 seconds
+                    elapsed_min = (i + 1) * 10 / 60
+                    log.info(f"Processing wait: {elapsed_min:.0f} min / 5 min")
+                    page.screenshot(
+                        path=str(debug_dir / f"debug_tiktok_processing_{int(elapsed_min)}m.png")
+                    )
 
             page.screenshot(path=str(debug_dir / "debug_tiktok_03_after_processing.png"))
 
