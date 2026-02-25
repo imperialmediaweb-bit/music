@@ -1,0 +1,358 @@
+"""Generate music on udio.com using Playwright.
+
+Pipeline approach:
+1. Open udio.com with saved session state
+2. Enter the music prompt on the Create page
+3. Click Create to generate songs
+4. Wait for generation to complete
+5. Download the generated MP3s
+"""
+
+import re
+import time
+from pathlib import Path
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from modules.concept_generator import MusicConcept
+from config import OUTPUT_DIR, INPUT_DIR, HEADLESS, UDIO_STATE_FILE
+from utils.logger import log
+
+
+GENERATION_WAIT_SEC = 120  # Udio typically takes ~1-2 min per generation
+
+
+def _validate_mp3(path: Path) -> bool:
+    """Check if a file is a valid MP3."""
+    if not path.exists():
+        return False
+    size = path.stat().st_size
+    if size < 50_000:
+        log.warning(f"Validation: file too small ({size} bytes): {path.name}")
+        return False
+    header = path.read_bytes()[:16]
+    if header[:3] == b'ID3':
+        return True
+    if len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0:
+        return True
+    return False
+
+
+def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
+    """Generate music on udio.com.
+
+    Each generation on Udio creates 2 songs.
+
+    Args:
+        concept: The music concept with the prompt.
+        count: Number of times to hit Create (each gives 2 MP3s).
+
+    Returns:
+        List of downloaded MP3 file paths.
+    """
+    log.info(f"Generating {count} batch(es) on udio.com for: {concept.track_name}")
+
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in concept.track_name)
+    safe_name = safe_name.strip().replace(" ", "_")[:50]
+
+    all_mp3s = []
+    download_dir = INPUT_DIR / "udio_downloads"
+    download_dir.mkdir(parents=True, exist_ok=True)
+
+    state_file = UDIO_STATE_FILE
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=HEADLESS,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+
+        context_opts = {"viewport": {"width": 1920, "height": 1080}}
+        if state_file.exists():
+            context_opts["storage_state"] = str(state_file)
+            log.info(f"Loading Udio session from: {state_file}")
+        else:
+            log.warning(f"No Udio session found at {state_file} — run 'python main.py udio-login' first")
+
+        context = browser.new_context(**context_opts)
+        page = context.new_page()
+
+        for batch_idx in range(count):
+            log.info(f"--- Udio batch {batch_idx + 1}/{count} ---")
+
+            try:
+                # Navigate to Udio create page
+                log.info("Opening udio.com ...")
+                page.goto("https://www.udio.com/create", wait_until="domcontentloaded", timeout=60_000)
+                time.sleep(3)
+
+                # Check if we're logged in
+                if page.url and "login" in page.url.lower():
+                    log.error("Not logged in to Udio! Run 'python main.py udio-login' first.")
+                    break
+
+                # Find and fill the prompt textarea
+                log.info("Filling in music prompt...")
+                prompt_text = concept.music_prompt or concept.description
+
+                prompt_selectors = [
+                    'textarea[placeholder*="prompt"]',
+                    'textarea[placeholder*="describe"]',
+                    'textarea[placeholder*="song"]',
+                    'textarea[data-testid="prompt-input"]',
+                    'textarea',
+                    '[contenteditable="true"]',
+                    'input[type="text"][placeholder*="prompt"]',
+                ]
+
+                prompt_filled = False
+                for sel in prompt_selectors:
+                    try:
+                        el = page.wait_for_selector(sel, timeout=5_000)
+                        if el:
+                            el.click()
+                            el.fill(prompt_text)
+                            prompt_filled = True
+                            log.info(f"Prompt filled using selector: {sel}")
+                            break
+                    except PlaywrightTimeout:
+                        continue
+
+                if not prompt_filled:
+                    log.error("Could not find prompt input on Udio create page")
+                    page.screenshot(path=str(OUTPUT_DIR / "debug_udio_prompt.png"))
+                    break
+
+                # Click Create / Generate button
+                log.info("Clicking Create button...")
+                create_selectors = [
+                    'button:has-text("Create")',
+                    'button:has-text("Generate")',
+                    'button:has-text("Make")',
+                    'button[data-testid="create-button"]',
+                    'button[type="submit"]',
+                ]
+
+                create_clicked = False
+                for sel in create_selectors:
+                    try:
+                        btn = page.wait_for_selector(sel, timeout=5_000)
+                        if btn and btn.is_visible():
+                            btn.click()
+                            create_clicked = True
+                            log.info(f"Create button clicked: {sel}")
+                            break
+                    except PlaywrightTimeout:
+                        continue
+
+                if not create_clicked:
+                    log.error("Could not find Create button on Udio")
+                    page.screenshot(path=str(OUTPUT_DIR / "debug_udio_create.png"))
+                    break
+
+                # Wait for generation to complete
+                log.info(f"Waiting for Udio generation (~{GENERATION_WAIT_SEC}s)...")
+                time.sleep(GENERATION_WAIT_SEC)
+
+                # Navigate to library/profile to find generated songs
+                log.info("Going to library to download songs...")
+
+                # Try multiple library URLs
+                for lib_url in ["https://www.udio.com/my-creations", "https://www.udio.com/library", "https://www.udio.com/songs"]:
+                    try:
+                        page.goto(lib_url, wait_until="domcontentloaded", timeout=30_000)
+                        time.sleep(3)
+                        # Check if page loaded (not 404)
+                        if "404" not in page.title().lower():
+                            break
+                    except Exception:
+                        continue
+
+                time.sleep(3)
+
+                # Find song items
+                song_cards = page.query_selector_all(
+                    '[data-testid="song-card"], [class*="song"], [class*="track"], '
+                    '[class*="creation"], a[href*="/songs/"]'
+                )
+                if not song_cards:
+                    song_cards = page.query_selector_all('div[role="button"], .track-item')
+
+                songs_to_download = song_cards[:2]  # Latest 2 songs
+                log.info(f"Found {len(song_cards)} songs, downloading latest {len(songs_to_download)}")
+
+                for i, card in enumerate(songs_to_download):
+                    try:
+                        card.click()
+                        time.sleep(2)
+
+                        # Look for download option — try menu first
+                        for menu_sel in [
+                            'button[aria-label*="more" i]',
+                            'button:has-text("...")',
+                            'button[aria-label*="menu" i]',
+                            '[data-testid="menu-button"]',
+                        ]:
+                            try:
+                                menu = page.wait_for_selector(menu_sel, timeout=3_000)
+                                if menu:
+                                    menu.click()
+                                    time.sleep(1)
+                                    break
+                            except PlaywrightTimeout:
+                                continue
+
+                        download_selectors = [
+                            'button:has-text("Download")',
+                            'a:has-text("Download")',
+                            '[data-testid="download-button"]',
+                            'button[aria-label*="download" i]',
+                            'a[download]',
+                            'a[href*=".mp3"]',
+                        ]
+
+                        for dl_sel in download_selectors:
+                            try:
+                                with page.expect_download(timeout=30_000) as dl_info:
+                                    dl_btn = page.wait_for_selector(dl_sel, timeout=5_000)
+                                    if dl_btn:
+                                        dl_btn.click()
+
+                                download = dl_info.value
+                                mp3_path = download_dir / f"{safe_name}_udio_{batch_idx}_{i}.mp3"
+                                download.save_as(str(mp3_path))
+
+                                if _validate_mp3(mp3_path):
+                                    all_mp3s.append(mp3_path)
+                                    log.info(f"Downloaded: {mp3_path.name}")
+                                else:
+                                    log.warning(f"Invalid MP3: {mp3_path.name}")
+                                break
+                            except (PlaywrightTimeout, Exception):
+                                continue
+
+                        # Go back to library
+                        page.go_back()
+                        time.sleep(2)
+
+                    except Exception as e:
+                        log.warning(f"Failed to download song {i}: {e}")
+                        continue
+
+            except Exception as e:
+                log.error(f"Udio batch {batch_idx + 1} failed: {e}")
+                page.screenshot(path=str(OUTPUT_DIR / f"debug_udio_batch_{batch_idx}.png"))
+                continue
+
+        # Save session state for next time
+        try:
+            context.storage_state(path=str(state_file))
+            log.info(f"Udio session saved to: {state_file}")
+        except Exception:
+            pass
+
+        browser.close()
+
+    if not all_mp3s:
+        raise RuntimeError(
+            "No MP3 files downloaded from Udio. "
+            "Make sure you're logged in (run 'python main.py udio-login') "
+            "and have enough credits."
+        )
+
+    log.info(f"Udio: downloaded {len(all_mp3s)} MP3 files total")
+    return all_mp3s
+
+
+def download_existing_tracks(track_name: str = "", max_cards: int = 4) -> list[Path]:
+    """Download existing tracks from Udio library."""
+    log.info("Downloading existing tracks from Udio library...")
+
+    download_dir = INPUT_DIR / "udio_downloads"
+    download_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in track_name)
+    safe_name = safe_name.strip().replace(" ", "_")[:50] or "udio"
+
+    all_mp3s = []
+    state_file = UDIO_STATE_FILE
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=HEADLESS,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+
+        context_opts = {"viewport": {"width": 1920, "height": 1080}}
+        if state_file.exists():
+            context_opts["storage_state"] = str(state_file)
+
+        context = browser.new_context(**context_opts)
+        page = context.new_page()
+
+        # Navigate to library
+        for lib_url in ["https://www.udio.com/my-creations", "https://www.udio.com/library"]:
+            try:
+                page.goto(lib_url, wait_until="domcontentloaded", timeout=60_000)
+                time.sleep(3)
+                if "404" not in page.title().lower():
+                    break
+            except Exception:
+                continue
+
+        time.sleep(5)
+
+        # Find songs
+        song_cards = page.query_selector_all(
+            '[data-testid="song-card"], [class*="song"], [class*="track"], '
+            '[class*="creation"], a[href*="/songs/"]'
+        )
+        cards_to_process = song_cards[:max_cards]
+        log.info(f"Found {len(song_cards)} songs, processing {len(cards_to_process)}")
+
+        for i, card in enumerate(cards_to_process):
+            try:
+                card.click()
+                time.sleep(2)
+
+                for menu_sel in ['button[aria-label*="more" i]', 'button:has-text("...")']:
+                    try:
+                        menu = page.wait_for_selector(menu_sel, timeout=3_000)
+                        if menu:
+                            menu.click()
+                            time.sleep(1)
+                            break
+                    except PlaywrightTimeout:
+                        continue
+
+                for dl_sel in ['button:has-text("Download")', 'a:has-text("Download")', 'a[download]']:
+                    try:
+                        with page.expect_download(timeout=30_000) as dl_info:
+                            dl_btn = page.wait_for_selector(dl_sel, timeout=5_000)
+                            if dl_btn:
+                                dl_btn.click()
+
+                        download = dl_info.value
+                        mp3_path = download_dir / f"{safe_name}_{i}.mp3"
+                        download.save_as(str(mp3_path))
+
+                        if _validate_mp3(mp3_path):
+                            all_mp3s.append(mp3_path)
+                            log.info(f"Downloaded: {mp3_path.name}")
+                        break
+                    except (PlaywrightTimeout, Exception):
+                        continue
+
+                page.go_back()
+                time.sleep(2)
+
+            except Exception as e:
+                log.warning(f"Failed to download song {i}: {e}")
+
+        try:
+            context.storage_state(path=str(state_file))
+        except Exception:
+            pass
+
+        browser.close()
+
+    log.info(f"Udio: downloaded {len(all_mp3s)} MP3 files")
+    return all_mp3s

@@ -11,9 +11,16 @@ SCHEDULE_CRON = os.getenv("SCHEDULE_CRON", "0 10 * * *")
 YOUTUBE_COOKIE_FILE = Path(os.getenv("YOUTUBE_COOKIE_FILE", BASE_DIR / "cookies" / "youtube_cookies.json"))
 TIKTOK_COOKIE_FILE = Path(os.getenv("TIKTOK_COOKIE_FILE", BASE_DIR / "cookies" / "tiktok_cookies.json"))
 AIMUSICFACTORY_STATE_FILE = Path(os.getenv("AIMUSICFACTORY_STATE_FILE", BASE_DIR / "cookies" / "aimusicfactory_state.json"))
+SUNO_STATE_FILE = Path(os.getenv("SUNO_STATE_FILE", BASE_DIR / "cookies" / "suno_state.json"))
+UDIO_STATE_FILE = Path(os.getenv("UDIO_STATE_FILE", BASE_DIR / "cookies" / "udio_state.json"))
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "output"))
 INPUT_DIR = Path(os.getenv("INPUT_DIR", BASE_DIR / "input"))
 HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
+
+# Default music platform: "aimusicfactory", "suno", or "udio"
+MUSIC_PLATFORM = os.getenv("MUSIC_PLATFORM", "aimusicfactory")
+# Default number of songs to generate per clip (2, 4, 6, 8)
+SONGS_PER_CLIP = int(os.getenv("SONGS_PER_CLIP", "2"))
 
 # Ensure directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
