@@ -277,16 +277,32 @@ def cmd_reupload(args):
 def cmd_schedule(args):
     """Schedule 4 clips per day, uploaded to YouTube + TikTok automatically.
 
-    Default schedule:
+    Default schedule (Europe/Bucharest timezone):
       09:00 — 1 generate (2 MP3s) → 1 clip
       14:00 — 1 generate (2 MP3s) → 1 clip
       18:00 — 2 generates (4 MP3s) → 1 clip
-      20:00 — 2 generates (4 MP3s) → 1 clip
+      20:00 — 4 generates (8 MP3s) → 1 clip
+
+    Uses misfire_grace_time=3600 so jobs still run even if the PC
+    wakes from sleep up to 1 hour late.
     """
     from apscheduler.schedulers.blocking import BlockingScheduler
     from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.events import EVENT_JOB_MISSED, EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 
-    scheduler = BlockingScheduler()
+    TIMEZONE = "Europe/Bucharest"
+
+    # Log scheduler events (missed jobs, errors, successes)
+    def _job_listener(event):
+        if event.code == EVENT_JOB_MISSED:
+            log.warning(f"Job MISSED (ran late): {event.job_id} — will retry next window")
+        elif event.code == EVENT_JOB_ERROR:
+            log.error(f"Job ERROR: {event.job_id} — {event.exception}")
+        elif event.code == EVENT_JOB_EXECUTED:
+            log.info(f"Job DONE: {event.job_id}")
+
+    scheduler = BlockingScheduler(timezone=TIMEZONE)
+    scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
     # (hour, gen_count) — gen_count × 2 MP3s merged into one clip
     SCHEDULE_SLOTS = [
@@ -295,6 +311,9 @@ def cmd_schedule(args):
         (18, 2),   # 18:00 → 2 gen = 4 MP3s
         (20, 4),   # 20:00 → 4 gen = 8 MP3s
     ]
+
+    # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
+    MISFIRE_GRACE = 3600
 
     if args.cron:
         # Custom cron - run with default gen_count=1
@@ -308,9 +327,12 @@ def cmd_schedule(args):
             CronTrigger(
                 minute=minute, hour=hour, day=day,
                 month=month, day_of_week=day_of_week,
+                timezone=TIMEZONE,
             ),
             id="music_pipeline",
             name="Music Pipeline",
+            misfire_grace_time=MISFIRE_GRACE,
+            coalesce=True,
         )
         log.info(f"Scheduled with cron: {args.cron}")
     else:
@@ -320,13 +342,16 @@ def cmd_schedule(args):
         for i, (hour, gen_count) in enumerate(selected_slots):
             scheduler.add_job(
                 _run_full_pipeline,
-                CronTrigger(hour=hour, minute=0),
+                CronTrigger(hour=hour, minute=0, timezone=TIMEZONE),
                 kwargs={"gen_count": gen_count},
                 id=f"music_pipeline_{i + 1}",
                 name=f"Clip {i + 1} ({hour}:00, {gen_count} gen)",
+                misfire_grace_time=MISFIRE_GRACE,
+                coalesce=True,
             )
         schedule_desc = ", ".join(f"{h}:00 ({g} gen)" for h, g in selected_slots)
         log.info(f"Scheduled {len(selected_slots)} clips per day: {schedule_desc}")
+        log.info(f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s")
 
     def shutdown(signum, frame):
         log.info("Shutting down scheduler...")
