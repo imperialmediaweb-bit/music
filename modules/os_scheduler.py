@@ -26,11 +26,11 @@ def _get_project_dir() -> str:
     return str(Path(__file__).parent.parent.resolve())
 
 
-def setup_crontab(schedule_slots: list[tuple[int, int]], remove: bool = False):
+def setup_crontab(schedule_slots: list[tuple[int, int, int]], remove: bool = False):
     """Set up crontab entries for the music pipeline (Linux/macOS).
 
     Args:
-        schedule_slots: List of (hour, gen_count) tuples.
+        schedule_slots: List of (hour, minute, gen_count) tuples.
         remove: If True, remove existing pipeline entries instead.
     """
     python = _get_python_path()
@@ -60,9 +60,9 @@ def setup_crontab(schedule_slots: list[tuple[int, int]], remove: bool = False):
         return True
 
     # Add new entries
-    for hour, gen_count in schedule_slots:
+    for hour, minute, gen_count in schedule_slots:
         cmd = f"cd {project_dir} && {python} main.py run -n 1"
-        cron_line = f"0 {hour} * * * {cmd} >> {project_dir}/output/cron.log 2>&1 {marker}"
+        cron_line = f"{minute} {hour} * * * {cmd} >> {project_dir}/output/cron.log 2>&1 {marker}"
         lines.append(cron_line)
 
     new_crontab = "\n".join(lines) + "\n"
@@ -83,14 +83,14 @@ def _write_crontab(content: str):
         raise RuntimeError(f"crontab write failed: {proc.stderr}")
 
 
-def setup_windows_tasks(schedule_slots: list[tuple[int, int]], remove: bool = False):
+def setup_windows_tasks(schedule_slots: list[tuple[int, int, int]], remove: bool = False):
     """Set up Windows Task Scheduler tasks for the music pipeline.
 
-    Creates scheduled tasks that run `python main.py run` at specified hours.
+    Creates scheduled tasks that run `python main.py run` at specified times.
     Does NOT require PowerShell to stay open.
 
     Args:
-        schedule_slots: List of (hour, gen_count) tuples.
+        schedule_slots: List of (hour, minute, gen_count) tuples.
         remove: If True, remove existing pipeline tasks instead.
     """
     python = _get_python_path()
@@ -113,9 +113,9 @@ def setup_windows_tasks(schedule_slots: list[tuple[int, int]], remove: bool = Fa
         return True
 
     # Create tasks
-    for i, (hour, gen_count) in enumerate(schedule_slots, 1):
+    for i, (hour, minute, gen_count) in enumerate(schedule_slots, 1):
         task_name = f"{task_prefix}_{i}"
-        start_time = f"{hour:02d}:00"
+        start_time = f"{hour:02d}:{minute:02d}"
 
         # First remove old task with same name (if exists)
         subprocess.run(
@@ -146,11 +146,11 @@ def setup_windows_tasks(schedule_slots: list[tuple[int, int]], remove: bool = Fa
     return True
 
 
-def setup_schedule(schedule_slots: list[tuple[int, int]], remove: bool = False) -> bool:
+def setup_schedule(schedule_slots: list[tuple[int, int, int]], remove: bool = False) -> bool:
     """Auto-detect OS and set up scheduled tasks.
 
     Args:
-        schedule_slots: List of (hour, gen_count) tuples.
+        schedule_slots: List of (hour, minute, gen_count) tuples.
         remove: If True, remove scheduled tasks instead.
 
     Returns:

@@ -282,7 +282,7 @@ def cmd_setup_schedule(args):
     any terminal to stay open.
 
     Default schedule:
-      09:00 — 1 clip
+      09:40 — 1 clip
       14:00 — 1 clip
       18:00 — 1 clip
       20:00 — 1 clip
@@ -292,12 +292,12 @@ def cmd_setup_schedule(args):
     """
     from modules.os_scheduler import setup_schedule, list_schedule
 
-    # Default schedule slots
+    # Default schedule slots: (hour, minute, gen_count)
     DEFAULT_SLOTS = [
-        (9,  1),   # 09:00
-        (14, 1),   # 14:00
-        (18, 2),   # 18:00
-        (20, 4),   # 20:00
+        (9,  40, 1),   # 09:40
+        (14, 0,  1),   # 14:00
+        (18, 0,  2),   # 18:00
+        (20, 0,  4),   # 20:00
     ]
 
     if args.list:
@@ -309,12 +309,19 @@ def cmd_setup_schedule(args):
         return
 
     if args.hours:
-        slots = [(int(h), 1) for h in args.hours.split(",")]
+        # Parse "9:40,14,18,20" format (minute defaults to 0)
+        slots = []
+        for h in args.hours.split(","):
+            if ":" in h:
+                hour, minute = h.split(":")
+                slots.append((int(hour), int(minute), 1))
+            else:
+                slots.append((int(h), 0, 1))
     else:
         clips_per_day = args.clips or len(DEFAULT_SLOTS)
         slots = DEFAULT_SLOTS[:clips_per_day]
 
-    schedule_desc = ", ".join(f"{h}:00" for h, _ in slots)
+    schedule_desc = ", ".join(f"{h}:{m:02d}" for h, m, _ in slots)
     log.info(f"Setting up {len(slots)} scheduled tasks: {schedule_desc}")
     setup_schedule(slots)
 
@@ -323,7 +330,7 @@ def cmd_schedule(args):
     """Schedule 4 clips per day, uploaded to YouTube + TikTok automatically.
 
     Default schedule (Europe/Bucharest timezone):
-      09:00 — 1 generate (2 MP3s) → 1 clip
+      09:40 — 1 generate (2 MP3s) → 1 clip
       14:00 — 1 generate (2 MP3s) → 1 clip
       18:00 — 2 generates (4 MP3s) → 1 clip
       20:00 — 4 generates (8 MP3s) → 1 clip
@@ -349,12 +356,12 @@ def cmd_schedule(args):
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-    # (hour, gen_count) — gen_count × 2 MP3s merged into one clip
+    # (hour, minute, gen_count) — gen_count × 2 MP3s merged into one clip
     SCHEDULE_SLOTS = [
-        (9,  1),   # 09:00 → 1 gen = 2 MP3s
-        (14, 1),   # 14:00 → 1 gen = 2 MP3s
-        (18, 2),   # 18:00 → 2 gen = 4 MP3s
-        (20, 4),   # 20:00 → 4 gen = 8 MP3s
+        (9,  40, 1),   # 09:40 → 1 gen = 2 MP3s
+        (14, 0,  1),   # 14:00 → 1 gen = 2 MP3s
+        (18, 0,  2),   # 18:00 → 2 gen = 4 MP3s
+        (20, 0,  4),   # 20:00 → 4 gen = 8 MP3s
     ]
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
@@ -384,17 +391,17 @@ def cmd_schedule(args):
         # Default schedule with variable generation counts
         clips_per_day = args.clips or len(SCHEDULE_SLOTS)
         selected_slots = SCHEDULE_SLOTS[:clips_per_day]
-        for i, (hour, gen_count) in enumerate(selected_slots):
+        for i, (hour, minute, gen_count) in enumerate(selected_slots):
             scheduler.add_job(
                 _run_full_pipeline,
-                CronTrigger(hour=hour, minute=0, timezone=TIMEZONE),
+                CronTrigger(hour=hour, minute=minute, timezone=TIMEZONE),
                 kwargs={"gen_count": gen_count},
                 id=f"music_pipeline_{i + 1}",
-                name=f"Clip {i + 1} ({hour}:00, {gen_count} gen)",
+                name=f"Clip {i + 1} ({hour}:{minute:02d}, {gen_count} gen)",
                 misfire_grace_time=MISFIRE_GRACE,
                 coalesce=True,
             )
-        schedule_desc = ", ".join(f"{h}:00 ({g} gen)" for h, g in selected_slots)
+        schedule_desc = ", ".join(f"{h}:{m:02d} ({g} gen)" for h, m, g in selected_slots)
         log.info(f"Scheduled {len(selected_slots)} clips per day: {schedule_desc}")
         log.info(f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s")
 
