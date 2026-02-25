@@ -15,7 +15,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
 
     Looks for existing files in OUTPUT_DIR:
       - {track_name}_video.mp4
-      - {track_name}_thumbnail.png
+      - {track_name}_thumbnail.jpg (or .png for older tracks)
       - {track_name}.mp3  (for duration detection)
 
     Regenerates concept metadata (title, description, tags) via OpenAI,
@@ -39,7 +39,10 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
         if candidate.exists():
             video = candidate
             break
-    thumbnail = OUTPUT_DIR / f"{track_name}_thumbnail.png"
+    # Check both .jpg (new) and .png (old) thumbnail formats
+    thumbnail = OUTPUT_DIR / f"{track_name}_thumbnail.jpg"
+    if not thumbnail.exists():
+        thumbnail = OUTPUT_DIR / f"{track_name}_thumbnail.png"
     mp3_file = OUTPUT_DIR / f"{track_name}.mp3"
 
     if not thumbnail.exists():
