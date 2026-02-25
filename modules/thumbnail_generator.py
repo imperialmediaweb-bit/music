@@ -96,8 +96,24 @@ def generate_thumbnail(thumbnail_prompt: str, track_name: str) -> Path:
 
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in track_name)
     safe_name = safe_name.strip().replace(" ", "_")[:50]
-    output_path = OUTPUT_DIR / f"{safe_name}_thumbnail.png"
+    output_path = OUTPUT_DIR / f"{safe_name}_thumbnail.jpg"
 
-    image.save(str(output_path), "PNG")
-    log.info(f"Thumbnail saved to: {output_path}")
+    # Save as JPEG with compression to stay under YouTube's 2MB limit.
+    # Start at quality 95 and reduce until file is under 2MB.
+    image = image.convert("RGB")  # JPEG doesn't support alpha
+    quality = 95
+    while quality >= 50:
+        image.save(str(output_path), "JPEG", quality=quality, optimize=True)
+        file_size = output_path.stat().st_size
+        if file_size <= 2_000_000:  # 2MB with safety margin
+            log.info(f"Thumbnail saved ({file_size // 1024}KB, quality={quality}): {output_path}")
+            return output_path
+        log.info(f"Thumbnail too large ({file_size // 1024}KB) at quality={quality}, reducing...")
+        quality -= 10
+
+    # Last resort: resize the image to fit
+    log.warning("Thumbnail still too large, resizing to 1280x720...")
+    image = image.resize((1280, 720), Image.LANCZOS)
+    image.save(str(output_path), "JPEG", quality=85, optimize=True)
+    log.info(f"Thumbnail saved (resized, {output_path.stat().st_size // 1024}KB): {output_path}")
     return output_path

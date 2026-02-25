@@ -142,16 +142,13 @@ def generate_concept(track_name: str = "") -> MusicConcept:
             f"Mood: {data.get('mood', 'ritualistic, primal, powerful, transcendent')}"
         )
 
-    # Merge mandatory SEO tags with AI-generated tags (deduplicated)
+    # Merge mandatory SEO tags with AI-generated tags (deduplicated).
+    # Keep this list SHORT and DIVERSE — too many similar "afro house X" tags
+    # triggers YouTube's spam detection ("invalid video keywords" error).
     MANDATORY_TAGS = [
-        "afro house", "afro house music", "deep afro house", "tribal afro house",
-        "organic afro house", "afro house mix", "underground afro house",
-        "afro house ritual", "deep house", "tribal house", "afro house 2025",
-        "car bass music", "warehouse music", "afro house playlist",
-        "deep tribal drums", "african drums music", "bass boosted",
-        "car music bass boosted", "afro house new 2025", "best afro house",
-        "afro house workout", "afro house drive", "tribal percussion",
-        "afro house extended mix", "afro house live set",
+        "afro house", "deep house", "tribal house", "african drums",
+        "car bass music", "bass boosted", "warehouse music",
+        "tribal percussion", "extended mix",
     ]
     ai_tags = data.get("youtube_tags", [])
     seen = set()

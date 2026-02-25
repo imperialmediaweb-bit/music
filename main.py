@@ -98,6 +98,51 @@ def cmd_login(args):
         browser.close()
 
 
+def cmd_youtube_login(args):
+    """Open browser to log into YouTube Studio and save session cookies.
+
+    These cookies are needed for self-certification (monetization).
+    The regular YouTube upload uses OAuth (separate token), but YouTube Studio
+    features like self-certification require browser cookies.
+    """
+    from playwright.sync_api import sync_playwright
+    from utils.browser import save_cookies
+    from config import YOUTUBE_COOKIE_FILE
+
+    cookie_file = YOUTUBE_COOKIE_FILE
+    cookie_file.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info("Opening Chrome browser for YouTube Studio login...")
+    log.info("Log in with your YouTube account, then come back here.")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+        )
+        page = context.new_page()
+        page.goto("https://studio.youtube.com", wait_until="domcontentloaded", timeout=60_000)
+
+        log.info("=" * 60)
+        log.info("Browser is open. Please:")
+        log.info("  1. Log into your YouTube/Google account")
+        log.info("  2. Wait until you see YouTube Studio dashboard")
+        log.info("  3. Come back here and press ENTER")
+        log.info("=" * 60)
+
+        input("\n>>> Press ENTER here after you've logged in... ")
+
+        save_cookies(context, cookie_file)
+        log.info(f"YouTube Studio cookies saved to: {cookie_file}")
+        log.info("Self-certification will now work automatically!")
+
+        browser.close()
+
+
 def cmd_tiktok_login(args):
     """Open browser to log into TikTok and save session cookies.
 
@@ -429,6 +474,13 @@ def main():
         help="Log into aimusicfactory.ai (Google) and save cookies for automation",
     )
     login_parser.set_defaults(func=cmd_login)
+
+    # youtube-login - save YouTube Studio cookies
+    youtube_login_parser = subparsers.add_parser(
+        "youtube-login",
+        help="Log into YouTube Studio and save cookies for self-certification",
+    )
+    youtube_login_parser.set_defaults(func=cmd_youtube_login)
 
     # tiktok-login - save TikTok cookies
     tiktok_login_parser = subparsers.add_parser(

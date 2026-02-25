@@ -66,7 +66,7 @@ class TestGenerateThumbnail:
             result = generate_thumbnail("African mask prompt", "Zanu")
 
         assert result.exists()
-        assert result.suffix == ".png"
+        assert result.suffix == ".jpg"
         assert "Zanu" in result.name
 
         # Verify it's a valid image

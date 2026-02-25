@@ -38,6 +38,12 @@ class TestGetAuthenticatedService:
         mock_creds.valid = False
         mock_creds.expired = True
         mock_creds.refresh_token = "fake-refresh"
+        mock_creds.scopes = set(SCOPES)
+
+        # After refresh(), valid should become True
+        def make_valid(*args):
+            mock_creds.valid = True
+        mock_creds.refresh.side_effect = make_valid
 
         with patch("modules.youtube_uploader.TOKEN_FILE") as mock_tf, \
              patch("modules.youtube_uploader.pickle") as mock_pickle, \

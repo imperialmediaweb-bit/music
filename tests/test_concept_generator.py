@@ -106,8 +106,8 @@ class TestGenerateConcept:
 
         tag_lower = [t.lower() for t in concept.youtube_tags]
         assert "afro house" in tag_lower
-        assert "deep afro house" in tag_lower
-        assert "tribal afro house" in tag_lower
+        assert "deep house" in tag_lower
+        assert "tribal house" in tag_lower
         assert "custom tag 1" in tag_lower
         assert "custom tag 2" in tag_lower
 

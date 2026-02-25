@@ -38,6 +38,13 @@ def _get_authenticated_service():
             credentials = pickle.load(f)
         log.info(f"YouTube token loaded from {TOKEN_FILE}")
 
+        # Check if saved token has the required scopes
+        saved_scopes = getattr(credentials, "scopes", None) or set()
+        if credentials.valid and not set(SCOPES).issubset(saved_scopes):
+            log.warning(f"Token scopes mismatch. Have: {saved_scopes}, need: {SCOPES}")
+            TOKEN_FILE.unlink(missing_ok=True)
+            credentials = None
+
     # If no valid credentials, try to refresh or re-authenticate
     if not credentials or not credentials.valid:
         if credentials and credentials.expired and credentials.refresh_token:
@@ -145,7 +152,7 @@ def _complete_self_certification(video_id: str) -> bool:
             # Check if we're redirected to login
             if "accounts.google.com" in actual_url:
                 log.error("Not logged into YouTube Studio. Cookies may be expired.")
-                log.error("Run: python main.py login  (and login with your YouTube account)")
+                log.error("Run: python main.py youtube-login")
                 return False
 
             # Log page state for debugging
@@ -367,10 +374,25 @@ def upload_to_youtube(
         response = _execute_upload(body)
     except Exception as e:
         if "invalidTags" in str(e):
-            log.warning(f"YouTube rejected tags, retrying without tags: {e}")
-            log.warning(f"Rejected tags were: {body['snippet'].get('tags')}")
-            body["snippet"].pop("tags", None)
-            response = _execute_upload(body)
+            original_tags = body["snippet"].get("tags", [])
+            log.warning(f"YouTube rejected {len(original_tags)} tags: {e}")
+            # Try with only the first 5 most important tags
+            if len(original_tags) > 5:
+                body["snippet"]["tags"] = original_tags[:5]
+                log.info(f"Retrying with {len(body['snippet']['tags'])} tags: {body['snippet']['tags']}")
+                try:
+                    response = _execute_upload(body)
+                except Exception as e2:
+                    if "invalidTags" in str(e2):
+                        log.warning(f"Still rejected, uploading without any tags")
+                        body["snippet"].pop("tags", None)
+                        response = _execute_upload(body)
+                    else:
+                        raise
+            else:
+                log.warning("Uploading without any tags")
+                body["snippet"].pop("tags", None)
+                response = _execute_upload(body)
         else:
             raise
 
@@ -381,9 +403,12 @@ def upload_to_youtube(
     # Upload custom thumbnail
     try:
         log.info("Uploading custom thumbnail...")
+        # Detect mimetype from file extension
+        suffix = thumbnail_path.suffix.lower()
+        mimetype = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"
         youtube.thumbnails().set(
             videoId=video_id,
-            media_body=MediaFileUpload(str(thumbnail_path), mimetype="image/png"),
+            media_body=MediaFileUpload(str(thumbnail_path), mimetype=mimetype),
         ).execute()
         log.info("Thumbnail uploaded successfully")
     except Exception as e:
