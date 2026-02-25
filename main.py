@@ -274,6 +274,51 @@ def cmd_reupload(args):
         log.info("Done!")
 
 
+def cmd_setup_schedule(args):
+    """Set up OS-level scheduled tasks (Windows Task Scheduler / crontab).
+
+    This is the RECOMMENDED way to schedule the pipeline — it runs
+    automatically in the background without needing PowerShell or
+    any terminal to stay open.
+
+    Default schedule:
+      09:00 — 1 clip
+      14:00 — 1 clip
+      18:00 — 1 clip
+      20:00 — 1 clip
+
+    On Windows: creates Task Scheduler entries (visible in taskschd.msc)
+    On Linux/macOS: creates crontab entries (visible with crontab -l)
+    """
+    from modules.os_scheduler import setup_schedule, list_schedule
+
+    # Default schedule slots
+    DEFAULT_SLOTS = [
+        (9,  1),   # 09:00
+        (14, 1),   # 14:00
+        (18, 2),   # 18:00
+        (20, 4),   # 20:00
+    ]
+
+    if args.list:
+        list_schedule()
+        return
+
+    if args.remove:
+        setup_schedule(DEFAULT_SLOTS, remove=True)
+        return
+
+    if args.hours:
+        slots = [(int(h), 1) for h in args.hours.split(",")]
+    else:
+        clips_per_day = args.clips or len(DEFAULT_SLOTS)
+        slots = DEFAULT_SLOTS[:clips_per_day]
+
+    schedule_desc = ", ".join(f"{h}:00" for h, _ in slots)
+    log.info(f"Setting up {len(slots)} scheduled tasks: {schedule_desc}")
+    setup_schedule(slots)
+
+
 def cmd_schedule(args):
     """Schedule 4 clips per day, uploaded to YouTube + TikTok automatically.
 
@@ -451,6 +496,29 @@ def main():
         help='Custom cron (e.g. "0 10 * * *")',
     )
     sched_parser.set_defaults(func=cmd_schedule)
+
+    # setup-schedule - OS-level scheduling (Task Scheduler / crontab)
+    setup_sched_parser = subparsers.add_parser(
+        "setup-schedule",
+        help="Set up OS scheduled tasks (no PowerShell needed!)",
+    )
+    setup_sched_parser.add_argument(
+        "--clips", type=int, default=None,
+        help=f"Clips per day (default: {DEFAULT_CLIPS_PER_DAY})",
+    )
+    setup_sched_parser.add_argument(
+        "--hours", type=str, default=None,
+        help='Custom hours, comma-separated (e.g. "9,14,18,20")',
+    )
+    setup_sched_parser.add_argument(
+        "--remove", action="store_true",
+        help="Remove all scheduled pipeline tasks",
+    )
+    setup_sched_parser.add_argument(
+        "--list", action="store_true",
+        help="List current scheduled tasks",
+    )
+    setup_sched_parser.set_defaults(func=cmd_setup_schedule)
 
     args = parser.parse_args()
     args.func(args)
