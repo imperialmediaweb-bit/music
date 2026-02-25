@@ -92,6 +92,8 @@ def check_dependency(name: str) -> bool:
 
 def check_ffmpeg() -> bool:
     import shutil
+    from utils.auto_setup import ensure_path
+    ensure_path()
     return shutil.which("ffmpeg") is not None
 
 
@@ -128,8 +130,8 @@ class MusicFactoryApp(tk.Tk):
         # Start log polling
         self._poll_log_queue()
 
-        # Check setup on startup
-        self.after(500, self._refresh_status)
+        # Auto-install missing dependencies on first run, then refresh status
+        self.after(500, self._auto_setup_check)
 
     def _set_icon(self):
         try:
@@ -572,6 +574,37 @@ class MusicFactoryApp(tk.Tk):
 
     def _set_status(self, text: str, color: str = TEXT_DIM):
         self.statusbar_text.config(text=text, foreground=color)
+
+    # ------------------------------------------------------------------
+    # Auto-setup (first run)
+    # ------------------------------------------------------------------
+    def _auto_setup_check(self):
+        """Check for missing dependencies and auto-install them."""
+        from utils.auto_setup import is_ffmpeg_installed, is_chromium_installed, ensure_path
+        ensure_path()
+
+        needs_ffmpeg = not is_ffmpeg_installed()
+        needs_chromium = not is_chromium_installed()
+
+        if not needs_ffmpeg and not needs_chromium:
+            self._refresh_status()
+            return
+
+        # Run auto-setup in background thread
+        self._set_status("Installing missing dependencies...", WARNING_COLOR)
+
+        def setup_task():
+            from utils.auto_setup import auto_setup
+            def on_progress(text):
+                self.after(0, lambda t=text: self._set_status(t, WARNING_COLOR))
+            auto_setup(progress_callback=on_progress)
+            self.after(0, self._on_setup_done)
+
+        threading.Thread(target=setup_task, daemon=True).start()
+
+    def _on_setup_done(self):
+        self._set_status("Ready", SUCCESS_COLOR)
+        self._refresh_status()
 
     # ------------------------------------------------------------------
     # Status refresh

@@ -14,7 +14,9 @@ from utils.logger import log
 
 
 def _check_ffmpeg():
-    """Verify FFmpeg is available."""
+    """Verify FFmpeg is available (checks PATH and local bin/)."""
+    from utils.auto_setup import ensure_path
+    ensure_path()
     if not shutil.which("ffmpeg"):
         raise RuntimeError(
             "FFmpeg not found. Install it:\n"

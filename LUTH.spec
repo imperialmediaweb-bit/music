@@ -32,6 +32,7 @@ a = Analysis(
         'utils',
         'utils.logger',
         'utils.browser',
+        'utils.auto_setup',
         'config',
         'pipeline',
         'tkinter',

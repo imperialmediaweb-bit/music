@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 from utils.logger import log
+from utils.auto_setup import ensure_path
 from modules.concept_generator import generate_concept
 from modules.thumbnail_generator import generate_thumbnail
 from modules.video_creator import create_video
@@ -21,6 +22,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     Regenerates concept metadata (title, description, tags) via OpenAI,
     then uploads to both platforms.
     """
+    ensure_path()
     from config import OUTPUT_DIR
     from modules.concept_generator import generate_concept
 
@@ -153,6 +155,7 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         mp3_path: Path to the MP3 file.
         concept: Optional pre-generated MusicConcept. If None, generates one.
     """
+    ensure_path()
     result = {
         "file": str(mp3_path),
         "concept": None,
