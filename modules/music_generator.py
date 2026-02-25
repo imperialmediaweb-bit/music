@@ -2,7 +2,7 @@
 
 Pipeline approach:
 1. Submit all generations on the Generate page (wait ~4 min each)
-2. Wait until 18 min have passed since the first generation
+2. Wait until 5 min have passed since the first generation
 3. Go to My Music, click on each track card by name
 4. On each track detail page, click the Download buttons to get MP3s
 """
@@ -31,7 +31,7 @@ STYLE_OF_MUSIC_PROMPT = (
 )
 
 GENERATION_COMPLETE_SEC = 240  # 4 min — wait after clicking Generate for songs to appear
-DOWNLOAD_READY_SEC = 1080      # 18 min — minimum time from generation before downloads work
+DOWNLOAD_READY_SEC = 300       # 5 min — minimum time from generation before downloads work
 
 # JS to block File System Access API "Save As" dialogs
 _BLOCK_SAVE_PICKER_JS = """
