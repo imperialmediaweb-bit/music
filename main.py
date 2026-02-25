@@ -9,9 +9,9 @@ from pathlib import Path
 from config import SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE
 from utils.logger import log
 
-# Default: 4 clips per day
+# Default: 4 clips per day (one per scheduled slot)
 DEFAULT_CLIPS_PER_DAY = 4
-# How many MP3s to generate per clip (3-4 generations × 2 = 6-8 MP3s)
+# Total MP3s per day: 2 + 4 + 6 + 8 = 20 MP3s → 4 merged clips
 MP3S_PER_CLIP = 8
 
 
@@ -338,11 +338,12 @@ def cmd_setup_schedule(args):
     from modules.os_scheduler import setup_schedule, list_schedule
 
     # Default schedule slots: (hour, minute, gen_count)
+    # Each generation = 1 card = 2 MP3s. All MP3s merge into one clip.
     DEFAULT_SLOTS = [
-        (9,  50, 1),   # 09:50
-        (14, 0,  1),   # 14:00
-        (18, 0,  2),   # 18:00
-        (20, 0,  4),   # 20:00
+        (9,  50, 1),   # 09:50 — 1 card  → 2 MP3s  → 1 clip
+        (14, 0,  2),   # 14:00 — 2 cards → 4 MP3s  → 1 clip
+        (18, 0,  3),   # 18:00 — 3 cards → 6 MP3s  → 1 clip
+        (20, 0,  4),   # 20:00 — 4 cards → 8 MP3s  → 1 clip
     ]
 
     if args.list:
