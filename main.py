@@ -282,7 +282,7 @@ def cmd_setup_schedule(args):
     any terminal to stay open.
 
     Default schedule:
-      09:40 — 1 clip
+      09:50 — 1 clip
       14:00 — 1 clip
       18:00 — 1 clip
       20:00 — 1 clip
@@ -294,7 +294,7 @@ def cmd_setup_schedule(args):
 
     # Default schedule slots: (hour, minute, gen_count)
     DEFAULT_SLOTS = [
-        (9,  40, 1),   # 09:40
+        (9,  50, 1),   # 09:50
         (14, 0,  1),   # 14:00
         (18, 0,  2),   # 18:00
         (20, 0,  4),   # 20:00
@@ -330,7 +330,7 @@ def cmd_schedule(args):
     """Schedule 4 clips per day, uploaded to YouTube + TikTok automatically.
 
     Default schedule (Europe/Bucharest timezone):
-      09:40 — 1 generate (2 MP3s) → 1 clip
+      09:50 — 1 generate (2 MP3s) → 1 clip
       14:00 — 1 generate (2 MP3s) → 1 clip
       18:00 — 2 generates (4 MP3s) → 1 clip
       20:00 — 4 generates (8 MP3s) → 1 clip
@@ -358,7 +358,7 @@ def cmd_schedule(args):
 
     # (hour, minute, gen_count) — gen_count × 2 MP3s merged into one clip
     SCHEDULE_SLOTS = [
-        (9,  40, 1),   # 09:40 → 1 gen = 2 MP3s
+        (9,  50, 1),   # 09:50 → 1 gen = 2 MP3s
         (14, 0,  1),   # 14:00 → 1 gen = 2 MP3s
         (18, 0,  2),   # 18:00 → 2 gen = 4 MP3s
         (20, 0,  4),   # 20:00 → 4 gen = 8 MP3s
