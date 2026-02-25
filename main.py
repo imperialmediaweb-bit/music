@@ -6,8 +6,14 @@ import signal
 import sys
 from pathlib import Path
 
-from config import SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE
+from config import (
+    SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE,
+    SUNO_STATE_FILE, UDIO_STATE_FILE, MUSIC_PLATFORM, SONGS_PER_CLIP,
+)
 from utils.logger import log
+
+# Supported music platforms
+PLATFORMS = ["aimusicfactory", "suno", "udio"]
 
 # Default: 4 clips per day (one per scheduled slot)
 DEFAULT_CLIPS_PER_DAY = 4
@@ -15,16 +21,34 @@ DEFAULT_CLIPS_PER_DAY = 4
 MP3S_PER_CLIP = 8
 
 
-def _run_full_pipeline(gen_count: int = 1):
-    """Full pipeline: generate music on aimusicfactory → merge → thumbnail → video → upload.
+def _get_music_generator(platform: str):
+    """Import and return the generate_music_batch function for the given platform."""
+    if platform == "suno":
+        from modules.suno_generator import generate_music_batch
+    elif platform == "udio":
+        from modules.udio_generator import generate_music_batch
+    else:
+        from modules.music_generator import generate_music_batch
+    return generate_music_batch
+
+
+def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = None):
+    """Full pipeline: generate music → merge → thumbnail → video → upload.
 
     Args:
         gen_count: Number of times to hit Generate (each gives 2 MP3s).
+        platform: Music platform — "aimusicfactory", "suno", or "udio".
+        songs: Total number of songs to generate (2, 4, 6, 8). Overrides gen_count.
     """
-    from modules.music_generator import generate_music_batch
     from modules.audio_merger import merge_mp3s
     from modules.concept_generator import generate_concept
     from pipeline import process_single_track
+
+    platform = platform or MUSIC_PLATFORM
+    if songs:
+        gen_count = max(1, songs // 2)  # Each generation = 2 songs
+
+    generate_music_batch = _get_music_generator(platform)
 
     # Step 1: Generate concept first (for the music prompt)
     log.info("=" * 60)
@@ -32,9 +56,9 @@ def _run_full_pipeline(gen_count: int = 1):
     concept = generate_concept()
     log.info(f"Track name: {concept.track_name}")
 
-    # Step 2: Generate music on aimusicfactory.ai
+    # Step 2: Generate music
     log.info("=" * 60)
-    log.info(f"STEP 2: Generating music on aimusicfactory.ai ({gen_count} generation(s) = {gen_count * 2} MP3s)...")
+    log.info(f"STEP 2: Generating music on {platform} ({gen_count} generation(s) = {gen_count * 2} songs)...")
     mp3_files = generate_music_batch(concept, count=gen_count)
     log.info(f"Generated {len(mp3_files)} MP3 files")
 
@@ -186,6 +210,78 @@ def cmd_tiktok_login(args):
         browser.close()
 
 
+def cmd_suno_login(args):
+    """Open browser to log into suno.com and save session state."""
+    from playwright.sync_api import sync_playwright
+
+    state_file = SUNO_STATE_FILE
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info("Opening Chrome browser for Suno login...")
+    log.info("Log in with your account, then close the browser window.")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(viewport={"width": 1920, "height": 1080})
+        page = context.new_page()
+        page.goto("https://suno.com", wait_until="networkidle", timeout=60_000)
+
+        log.info("=" * 60)
+        log.info("Browser is open. Please:")
+        log.info("  1. Click 'Sign In' on suno.com")
+        log.info("  2. Log into your account (Google, Discord, etc.)")
+        log.info("  3. Wait until you see the main page (logged in)")
+        log.info("  4. Come back here and press ENTER")
+        log.info("=" * 60)
+
+        input("\n>>> Press ENTER here after you've logged in... ")
+
+        context.storage_state(path=str(state_file))
+        log.info(f"Suno session saved to: {state_file}")
+        log.info("You can now run 'python main.py run --platform suno' and it will use your account!")
+        browser.close()
+
+
+def cmd_udio_login(args):
+    """Open browser to log into udio.com and save session state."""
+    from playwright.sync_api import sync_playwright
+
+    state_file = UDIO_STATE_FILE
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info("Opening Chrome browser for Udio login...")
+    log.info("Log in with your account, then close the browser window.")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(viewport={"width": 1920, "height": 1080})
+        page = context.new_page()
+        page.goto("https://www.udio.com", wait_until="networkidle", timeout=60_000)
+
+        log.info("=" * 60)
+        log.info("Browser is open. Please:")
+        log.info("  1. Click 'Sign In' on udio.com")
+        log.info("  2. Log into your account (Google, Discord, etc.)")
+        log.info("  3. Wait until you see the main page (logged in)")
+        log.info("  4. Come back here and press ENTER")
+        log.info("=" * 60)
+
+        input("\n>>> Press ENTER here after you've logged in... ")
+
+        context.storage_state(path=str(state_file))
+        log.info(f"Udio session saved to: {state_file}")
+        log.info("You can now run 'python main.py run --platform udio' and it will use your account!")
+        browser.close()
+
+
 def cmd_process(args):
     """Process existing MP3s from input/ folder.
 
@@ -270,9 +366,13 @@ def cmd_run(args):
 
     Default: 1 clip. Each clip = 3 generations (6 MP3s) → merge → thumbnail → video → YouTube + TikTok.
     Use -n to create more clips in one run.
+    Use --platform to choose: aimusicfactory, suno, udio
+    Use --songs to choose how many songs per clip: 2, 4, 6, 8
     """
     count = min(args.count, 8)
-    log.info(f"Running full pipeline for {count} clip(s)...")
+    platform = args.platform or MUSIC_PLATFORM
+    songs = args.songs or SONGS_PER_CLIP
+    log.info(f"Running full pipeline for {count} clip(s) on {platform} ({songs} songs each)...")
 
     total_errors = 0
     for i in range(1, count + 1):
@@ -280,7 +380,7 @@ def cmd_run(args):
         log.info(f"CLIP {i}/{count}")
         log.info(f"{'#' * 60}")
         try:
-            result = _run_full_pipeline()
+            result = _run_full_pipeline(platform=platform, songs=songs)
             if result["errors"]:
                 total_errors += 1
                 log.warning(f"Clip {i} had errors: {result['errors']}")
@@ -490,6 +590,20 @@ def main():
     )
     tiktok_login_parser.set_defaults(func=cmd_tiktok_login)
 
+    # suno-login - save Suno session state
+    suno_login_parser = subparsers.add_parser(
+        "suno-login",
+        help="Log into suno.com and save session for automation",
+    )
+    suno_login_parser.set_defaults(func=cmd_suno_login)
+
+    # udio-login - save Udio session state
+    udio_login_parser = subparsers.add_parser(
+        "udio-login",
+        help="Log into udio.com and save session for automation",
+    )
+    udio_login_parser.set_defaults(func=cmd_udio_login)
+
     # process - merge existing MP3s from input/ and upload
     proc_parser = subparsers.add_parser(
         "process",
@@ -539,6 +653,14 @@ def main():
     run_parser.add_argument(
         "-n", "--count", type=int, default=1,
         help="Number of clips to create (default: 1)",
+    )
+    run_parser.add_argument(
+        "--platform", choices=PLATFORMS, default=None,
+        help=f"Music platform: {', '.join(PLATFORMS)} (default: from .env or aimusicfactory)",
+    )
+    run_parser.add_argument(
+        "--songs", type=int, choices=[2, 4, 6, 8], default=None,
+        help="Number of songs per clip to generate and merge (default: from .env or 2)",
     )
     run_parser.set_defaults(func=cmd_run)
 

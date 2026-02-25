@@ -258,6 +258,8 @@ class MusicFactoryApp(tk.Tk):
             ("youtube", "YouTube"),
             ("tiktok", "TikTok"),
             ("music_factory", "Music Factory"),
+            ("suno", "Suno"),
+            ("udio", "Udio"),
         ]
         for i, (key, label) in enumerate(cards_data):
             card = ttk.Frame(status_frame, style="Card.TFrame", padding=10)
@@ -273,9 +275,29 @@ class MusicFactoryApp(tk.Tk):
         actions = ttk.Frame(parent)
         actions.pack(fill="x", padx=10, pady=10)
 
+        # Platform selector
+        platform_frame = ttk.Frame(actions)
+        platform_frame.pack(side="left", padx=(0, 15))
+        ttk.Label(platform_frame, text="Platform:").pack(side="left")
+        self.platform_var = tk.StringVar(value="aimusicfactory")
+        platform_combo = ttk.Combobox(platform_frame, textvariable=self.platform_var,
+                                       values=["aimusicfactory", "suno", "udio"],
+                                       state="readonly", width=14, font=FONT)
+        platform_combo.pack(side="left", padx=(6, 0))
+
+        # Songs per clip selector
+        songs_frame = ttk.Frame(actions)
+        songs_frame.pack(side="left", padx=(0, 15))
+        ttk.Label(songs_frame, text="Songs:").pack(side="left")
+        self.songs_var = tk.IntVar(value=2)
+        songs_combo = ttk.Combobox(songs_frame, textvariable=self.songs_var,
+                                    values=[2, 4, 6, 8],
+                                    state="readonly", width=4, font=FONT)
+        songs_combo.pack(side="left", padx=(6, 0))
+
         # Clip count
         count_frame = ttk.Frame(actions)
-        count_frame.pack(side="left", padx=(0, 20))
+        count_frame.pack(side="left", padx=(0, 15))
         ttk.Label(count_frame, text="Clips:").pack(side="left")
         self.clip_count = tk.IntVar(value=1)
         spin = ttk.Spinbox(count_frame, from_=1, to=8, textvariable=self.clip_count,
@@ -422,6 +444,10 @@ class MusicFactoryApp(tk.Tk):
         logins = [
             ("AI Music Factory", "Login with Google to generate music",
              "music_factory", self._on_login_music),
+            ("Suno", "Login to generate music on suno.com",
+             "suno", self._on_login_suno),
+            ("Udio", "Login to generate music on udio.com",
+             "udio", self._on_login_udio),
             ("YouTube Studio", "Login to enable uploads & monetization",
              "youtube", self._on_login_youtube),
             ("TikTok", "Login to enable TikTok uploads",
@@ -653,6 +679,20 @@ class MusicFactoryApp(tk.Tk):
         else:
             self.status_cards["music_factory"].config(text="No Login", style="Warning.TLabel")
 
+        # Suno state
+        suno_state = env.get("SUNO_STATE_FILE", "cookies/suno_state.json")
+        if check_cookies(suno_state):
+            self.status_cards["suno"].config(text="OK", style="Success.TLabel")
+        else:
+            self.status_cards["suno"].config(text="No Login", style="Warning.TLabel")
+
+        # Udio state
+        udio_state = env.get("UDIO_STATE_FILE", "cookies/udio_state.json")
+        if check_cookies(udio_state):
+            self.status_cards["udio"].config(text="OK", style="Success.TLabel")
+        else:
+            self.status_cards["udio"].config(text="No Login", style="Warning.TLabel")
+
         # OAuth status
         if hasattr(self, "oauth_status"):
             if Path("client_secrets.json").exists():
@@ -756,6 +796,8 @@ class MusicFactoryApp(tk.Tk):
     # ------------------------------------------------------------------
     def _on_run_pipeline(self):
         count = self.clip_count.get()
+        platform = self.platform_var.get()
+        songs = self.songs_var.get()
 
         def task():
             from main import _run_full_pipeline
@@ -764,11 +806,11 @@ class MusicFactoryApp(tk.Tk):
                     _log_queue.put("Stopped by user.")
                     break
                 _log_queue.put(f"{'#' * 50}")
-                _log_queue.put(f"CLIP {i + 1}/{count}")
+                _log_queue.put(f"CLIP {i + 1}/{count} | Platform: {platform} | Songs: {songs}")
                 _log_queue.put(f"{'#' * 50}")
-                _run_full_pipeline()
+                _run_full_pipeline(platform=platform, songs=songs)
 
-        self._run_in_thread(task, f"Running pipeline ({count} clip{'s' if count > 1 else ''})...")
+        self._run_in_thread(task, f"Running {platform} ({count} clip{'s' if count > 1 else ''}, {songs} songs)...")
 
     def _on_process_mp3s(self):
         folder = filedialog.askdirectory(title="Select folder with MP3 files",
@@ -845,6 +887,30 @@ class MusicFactoryApp(tk.Tk):
             _log_queue.put("Login window opened in new terminal. Follow instructions there.")
 
         self._run_in_thread(task, "Logging into AI Music Factory...")
+
+    def _on_login_suno(self):
+        def task():
+            _log_queue.put("Opening browser for Suno login...")
+            import subprocess
+            subprocess.Popen(
+                [sys.executable, "main.py", "suno-login"],
+                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
+            )
+            _log_queue.put("Suno login window opened in new terminal. Follow instructions there.")
+
+        self._run_in_thread(task, "Logging into Suno...")
+
+    def _on_login_udio(self):
+        def task():
+            _log_queue.put("Opening browser for Udio login...")
+            import subprocess
+            subprocess.Popen(
+                [sys.executable, "main.py", "udio-login"],
+                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
+            )
+            _log_queue.put("Udio login window opened in new terminal. Follow instructions there.")
+
+        self._run_in_thread(task, "Logging into Udio...")
 
     def _on_login_youtube(self):
         def task():
