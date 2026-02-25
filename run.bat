@@ -1,10 +1,12 @@
 @echo off
-REM Music Pipeline — Windows starter script
-REM Runs the full pipeline once (generate music + merge + thumbnail + video + upload)
+REM LUTH — Windows starter script
+REM Runs the full pipeline or launches the GUI
 REM
 REM Usage:
-REM   run.bat              — Run pipeline once (1 clip)
-REM   run.bat 3            — Run pipeline 3 times (3 clips)
+REM   run.bat              — Launch LUTH GUI
+REM   run.bat gui          — Launch LUTH GUI
+REM   run.bat cli          — Run pipeline once (1 clip, command-line)
+REM   run.bat cli 3        — Run pipeline 3 times (3 clips)
 REM   run.bat schedule     — Start APScheduler (keeps running)
 REM   run.bat setup        — Install OS scheduled tasks (no PowerShell needed)
 
@@ -18,7 +20,11 @@ if exist ".venv\Scripts\activate.bat" (
     call .venv\Scripts\activate.bat
 )
 
-if "%1"=="schedule" (
+if "%1"=="gui" (
+    echo Starting LUTH GUI...
+    start "" pythonw app.py
+    exit /b 0
+) else if "%1"=="schedule" (
     echo Starting scheduler (press Ctrl+C to stop)...
     python main.py schedule
 ) else if "%1"=="setup" (
@@ -28,9 +34,18 @@ if "%1"=="schedule" (
     python main.py login
 ) else if "%1"=="tiktok-login" (
     python main.py tiktok-login
+) else if "%1"=="cli" (
+    if "%2"=="" (
+        echo Running pipeline once (1 clip)...
+        python main.py run -n 1
+    ) else (
+        echo Running pipeline %2 time(s)...
+        python main.py run -n %2
+    )
 ) else if "%1"=="" (
-    echo Running pipeline once (1 clip)...
-    python main.py run -n 1
+    echo Starting LUTH GUI...
+    start "" pythonw app.py
+    exit /b 0
 ) else (
     echo Running pipeline %1 time(s)...
     python main.py run -n %1
