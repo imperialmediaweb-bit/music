@@ -23,6 +23,8 @@ a = Analysis(
         'modules',
         'modules.concept_generator',
         'modules.music_generator',
+        'modules.suno_generator',
+        'modules.udio_generator',
         'modules.thumbnail_generator',
         'modules.video_creator',
         'modules.youtube_uploader',

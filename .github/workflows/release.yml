@@ -73,5 +73,6 @@ jobs:
             1. **FFmpeg** is already included — no install needed
             2. **Playwright Chromium** will auto-download on first run (~280 MB one-time download)
             3. Go to **Settings** and enter your OpenAI API key
-            4. Go to **Logins** and log into YouTube, TikTok, and Music Factory
-            5. Click **RUN PIPELINE** to generate your first track!
+            4. Go to **Logins** and log into your music platform (AI Music Factory, Suno, or Udio), YouTube, and TikTok
+            5. Choose your **Platform** (aimusicfactory / suno / udio) and **Songs** count (2, 4, 6, 8)
+            6. Click **RUN PIPELINE** to generate your first track!
