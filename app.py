@@ -871,68 +871,118 @@ class MusicFactoryApp(tk.Tk):
         self._run_in_thread(task, f"Re-uploading {name}...")
 
     # ------------------------------------------------------------------
-    # Login actions
+    # Login actions — run Playwright directly (no subprocess needed)
     # ------------------------------------------------------------------
-    def _on_login_music(self):
-        def task():
-            _log_queue.put("Opening browser for AI Music Factory login...")
-            import argparse
-            from main import cmd_login
-            # We need to handle the input() call — run it in subprocess instead
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, "main.py", "login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
+    def _login_with_browser(self, url, save_path, save_mode="state", label=""):
+        """Open a Chrome browser for login, save session when user closes it.
+
+        Args:
+            url: Website URL to open.
+            save_path: Path to save cookies/state to.
+            save_mode: "state" for storage_state (cookies+localStorage),
+                       "cookies" for just cookies via save_cookies().
+            label: Display name for log messages.
+        """
+        from playwright.sync_api import sync_playwright
+        import time
+
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        _log_queue.put(f"Opening Chrome for {label} login...")
+        _log_queue.put(f"Log in, then CLOSE the browser window to save your session.")
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=False,
+                channel="chrome",
+                args=["--disable-blink-features=AutomationControlled"],
             )
-            _log_queue.put("Login window opened in new terminal. Follow instructions there.")
+            context = browser.new_context(viewport={"width": 1920, "height": 1080})
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+
+            # Periodically save session while browser is open.
+            # When the user closes the browser, the last save is kept.
+            saved = False
+            while browser.is_connected():
+                try:
+                    if save_mode == "cookies":
+                        from utils.browser import save_cookies
+                        save_cookies(context, save_path)
+                    else:
+                        context.storage_state(path=str(save_path))
+                    saved = True
+                except Exception:
+                    pass
+                try:
+                    page.wait_for_timeout(3000)
+                except Exception:
+                    break
+
+            if saved:
+                _log_queue.put(f"{label} session saved! You can now run the pipeline.")
+            else:
+                _log_queue.put(f"Warning: Could not save {label} session. Try again.")
+
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+    def _on_login_music(self):
+        env = self._load_env()
+        state_file = env.get("AIMUSICFACTORY_STATE_FILE",
+                             "cookies/aimusicfactory_state.json")
+
+        def task():
+            self._login_with_browser(
+                "https://aimusicfactory.ai", state_file,
+                save_mode="state", label="AI Music Factory")
 
         self._run_in_thread(task, "Logging into AI Music Factory...")
 
     def _on_login_suno(self):
+        env = self._load_env()
+        state_file = env.get("SUNO_STATE_FILE", "cookies/suno_state.json")
+
         def task():
-            _log_queue.put("Opening browser for Suno login...")
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, "main.py", "suno-login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
-            )
-            _log_queue.put("Suno login window opened in new terminal. Follow instructions there.")
+            self._login_with_browser(
+                "https://suno.com", state_file,
+                save_mode="state", label="Suno")
 
         self._run_in_thread(task, "Logging into Suno...")
 
     def _on_login_udio(self):
+        env = self._load_env()
+        state_file = env.get("UDIO_STATE_FILE", "cookies/udio_state.json")
+
         def task():
-            _log_queue.put("Opening browser for Udio login...")
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, "main.py", "udio-login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
-            )
-            _log_queue.put("Udio login window opened in new terminal. Follow instructions there.")
+            self._login_with_browser(
+                "https://www.udio.com", state_file,
+                save_mode="state", label="Udio")
 
         self._run_in_thread(task, "Logging into Udio...")
 
     def _on_login_youtube(self):
+        env = self._load_env()
+        cookie_file = env.get("YOUTUBE_COOKIE_FILE", "cookies/youtube_cookies.json")
+
         def task():
-            _log_queue.put("Opening browser for YouTube Studio login...")
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, "main.py", "youtube-login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
-            )
-            _log_queue.put("Login window opened in new terminal. Follow instructions there.")
+            self._login_with_browser(
+                "https://studio.youtube.com", cookie_file,
+                save_mode="cookies", label="YouTube Studio")
 
         self._run_in_thread(task, "Logging into YouTube...")
 
     def _on_login_tiktok(self):
+        env = self._load_env()
+        cookie_file = env.get("TIKTOK_COOKIE_FILE", "cookies/tiktok_cookies.json")
+
         def task():
-            _log_queue.put("Opening browser for TikTok login...")
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, "main.py", "tiktok-login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
-            )
-            _log_queue.put("Login window opened in new terminal. Follow instructions there.")
+            self._login_with_browser(
+                "https://www.tiktok.com/login", cookie_file,
+                save_mode="cookies", label="TikTok")
 
         self._run_in_thread(task, "Logging into TikTok...")
 

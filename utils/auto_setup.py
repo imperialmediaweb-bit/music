@@ -135,13 +135,34 @@ def install_playwright_chromium(progress_callback=None):
 
     try:
         if getattr(sys, "frozen", False):
-            # PyInstaller frozen app — use playwright driver directly
-            from playwright._impl._driver import compute_driver_executable
-            driver = str(compute_driver_executable())
-            result = subprocess.run(
-                [driver, "install", "chromium"],
-                capture_output=True, text=True, timeout=600,
-            )
+            # PyInstaller frozen app — find the playwright driver executable
+            # Try multiple approaches to locate the driver
+            driver = None
+            try:
+                from playwright._impl._driver import compute_driver_executable
+                driver = str(compute_driver_executable())
+            except Exception:
+                pass
+
+            if not driver:
+                # Fallback: look for playwright CLI in PATH
+                import shutil
+                for name in ("playwright.cmd", "playwright"):
+                    found = shutil.which(name)
+                    if found:
+                        driver = found
+                        break
+
+            if driver:
+                result = subprocess.run(
+                    [driver, "install", "chromium"],
+                    capture_output=True, text=True, timeout=600,
+                )
+            else:
+                log.error("Cannot find Playwright driver. Install Chromium manually: playwright install chromium")
+                if progress_callback:
+                    progress_callback("Playwright driver not found — install Chromium manually")
+                return False
         else:
             result = subprocess.run(
                 [sys.executable, "-m", "playwright", "install", "chromium"],
