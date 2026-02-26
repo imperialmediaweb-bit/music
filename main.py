@@ -369,15 +369,17 @@ def cmd_download(args):
 def cmd_run(args):
     """Run full pipeline N times (generate music + merge + process + upload).
 
-    Default: 1 clip. Each clip = 3 generations (6 MP3s) → merge → thumbnail → video → YouTube + TikTok.
+    Default: 1 clip. Each clip = 1 generation (2 MP3s) → merge → thumbnail → video → YouTube + TikTok.
     Use -n to create more clips in one run.
     Use --platform to choose: aimusicfactory, suno, udio
     Use --songs to choose how many songs per clip: 2, 4, 6, 8
+    Use --gens to control how many generations per clip (each = 2 MP3s).
     """
     count = min(args.count, 8)
     platform = args.platform or MUSIC_PLATFORM
     songs = args.songs or SONGS_PER_CLIP
-    log.info(f"Running full pipeline for {count} clip(s) on {platform} ({songs} songs each)...")
+    gen_count = args.gens
+    log.info(f"Running full pipeline for {count} clip(s) on {platform} ({songs} songs each, {gen_count} gen(s))...")
 
     total_errors = 0
     for i in range(1, count + 1):
@@ -385,7 +387,7 @@ def cmd_run(args):
         log.info(f"CLIP {i}/{count}")
         log.info(f"{'#' * 60}")
         try:
-            result = _run_full_pipeline(platform=platform, songs=songs)
+            result = _run_full_pipeline(gen_count=gen_count, platform=platform, songs=songs)
             if result["errors"]:
                 total_errors += 1
                 log.warning(f"Clip {i} had errors: {result['errors']}")
@@ -666,6 +668,10 @@ def main():
     run_parser.add_argument(
         "--songs", type=int, choices=[2, 4, 6, 8], default=None,
         help="Number of songs per clip to generate and merge (default: from .env or 2)",
+    )
+    run_parser.add_argument(
+        "-g", "--gens", type=int, default=1,
+        help="Generations per clip — each generation = 2 MP3s (default: 1)",
     )
     run_parser.set_defaults(func=cmd_run)
 
