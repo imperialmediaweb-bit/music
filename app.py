@@ -21,7 +21,7 @@ os.chdir(Path(__file__).parent)
 # Constants
 # ---------------------------------------------------------------------------
 APP_TITLE = "LUTH"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 ENV_FILE = Path(__file__).parent / ".env"
 BG_COLOR = "#1a1a2e"
 CARD_COLOR = "#16213e"
@@ -133,6 +133,10 @@ class MusicFactoryApp(tk.Tk):
         # Auto-install missing dependencies on first run, then refresh status
         self.after(500, self._auto_setup_check)
 
+        # Auto-check for updates after 3 seconds
+        self._pending_update_url = None
+        self.after(3000, self._auto_check_update)
+
     def _set_icon(self):
         try:
             ico_path = Path(__file__).parent / "assets" / "luth.ico"
@@ -207,6 +211,17 @@ class MusicFactoryApp(tk.Tk):
         ttk.Label(hdr, text="LUTH", style="Header.TLabel").pack(side="left")
         ttk.Label(hdr, text=f"v{APP_VERSION}", style="Dim.TLabel").pack(side="left", padx=(10, 0))
         ttk.Label(hdr, text="Music Automation Pipeline", style="Dim.TLabel").pack(side="left", padx=(10, 0))
+
+        # Update button (right side of header)
+        self.update_frame = ttk.Frame(hdr)
+        self.update_frame.pack(side="right")
+        self.btn_update = ttk.Button(
+            self.update_frame, text="Check for Updates",
+            style="Secondary.TButton", command=self._on_check_update,
+        )
+        self.btn_update.pack(side="right")
+        self.update_label = ttk.Label(self.update_frame, text="", style="Dim.TLabel")
+        self.update_label.pack(side="right", padx=(0, 8))
 
     # ------------------------------------------------------------------
     # Notebook (tabs)
@@ -1033,6 +1048,120 @@ class MusicFactoryApp(tk.Tk):
                 save_mode="cookies", label="TikTok")
 
         self._run_in_thread(task, "Logging into TikTok...")
+
+    # ------------------------------------------------------------------
+    # Update actions
+    # ------------------------------------------------------------------
+    def _auto_check_update(self):
+        """Silently check for updates in the background on startup."""
+        def check():
+            try:
+                from modules.updater import check_for_update
+                has_update, latest, url = check_for_update(APP_VERSION)
+                if has_update:
+                    self._pending_update_url = url
+                    self.after(0, lambda: self._show_update_available(latest))
+            except Exception:
+                pass
+
+        threading.Thread(target=check, daemon=True).start()
+
+    def _show_update_available(self, latest_version: str):
+        """Show update notification in the header."""
+        self.update_label.config(
+            text=f"v{latest_version} available!",
+            foreground=SUCCESS_COLOR,
+        )
+        self.btn_update.config(text="Update Now", style="Accent.TButton")
+
+    def _on_check_update(self):
+        """Manual check for updates / apply update."""
+        if self._pending_update_url:
+            # We already know there's an update — apply it
+            self._apply_update()
+            return
+
+        # Check for update
+        self.btn_update.config(state="disabled")
+        self.update_label.config(text="Checking...", foreground=TEXT_DIM)
+
+        def check():
+            try:
+                from modules.updater import check_for_update
+                has_update, latest, url = check_for_update(APP_VERSION)
+                if has_update:
+                    self._pending_update_url = url
+                    self.after(0, lambda: self._show_update_available(latest))
+                else:
+                    self.after(0, lambda: self.update_label.config(
+                        text="Up to date!", foreground=SUCCESS_COLOR))
+                    self.after(5000, lambda: self.update_label.config(text=""))
+            except Exception as e:
+                self.after(0, lambda: self.update_label.config(
+                    text="Check failed", foreground=ERROR_COLOR))
+            finally:
+                self.after(0, lambda: self.btn_update.config(state="normal"))
+
+        threading.Thread(target=check, daemon=True).start()
+
+    def _apply_update(self):
+        """Download and apply the update, then prompt to restart."""
+        if self.running:
+            messagebox.showwarning("Busy", "Stop the pipeline before updating.")
+            return
+
+        confirm = messagebox.askyesno(
+            "Update LUTH",
+            "A new version is available.\n\n"
+            "This will update the application files.\n"
+            "Your settings, cookies, and output files will be preserved.\n\n"
+            "Continue?",
+        )
+        if not confirm:
+            return
+
+        self.btn_update.config(state="disabled")
+        self.update_label.config(text="Updating...", foreground=WARNING_COLOR)
+
+        def do_update():
+            from modules.updater import download_and_apply_update
+
+            def on_progress(msg):
+                self.after(0, lambda m=msg: self.update_label.config(text=m))
+                _log_queue.put(f"[UPDATE] {msg}")
+
+            success = download_and_apply_update(self._pending_update_url, on_progress)
+
+            if success:
+                self.after(0, self._on_update_complete)
+            else:
+                self.after(0, lambda: self.update_label.config(
+                    text="Update failed!", foreground=ERROR_COLOR))
+                self.after(0, lambda: self.btn_update.config(state="normal"))
+
+        threading.Thread(target=do_update, daemon=True).start()
+
+    def _on_update_complete(self):
+        """Prompt user to restart after successful update."""
+        self.update_label.config(text="Updated!", foreground=SUCCESS_COLOR)
+        self._pending_update_url = None
+        _log_queue.put("[UPDATE] Update applied successfully! Restart to use the new version.")
+
+        restart = messagebox.askyesno(
+            "Update Complete",
+            "LUTH has been updated successfully!\n\n"
+            "Restart now to use the new version?",
+        )
+        if restart:
+            self._restart_app()
+        else:
+            self.btn_update.config(text="Restart to Apply", style="Accent.TButton",
+                                    state="normal", command=self._restart_app)
+
+    def _restart_app(self):
+        """Restart the application."""
+        python = sys.executable
+        os.execl(python, python, *sys.argv)
 
     # ------------------------------------------------------------------
     # Schedule actions

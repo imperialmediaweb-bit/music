@@ -7,7 +7,7 @@
 ; ============================================================
 
 #define MyAppName "LUTH"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "LUTH Music"
 #define MyAppURL "https://github.com/luth-music"
 #define MyAppExeName "LUTH.vbs"
