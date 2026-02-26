@@ -426,57 +426,64 @@ def cmd_reupload(args):
         log.info("Done!")
 
 
-def cmd_setup_schedule(args):
-    """Set up OS-level scheduled tasks (Windows Task Scheduler / crontab).
+def cmd_autostart(args):
+    """Set up Windows Task Scheduler to auto-start the APScheduler on user login.
 
-    This is the RECOMMENDED way to schedule the pipeline — it runs
-    automatically in the background without needing PowerShell or
-    any terminal to stay open.
-
-    Default schedule:
-      09:50 — 1 clip
-      14:00 — 1 clip
-      18:00 — 1 clip
-      20:00 — 1 clip
-
-    On Windows: creates Task Scheduler entries (visible in taskschd.msc)
-    On Linux/macOS: creates crontab entries (visible with crontab -l)
+    Creates ONE task that runs 'python main.py schedule' when the user logs in.
+    This way, the scheduler starts automatically even after a reboot — no need
+    to manually open PowerShell.
     """
-    from modules.os_scheduler import setup_schedule, list_schedule
+    import platform as plat
+    import subprocess
 
-    # Default schedule slots: (hour, minute, gen_count)
-    # Each generation = 1 card = 2 MP3s. All MP3s merge into one clip.
-    DEFAULT_SLOTS = [
-        (9,  50, 1),   # 09:50 — 1 card  → 2 MP3s  → 1 clip
-        (14, 0,  2),   # 14:00 — 2 cards → 4 MP3s  → 1 clip
-        (18, 0,  3),   # 18:00 — 3 cards → 6 MP3s  → 1 clip
-        (20, 0,  4),   # 20:00 — 4 cards → 8 MP3s  → 1 clip
-    ]
+    if plat.system() != "Windows":
+        log.error("Autostart is only supported on Windows (Task Scheduler)")
+        log.info("On Linux/macOS, use crontab or systemd instead.")
+        sys.exit(1)
 
-    if args.list:
-        list_schedule()
-        return
+    task_name = "MusicPipelineScheduler"
+    python = sys.executable
+    project_dir = str(Path(__file__).parent.resolve())
 
     if args.remove:
-        setup_schedule(DEFAULT_SLOTS, remove=True)
+        result = subprocess.run(
+            ["schtasks", "/Delete", "/TN", task_name, "/F"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            log.info(f"Removed autostart task: {task_name}")
+        else:
+            log.info("No autostart task found to remove")
         return
 
-    if args.hours:
-        # Parse "9:40,14,18,20" format (minute defaults to 0)
-        slots = []
-        for h in args.hours.split(","):
-            if ":" in h:
-                hour, minute = h.split(":")
-                slots.append((int(hour), int(minute), 1))
-            else:
-                slots.append((int(h), 0, 1))
-    else:
-        clips_per_day = args.clips or len(DEFAULT_SLOTS)
-        slots = DEFAULT_SLOTS[:clips_per_day]
+    # Remove old task if exists
+    subprocess.run(
+        ["schtasks", "/Delete", "/TN", task_name, "/F"],
+        capture_output=True, text=True,
+    )
 
-    schedule_desc = ", ".join(f"{h}:{m:02d}" for h, m, _ in slots)
-    log.info(f"Setting up {len(slots)} scheduled tasks: {schedule_desc}")
-    setup_schedule(slots)
+    # Create task that runs on user login
+    cmd = f'"{python}" main.py schedule'
+    result = subprocess.run(
+        [
+            "schtasks", "/Create",
+            "/TN", task_name,
+            "/TR", f'cmd /c "cd /d {project_dir} && {cmd}"',
+            "/SC", "ONLOGON",
+            "/F",
+        ],
+        capture_output=True, text=True,
+    )
+
+    if result.returncode == 0:
+        log.info(f"Autostart task created: {task_name}")
+        log.info("The scheduler will now start automatically when you log in.")
+        log.info("")
+        log.info("To verify: open Task Scheduler (taskschd.msc)")
+        log.info("To remove: python main.py autostart --remove")
+    else:
+        log.error(f"Failed to create autostart task: {result.stderr}")
+        log.info("Try running as Administrator (right-click → Run as administrator)")
 
 
 def cmd_schedule(args):
@@ -690,28 +697,16 @@ def main():
     )
     sched_parser.set_defaults(func=cmd_schedule)
 
-    # setup-schedule - OS-level scheduling (Task Scheduler / crontab)
-    setup_sched_parser = subparsers.add_parser(
-        "setup-schedule",
-        help="Set up OS scheduled tasks (no PowerShell needed!)",
+    # autostart - start scheduler automatically on Windows login
+    autostart_parser = subparsers.add_parser(
+        "autostart",
+        help="Auto-start the scheduler on Windows login (Task Scheduler)",
     )
-    setup_sched_parser.add_argument(
-        "--clips", type=int, default=None,
-        help=f"Clips per day (default: {DEFAULT_CLIPS_PER_DAY})",
-    )
-    setup_sched_parser.add_argument(
-        "--hours", type=str, default=None,
-        help='Custom hours, comma-separated (e.g. "9,14,18,20")',
-    )
-    setup_sched_parser.add_argument(
+    autostart_parser.add_argument(
         "--remove", action="store_true",
-        help="Remove all scheduled pipeline tasks",
+        help="Remove the autostart task",
     )
-    setup_sched_parser.add_argument(
-        "--list", action="store_true",
-        help="List current scheduled tasks",
-    )
-    setup_sched_parser.set_defaults(func=cmd_setup_schedule)
+    autostart_parser.set_defaults(func=cmd_autostart)
 
     args = parser.parse_args()
     args.func(args)
