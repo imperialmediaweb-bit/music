@@ -21,7 +21,7 @@ os.chdir(Path(__file__).parent)
 # Constants
 # ---------------------------------------------------------------------------
 APP_TITLE = "LUTH"
-APP_VERSION = "1.1.0"
+APP_VERSION = "2.0.0"
 ENV_FILE = Path(__file__).parent / ".env"
 BG_COLOR = "#1a1a2e"
 CARD_COLOR = "#16213e"
