@@ -8,7 +8,7 @@ from pathlib import Path
 
 from config import (
     SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE,
-    SUNO_STATE_FILE, UDIO_STATE_FILE, MUSIC_PLATFORM, SONGS_PER_CLIP,
+    SUNO_STATE_FILE, UDIO_STATE_FILE, TUNECORE_STATE_FILE, MUSIC_PLATFORM, SONGS_PER_CLIP,
 )
 from utils.logger import log
 
@@ -211,6 +211,47 @@ def cmd_tiktok_login(args):
         save_cookies(context, cookie_file)
         log.info(f"TikTok cookies saved to: {cookie_file}")
         log.info("You can now run 'python main.py run' and TikTok uploads will work!")
+
+        browser.close()
+
+
+def cmd_tunecore_login(args):
+    """Open browser to log into TuneCore and save session state.
+
+    These cookies are needed for automated single/album uploads to TuneCore.
+    """
+    from playwright.sync_api import sync_playwright
+
+    state_file = TUNECORE_STATE_FILE
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info("Opening Chrome browser for TuneCore login...")
+    log.info("Log in with your TuneCore account, then come back here.")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+        )
+        page = context.new_page()
+        page.goto("https://www.tunecore.com/login", wait_until="domcontentloaded", timeout=60_000)
+
+        log.info("=" * 60)
+        log.info("Browser is open. Please:")
+        log.info("  1. Log into your TuneCore account")
+        log.info("  2. Wait until you see the TuneCore dashboard")
+        log.info("  3. Come back here and press ENTER")
+        log.info("=" * 60)
+
+        input("\n>>> Press ENTER here after you've logged in... ")
+
+        context.storage_state(path=str(state_file))
+        log.info(f"TuneCore session saved to: {state_file}")
+        log.info("You can now run the pipeline and TuneCore uploads will work!")
 
         browser.close()
 
@@ -603,6 +644,13 @@ def main():
         help="Log into TikTok and save cookies for automated uploads",
     )
     tiktok_login_parser.set_defaults(func=cmd_tiktok_login)
+
+    # tunecore-login - save TuneCore session state
+    tunecore_login_parser = subparsers.add_parser(
+        "tunecore-login",
+        help="Log into TuneCore and save session for automated uploads",
+    )
+    tunecore_login_parser.set_defaults(func=cmd_tunecore_login)
 
     # suno-login - save Suno session state
     suno_login_parser = subparsers.add_parser(

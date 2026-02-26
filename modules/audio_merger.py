@@ -21,7 +21,16 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
 
     if len(mp3_files) == 1:
         log.info("Only 1 MP3 file, no merging needed")
-        return mp3_files[0]
+        # Still export WAV for TuneCore distribution
+        single = mp3_files[0]
+        wav_path = OUTPUT_DIR / f"{single.stem}.wav"
+        if not wav_path.exists():
+            log.info(f"Exporting WAV for TuneCore: {wav_path}")
+            clip = AudioFileClip(str(single))
+            clip.write_audiofile(str(wav_path), codec="pcm_s16le", logger=None)
+            clip.close()
+            log.info(f"WAV saved: {wav_path}")
+        return single
 
     log.info(f"Merging {len(mp3_files)} MP3 files back to back (no gaps)...")
 
@@ -45,6 +54,12 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
 
     log.info(f"Exporting merged audio to: {output_path}")
     merged.write_audiofile(str(output_path), logger=None)
+
+    # Also export WAV for TuneCore distribution
+    wav_path = output_path.with_suffix(".wav")
+    log.info(f"Exporting WAV for TuneCore: {wav_path}")
+    merged.write_audiofile(str(wav_path), codec="pcm_s16le", logger=None)
+    log.info(f"WAV saved: {wav_path}")
 
     # Clean up
     for clip in clips:
