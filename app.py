@@ -377,6 +377,33 @@ class MusicFactoryApp(tk.Tk):
         ttk.Button(out_row, text="Browse", style="Secondary.TButton",
                     command=self._browse_output).pack(side="left", padx=(6, 0))
 
+        # Music Genre
+        card4 = self._make_card(scroll_frame, "Music Genre")
+        ttk.Label(card4, text="Genre used for concept generation (e.g. Afro House, Lo-Fi, Trap, EDM, Jazz)",
+                   style="Card.TLabel").pack(anchor="w")
+        self.entry_genre = ttk.Entry(card4, width=40)
+        self.entry_genre.pack(fill="x", pady=(6, 0))
+
+        # Music Style Prompt
+        card5 = self._make_card(scroll_frame, "Music Style Prompt")
+        ttk.Label(card5, text="Describes the sound, instruments, tempo, mood for AI music generation.\n"
+                   "Leave empty to use default for your genre.",
+                   style="Card.TLabel").pack(anchor="w")
+        self.text_music_prompt = tk.Text(card5, height=6, wrap="word",
+                                          bg="#1e1e3a", fg=TEXT_COLOR, insertbackground=TEXT_COLOR,
+                                          font=FONT_MONO, relief="flat", bd=1)
+        self.text_music_prompt.pack(fill="x", pady=(6, 0))
+
+        # Thumbnail Style Prompt
+        card6 = self._make_card(scroll_frame, "Thumbnail Style Prompt")
+        ttk.Label(card6, text="Describes the visual style for DALL-E thumbnail generation.\n"
+                   "Leave empty to use default (African tribal mask).",
+                   style="Card.TLabel").pack(anchor="w")
+        self.text_thumbnail_prompt = tk.Text(card6, height=6, wrap="word",
+                                              bg="#1e1e3a", fg=TEXT_COLOR, insertbackground=TEXT_COLOR,
+                                              font=FONT_MONO, relief="flat", bd=1)
+        self.text_thumbnail_prompt.pack(fill="x", pady=(6, 0))
+
         # Save button
         btn_frame = ttk.Frame(scroll_frame)
         btn_frame.pack(fill="x", pady=15, padx=10)
@@ -407,6 +434,13 @@ class MusicFactoryApp(tk.Tk):
             self.entry_openai.insert(0, api_key)
         self.headless_var.set(env.get("HEADLESS", "true").lower() == "true")
         self.entry_output_dir.insert(0, env.get("OUTPUT_DIR", "output"))
+        self.entry_genre.insert(0, env.get("MUSIC_GENRE", "Afro House"))
+        music_prompt = env.get("MUSIC_STYLE_PROMPT", "")
+        if music_prompt:
+            self.text_music_prompt.insert("1.0", music_prompt)
+        thumb_prompt = env.get("THUMBNAIL_STYLE_PROMPT", "")
+        if thumb_prompt:
+            self.text_thumbnail_prompt.insert("1.0", thumb_prompt)
 
     def _save_settings(self):
         env = read_env()
@@ -417,6 +451,13 @@ class MusicFactoryApp(tk.Tk):
         out_dir = self.entry_output_dir.get().strip()
         if out_dir:
             env["OUTPUT_DIR"] = out_dir
+        genre = self.entry_genre.get().strip()
+        if genre:
+            env["MUSIC_GENRE"] = genre
+        music_prompt = self.text_music_prompt.get("1.0", "end-1c").strip()
+        env["MUSIC_STYLE_PROMPT"] = music_prompt
+        thumb_prompt = self.text_thumbnail_prompt.get("1.0", "end-1c").strip()
+        env["THUMBNAIL_STYLE_PROMPT"] = thumb_prompt
         write_env(env)
         # Reload dotenv
         try:
@@ -798,6 +839,11 @@ class MusicFactoryApp(tk.Tk):
         count = self.clip_count.get()
         platform = self.platform_var.get()
         songs = self.songs_var.get()
+        # Read genre/prompt settings
+        env = self._load_env()
+        genre = env.get("MUSIC_GENRE", "Afro House")
+        music_style = env.get("MUSIC_STYLE_PROMPT", "")
+        thumbnail_style = env.get("THUMBNAIL_STYLE_PROMPT", "")
 
         def task():
             from main import _run_full_pipeline
@@ -806,9 +852,11 @@ class MusicFactoryApp(tk.Tk):
                     _log_queue.put("Stopped by user.")
                     break
                 _log_queue.put(f"{'#' * 50}")
-                _log_queue.put(f"CLIP {i + 1}/{count} | Platform: {platform} | Songs: {songs}")
+                _log_queue.put(f"CLIP {i + 1}/{count} | {genre} | {platform} | {songs} songs")
                 _log_queue.put(f"{'#' * 50}")
-                _run_full_pipeline(platform=platform, songs=songs)
+                _run_full_pipeline(platform=platform, songs=songs,
+                                   genre=genre, music_style=music_style,
+                                   thumbnail_style=thumbnail_style)
 
         self._run_in_thread(task, f"Running {platform} ({count} clip{'s' if count > 1 else ''}, {songs} songs)...")
 
