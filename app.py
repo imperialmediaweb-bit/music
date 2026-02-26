@@ -436,6 +436,10 @@ class MusicFactoryApp(tk.Tk):
         ttk.Label(card, text=title, font=FONT_BOLD, style="Card.TLabel").pack(anchor="w", pady=(0, 6))
         return card
 
+    def _load_env(self) -> dict:
+        """Load .env file settings (wrapper around module-level read_env)."""
+        return read_env()
+
     def _browse_output(self):
         d = filedialog.askdirectory()
         if d:
