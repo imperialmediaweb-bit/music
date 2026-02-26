@@ -61,7 +61,7 @@ def setup_crontab(schedule_slots: list[tuple[int, int, int]], remove: bool = Fal
 
     # Add new entries
     for hour, minute, gen_count in schedule_slots:
-        cmd = f"cd {project_dir} && {python} main.py run -n 1"
+        cmd = f"cd {project_dir} && {python} main.py run -n 1 --gens {gen_count}"
         cron_line = f"{minute} {hour} * * * {cmd} >> {project_dir}/output/cron.log 2>&1 {marker}"
         lines.append(cron_line)
 
@@ -124,7 +124,7 @@ def setup_windows_tasks(schedule_slots: list[tuple[int, int, int]], remove: bool
         )
 
         # Create the scheduled task
-        cmd = f'"{python}" main.py run -n 1'
+        cmd = f'"{python}" main.py run -n 1 --gens {gen_count}'
         result = subprocess.run(
             [
                 "schtasks", "/Create",
