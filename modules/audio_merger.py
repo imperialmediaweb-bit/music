@@ -26,7 +26,16 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
 
     if len(mp3_files) == 1:
         log.info("Only 1 MP3 file, no merging needed")
-        return mp3_files[0]
+        # Still export WAV for TuneCore distribution
+        single = mp3_files[0]
+        wav_path = OUTPUT_DIR / f"{single.stem}.wav"
+        if not wav_path.exists():
+            log.info(f"Exporting WAV for TuneCore: {wav_path}")
+            clip = AudioFileClip(str(single))
+            clip.write_audiofile(str(wav_path), codec="pcm_s16le", logger=None)
+            clip.close()
+            log.info(f"WAV saved: {wav_path}")
+        return single
 
     from utils.auto_setup import ensure_path
     ensure_path()
@@ -83,6 +92,19 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
             log.info(f"Merged duration: {mins}:{secs:02d} ({duration:.1f} seconds)")
         except Exception:
             pass
+
+        # Also export WAV for TuneCore distribution
+        wav_path = output_path.with_suffix(".wav")
+        log.info(f"Exporting WAV for TuneCore: {wav_path}")
+        wav_result = subprocess.run(
+            ["ffmpeg", "-y", "-i", str(output_path),
+             "-acodec", "pcm_s16le", str(wav_path)],
+            capture_output=True, text=True, timeout=600,
+        )
+        if wav_result.returncode == 0:
+            log.info(f"WAV saved: {wav_path}")
+        else:
+            log.warning(f"WAV export failed: {wav_result.stderr[-200:]}")
 
         log.info(f"Merged MP3 saved: {output_path}")
         return output_path

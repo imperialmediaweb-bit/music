@@ -5,10 +5,11 @@ from pathlib import Path
 from utils.logger import log
 from utils.auto_setup import ensure_path
 from modules.concept_generator import generate_concept
-from modules.thumbnail_generator import generate_thumbnail
+from modules.thumbnail_generator import generate_thumbnail, generate_cover_art
 from modules.video_creator import create_video
 from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
+from modules.tunecore_uploader import upload_to_tunecore
 
 
 def reupload_track(track_name: str, only: str | None = None) -> dict:
@@ -137,6 +138,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     log.info(f"Track: {track_name}")
     log.info(f"YouTube: {result.get('youtube_url', 'N/A')}")
     log.info(f"TikTok: {result.get('tiktok_url', 'N/A')}")
+    log.info(f"TuneCore: {result.get('tunecore_url', 'N/A')}")
 
     return result
 
@@ -164,6 +166,7 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         "video_path": None,
         "youtube_url": None,
         "tiktok_url": None,
+        "tunecore_url": None,
         "errors": [],
     }
 
@@ -270,6 +273,41 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         log.error(f"TikTok upload failed: {e}")
         result["errors"].append(f"tiktok: {e}")
 
+    # Step 7: Generate 1600x1600 cover art for TuneCore
+    cover_path = None
+    try:
+        log.info("=" * 60)
+        log.info("STEP 7: Generating 1600x1600 cover art for TuneCore...")
+        cover_path = generate_cover_art(concept.thumbnail_prompt, concept.track_name)
+        result["cover_path"] = str(cover_path)
+        log.info(f"Cover art: {cover_path}")
+    except Exception as e:
+        log.error(f"Cover art generation failed: {e}")
+        result["errors"].append(f"cover_art: {e}")
+
+    # Step 8: Upload to TuneCore
+    wav_path = mp3_path.with_suffix(".wav")
+    if cover_path and wav_path.exists():
+        try:
+            log.info("=" * 60)
+            log.info("STEP 8: Uploading to TuneCore...")
+            tunecore_url = upload_to_tunecore(wav_path, cover_path, concept)
+            result["tunecore_url"] = tunecore_url
+            if tunecore_url:
+                log.info(f"TuneCore: {tunecore_url}")
+            else:
+                log.error("TuneCore upload returned None — run: python main.py tunecore-login")
+                result["errors"].append("tunecore: upload returned None (session expired)")
+        except Exception as e:
+            log.error(f"TuneCore upload failed: {e}")
+            result["errors"].append(f"tunecore: {e}")
+    else:
+        if not wav_path.exists():
+            log.warning(f"WAV file not found ({wav_path}) — skipping TuneCore")
+            result["errors"].append(f"tunecore: WAV not found at {wav_path}")
+        if not cover_path:
+            log.warning("Cover art not generated — skipping TuneCore")
+
     # Summary
     log.info("=" * 60)
     if result["errors"]:
@@ -280,5 +318,6 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
     log.info(f"Duration: {result['duration']}")
     log.info(f"YouTube: {result.get('youtube_url', 'N/A')}")
     log.info(f"TikTok: {result.get('tiktok_url', 'N/A')}")
+    log.info(f"TuneCore: {result.get('tunecore_url', 'N/A')}")
 
     return result
