@@ -63,7 +63,18 @@ class GUILogHandler:
 # ---------------------------------------------------------------------------
 # Helper: read/write .env
 # ---------------------------------------------------------------------------
+ENV_EXAMPLE = Path(__file__).parent / ".env.example"
+
+
+def _ensure_env_file():
+    """Create .env from .env.example on first run so settings persist."""
+    if not ENV_FILE.exists() and ENV_EXAMPLE.exists():
+        import shutil
+        shutil.copy2(ENV_EXAMPLE, ENV_FILE)
+
+
 def read_env() -> dict:
+    _ensure_env_file()
     env = {}
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
@@ -136,6 +147,9 @@ class MusicFactoryApp(tk.Tk):
         # Auto-check for updates after 3 seconds
         self._pending_update_url = None
         self.after(3000, self._auto_check_update)
+
+        # Auto-save settings when user closes the window
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _set_icon(self):
         try:
@@ -487,6 +501,14 @@ class MusicFactoryApp(tk.Tk):
         self.settings_status.config(text="Saved!", foreground=SUCCESS_COLOR)
         self.after(3000, lambda: self.settings_status.config(text=""))
         self._refresh_status()
+
+    def _on_close(self):
+        """Auto-save settings on exit so nothing is lost."""
+        try:
+            self._save_settings()
+        except Exception:
+            pass
+        self.destroy()
 
     # ------------------------------------------------------------------
     # Tab: Logins
