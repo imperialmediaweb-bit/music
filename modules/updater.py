@@ -35,7 +35,10 @@ PRESERVE = {
     ".git",
 }
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+if getattr(sys, "frozen", False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def check_for_update(current_version: str):
@@ -57,8 +60,20 @@ def check_for_update(current_version: str):
             return False, current_version, None
 
         if pkg_version.parse(latest) > pkg_version.parse(current_version):
-            # Prefer the zipball URL (source archive)
-            download_url = data.get("zipball_url", "")
+            download_url = None
+
+            # For frozen apps, prefer a pre-built release asset
+            if getattr(sys, "frozen", False):
+                for asset in data.get("assets", []):
+                    name = asset.get("name", "").lower()
+                    if name.endswith(".zip"):
+                        download_url = asset.get("browser_download_url")
+                        break
+
+            # Fallback to source zipball
+            if not download_url:
+                download_url = data.get("zipball_url", "")
+
             return True, latest, download_url
 
         return False, current_version, None

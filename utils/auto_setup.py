@@ -123,6 +123,60 @@ def download_ffmpeg(progress_callback=None):
         return False
 
 
+def _find_playwright_cli():
+    """Locate the Playwright CLI executable.
+
+    Returns the path string, or None if not found.
+    Works in both frozen (PyInstaller) and normal (source) mode.
+    """
+    candidates = []
+
+    if getattr(sys, "frozen", False):
+        # 1) Playwright's own driver locator
+        try:
+            from playwright._impl._driver import compute_driver_executable
+            candidates.append(str(compute_driver_executable()))
+        except Exception:
+            pass
+
+        # 2) sys._MEIPASS (PyInstaller internal data directory)
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            driver_dir = Path(meipass) / "playwright" / "driver"
+            cli = "playwright.cmd" if sys.platform == "win32" else "playwright.sh"
+            candidates.append(str(driver_dir / cli))
+
+        # 3) Next to the exe (one-dir mode, various PyInstaller layouts)
+        exe_dir = Path(sys.executable).parent
+        for sub in ("_internal", "."):
+            driver_dir = exe_dir / sub / "playwright" / "driver"
+            cli = "playwright.cmd" if sys.platform == "win32" else "playwright.sh"
+            candidates.append(str(driver_dir / cli))
+
+    # 4) Search PATH (works for both frozen and non-frozen)
+    search = ("playwright.cmd", "playwright") if sys.platform == "win32" else ("playwright",)
+    for name in search:
+        found = shutil.which(name)
+        if found:
+            candidates.append(found)
+
+    # Return first candidate that actually exists on disk
+    for c in candidates:
+        if c and Path(c).exists():
+            return c
+    return None
+
+
+def _python_executables():
+    """Yield Python executable paths to try, in order of preference."""
+    if sys.executable and Path(sys.executable).exists():
+        yield sys.executable
+    for name in ("python", "python3", "py"):
+        found = shutil.which(name)
+        if found:
+            yield found
+
+
 def install_playwright_chromium(progress_callback=None):
     """Install Playwright Chromium browser."""
     if is_chromium_installed():
@@ -134,40 +188,56 @@ def install_playwright_chromium(progress_callback=None):
         progress_callback("Installing Playwright Chromium (~280 MB)...")
 
     try:
+        result = None
+
         if getattr(sys, "frozen", False):
             # PyInstaller frozen app — find the playwright driver executable
-            # Try multiple approaches to locate the driver
-            driver = None
-            try:
-                from playwright._impl._driver import compute_driver_executable
-                driver = str(compute_driver_executable())
-            except Exception:
-                pass
-
-            if not driver:
-                # Fallback: look for playwright CLI in PATH
-                import shutil
-                for name in ("playwright.cmd", "playwright"):
-                    found = shutil.which(name)
-                    if found:
-                        driver = found
-                        break
-
+            driver = _find_playwright_cli()
             if driver:
+                log.info(f"Using Playwright CLI: {driver}")
                 result = subprocess.run(
                     [driver, "install", "chromium"],
                     capture_output=True, text=True, timeout=600,
                 )
             else:
-                log.error("Cannot find Playwright driver. Install Chromium manually: playwright install chromium")
+                log.error(
+                    "Cannot find Playwright driver in frozen app. "
+                    "Install Chromium manually: playwright install chromium"
+                )
                 if progress_callback:
-                    progress_callback("Playwright driver not found — install Chromium manually")
+                    progress_callback("Playwright driver not found — install manually")
                 return False
         else:
-            result = subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "chromium"],
-                capture_output=True, text=True, timeout=600,
-            )
+            # Non-frozen: try Python -m playwright, with fallbacks
+            for exe in _python_executables():
+                try:
+                    log.info(f"Trying: {exe} -m playwright install chromium")
+                    result = subprocess.run(
+                        [exe, "-m", "playwright", "install", "chromium"],
+                        capture_output=True, text=True, timeout=600,
+                    )
+                    break
+                except FileNotFoundError:
+                    log.warning(f"Python executable not found: {exe}")
+                    continue
+
+            if result is None:
+                # Fallback: try playwright CLI directly from PATH
+                driver = _find_playwright_cli()
+                if driver:
+                    log.info(f"Using Playwright CLI fallback: {driver}")
+                    result = subprocess.run(
+                        [driver, "install", "chromium"],
+                        capture_output=True, text=True, timeout=600,
+                    )
+                else:
+                    log.error(
+                        f"Cannot find Python ({sys.executable}) or Playwright CLI. "
+                        "Install Chromium manually: python -m playwright install chromium"
+                    )
+                    if progress_callback:
+                        progress_callback("Python/Playwright not found — install manually")
+                    return False
 
         if result.returncode == 0:
             log.info("Playwright Chromium installed successfully.")
@@ -175,7 +245,7 @@ def install_playwright_chromium(progress_callback=None):
                 progress_callback("Playwright Chromium OK")
             return True
         else:
-            log.error(f"Playwright install failed: {result.stderr}")
+            log.error(f"Playwright install failed (exit {result.returncode}): {result.stderr}")
             if progress_callback:
                 progress_callback(f"Playwright install failed")
             return False
