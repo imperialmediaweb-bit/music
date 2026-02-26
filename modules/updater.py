@@ -1,7 +1,10 @@
 """
 LUTH Auto-Updater
-Checks GitHub Releases for a new version, downloads only the changed source
-files, and applies the update in-place — no full reinstall needed.
+Checks GitHub for new versions in two ways:
+  1. GitHub Releases (formal versioned releases)
+  2. Latest commit on main branch (any push triggers update)
+
+Downloads the source zipball and applies the update in-place.
 """
 
 import io
@@ -11,6 +14,7 @@ import sys
 import shutil
 import zipfile
 import tempfile
+import subprocess
 import requests
 from pathlib import Path
 from packaging import version as pkg_version
@@ -19,7 +23,9 @@ from packaging import version as pkg_version
 # Configuration
 # ---------------------------------------------------------------------------
 GITHUB_REPO = "imperialmediaweb-bit/music"
-GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+GITHUB_API_COMMITS = f"https://api.github.com/repos/{GITHUB_REPO}/commits/main"
+GITHUB_ZIPBALL = f"https://api.github.com/repos/{GITHUB_REPO}/zipball/main"
 
 # Files and folders that must NEVER be overwritten during an update
 PRESERVE = {
@@ -42,46 +48,95 @@ if getattr(sys, "frozen", False):
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
 
+# File that stores the last applied commit SHA (for commit-based updates)
+_COMMIT_FILE = BASE_DIR / ".last_commit"
+
+
+def _get_current_commit() -> str | None:
+    """Get the current git commit SHA (from git or saved file)."""
+    # Try git first
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=5,
+            cwd=str(BASE_DIR),
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()[:12]
+    except Exception:
+        pass
+
+    # Fall back to saved commit file
+    if _COMMIT_FILE.exists():
+        return _COMMIT_FILE.read_text().strip()[:12]
+
+    return None
+
+
+def _save_commit(sha: str):
+    """Save the applied commit SHA."""
+    try:
+        _COMMIT_FILE.write_text(sha[:12])
+    except Exception:
+        pass
+
 
 def check_for_update(current_version: str):
-    """Check GitHub for a newer release.
+    """Check GitHub for a newer version.
+
+    Checks in two ways:
+      1. GitHub Releases — formal versioned releases (v2.1.0, etc.)
+      2. Latest commit on main — any code push (if no release found)
 
     Returns:
-        (has_update, latest_version, download_url) or (False, current_version, None)
+        (has_update, latest_info, download_url) or (False, current_version, None)
     """
+    headers = {"Accept": "application/vnd.github+json"}
+
+    # --- Method 1: Check formal releases ---
     try:
-        resp = requests.get(GITHUB_API, timeout=10, headers={"Accept": "application/vnd.github+json"})
-        if resp.status_code != 200:
-            return False, current_version, None
+        resp = requests.get(GITHUB_API_RELEASES, timeout=10, headers=headers)
+        if resp.status_code == 200:
+            data = resp.json()
+            tag = data.get("tag_name", "")
+            latest = re.sub(r"^v", "", tag)
 
-        data = resp.json()
-        tag = data.get("tag_name", "")
-        # Strip leading 'v' from tag (e.g. "v1.1.0" -> "1.1.0")
-        latest = re.sub(r"^v", "", tag)
-        if not latest:
-            return False, current_version, None
+            if latest and pkg_version.parse(latest) > pkg_version.parse(current_version):
+                download_url = None
 
-        if pkg_version.parse(latest) > pkg_version.parse(current_version):
-            download_url = None
+                # For frozen apps, prefer a pre-built release asset (.zip)
+                if getattr(sys, "frozen", False):
+                    for asset in data.get("assets", []):
+                        name = asset.get("name", "").lower()
+                        if name.endswith(".zip"):
+                            download_url = asset.get("browser_download_url")
+                            break
 
-            # For frozen apps, prefer a pre-built release asset
-            if getattr(sys, "frozen", False):
-                for asset in data.get("assets", []):
-                    name = asset.get("name", "").lower()
-                    if name.endswith(".zip"):
-                        download_url = asset.get("browser_download_url")
-                        break
+                # Fallback to source zipball
+                if not download_url:
+                    download_url = data.get("zipball_url", "")
 
-            # Fallback to source zipball
-            if not download_url:
-                download_url = data.get("zipball_url", "")
+                return True, f"v{latest}", download_url
+    except Exception:
+        pass
 
-            return True, latest, download_url
+    # --- Method 2: Check latest commit on main branch ---
+    try:
+        resp = requests.get(GITHUB_API_COMMITS, timeout=10, headers=headers)
+        if resp.status_code == 200:
+            data = resp.json()
+            remote_sha = data.get("sha", "")[:12]
+            local_sha = _get_current_commit()
 
-        return False, current_version, None
+            if remote_sha and remote_sha != local_sha:
+                # There are new commits — offer update
+                commit_msg = data.get("commit", {}).get("message", "").split("\n")[0][:60]
+                return True, f"new: {commit_msg}", GITHUB_ZIPBALL
 
     except Exception:
-        return False, current_version, None
+        pass
+
+    return False, current_version, None
 
 
 def download_and_apply_update(download_url: str, progress_callback=None):
@@ -122,6 +177,11 @@ def download_and_apply_update(download_url: str, progress_callback=None):
             # Find the common prefix (top-level folder)
             prefix = members[0].split("/")[0] + "/"
 
+            # Extract the commit SHA from the folder name (user-repo-SHA/)
+            folder_name = prefix.rstrip("/")
+            parts = folder_name.rsplit("-", 1)
+            commit_sha = parts[-1] if len(parts) > 1 else ""
+
             # Create a temporary directory for extraction
             tmp_dir = Path(tempfile.mkdtemp(prefix="luth_update_"))
 
@@ -153,12 +213,15 @@ def download_and_apply_update(download_url: str, progress_callback=None):
 
                 log(f"Updated {updated} files successfully!")
 
+                # Save the commit SHA so we know what version we're at
+                if commit_sha:
+                    _save_commit(commit_sha)
+
                 # Install any new dependencies from updated requirements.txt
                 req_file = BASE_DIR / "requirements.txt"
-                if req_file.exists():
+                if req_file.exists() and not getattr(sys, "frozen", False):
                     log("Installing updated dependencies...")
                     try:
-                        import subprocess
                         subprocess.run(
                             [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
                             capture_output=True, text=True, timeout=300,

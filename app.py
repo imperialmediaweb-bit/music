@@ -1073,7 +1073,7 @@ class MusicFactoryApp(tk.Tk):
     def _show_update_available(self, latest_version: str):
         """Show update notification in the header."""
         self.update_label.config(
-            text=f"v{latest_version} available!",
+            text=f"{latest_version} available!",
             foreground=SUCCESS_COLOR,
         )
         self.btn_update.config(text="Update Now", style="Accent.TButton")

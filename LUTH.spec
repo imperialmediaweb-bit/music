@@ -2,9 +2,11 @@
 """
 LUTH — PyInstaller spec file
 Builds a standalone Windows application (one-directory mode).
+Includes all Python dependencies, Playwright driver, and FFmpeg.
 """
 
 import os
+import shutil
 
 block_cipher = None
 ROOT = os.path.abspath('.')
@@ -13,10 +15,19 @@ ROOT = os.path.abspath('.')
 import playwright
 _pw_driver_dir = os.path.join(os.path.dirname(playwright.__file__), 'driver')
 
+# Bundle FFmpeg if found in bin/ or PATH
+_extra_binaries = []
+_ffmpeg = shutil.which('ffmpeg') or os.path.join(ROOT, 'bin', 'ffmpeg.exe')
+_ffprobe = shutil.which('ffprobe') or os.path.join(ROOT, 'bin', 'ffprobe.exe')
+if os.path.isfile(_ffmpeg):
+    _extra_binaries.append((_ffmpeg, 'bin'))
+if os.path.isfile(_ffprobe):
+    _extra_binaries.append((_ffprobe, 'bin'))
+
 a = Analysis(
     ['app.py'],
     pathex=[ROOT],
-    binaries=[],
+    binaries=_extra_binaries,
     datas=[
         ('assets/luth.ico', 'assets'),
         ('assets/luth_64.png', 'assets'),
@@ -25,6 +36,7 @@ a = Analysis(
         (_pw_driver_dir, 'playwright/driver'),
     ],
     hiddenimports=[
+        # App modules
         'modules',
         'modules.concept_generator',
         'modules.music_generator',
@@ -36,15 +48,42 @@ a = Analysis(
         'modules.tiktok_uploader',
         'modules.audio_merger',
         'modules.os_scheduler',
+        'modules.updater',
         'utils',
         'utils.logger',
         'utils.browser',
         'utils.auto_setup',
         'config',
         'pipeline',
+        # Playwright
         'playwright',
         'playwright.sync_api',
         'playwright._impl._driver',
+        # MoviePy / imageio
+        'moviepy',
+        'imageio',
+        'imageio_ffmpeg',
+        # OpenAI
+        'openai',
+        # Pillow
+        'PIL',
+        'PIL.Image',
+        'PIL.ImageDraw',
+        'PIL.ImageFont',
+        # Google API (YouTube upload)
+        'google.oauth2.credentials',
+        'google_auth_oauthlib.flow',
+        'google.auth.transport.requests',
+        'googleapiclient.discovery',
+        'googleapiclient.http',
+        # Other
+        'requests',
+        'dotenv',
+        'packaging',
+        'packaging.version',
+        'apscheduler',
+        'apscheduler.schedulers.background',
+        # Tkinter
         'tkinter',
         'tkinter.ttk',
         'tkinter.scrolledtext',
