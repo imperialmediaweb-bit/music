@@ -82,13 +82,12 @@ class TestGenerateConcept:
 
         assert concept.track_name == "Tikala"
         assert concept.genre == "Afro House"
-        assert concept.mood == "ritualistic, primal, powerful, transcendent"
+        assert concept.mood == "energetic, powerful, transcendent"
         assert len(concept.hashtags) > 0
         assert concept.thumbnail_prompt  # Should always be set
 
-    def test_mandatory_youtube_tags_always_present(self, openai_concept_response):
-        """Mandatory SEO tags should always be in youtube_tags, even if AI omits them."""
-        # AI returns only 2 tags
+    def test_youtube_tags_preserved_from_ai(self, openai_concept_response):
+        """AI-provided youtube_tags should be preserved as-is (deduplicated)."""
         openai_concept_response["youtube_tags"] = ["custom tag 1", "custom tag 2"]
 
         mock_message = MagicMock()
@@ -105,9 +104,6 @@ class TestGenerateConcept:
             concept = generate_concept()
 
         tag_lower = [t.lower() for t in concept.youtube_tags]
-        assert "afro house" in tag_lower
-        assert "deep house" in tag_lower
-        assert "tribal house" in tag_lower
         assert "custom tag 1" in tag_lower
         assert "custom tag 2" in tag_lower
 
