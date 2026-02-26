@@ -257,10 +257,73 @@ def install_playwright_chromium(progress_callback=None):
         return False
 
 
+def _check_missing_packages():
+    """Check which required packages are not importable."""
+    # Map pip package names to their Python import names
+    package_import_map = {
+        "imageio": "imageio",
+        "imageio-ffmpeg": "imageio_ffmpeg",
+        "moviepy": "moviepy",
+        "Pillow": "PIL",
+        "openai": "openai",
+        "playwright": "playwright",
+        "python-dotenv": "dotenv",
+        "apscheduler": "apscheduler",
+        "requests": "requests",
+        "google-api-python-client": "googleapiclient",
+        "google-auth-oauthlib": "google_auth_oauthlib",
+        "google-auth-httplib2": "google_auth_httplib2",
+        "packaging": "packaging",
+    }
+    missing = []
+    for pip_name, import_name in package_import_map.items():
+        try:
+            __import__(import_name)
+        except ImportError:
+            missing.append(pip_name)
+    return missing
+
+
+def install_missing_packages(progress_callback=None):
+    """Auto-install any missing Python packages from requirements.txt."""
+    missing = _check_missing_packages()
+    if not missing:
+        return True
+
+    log.info(f"Missing packages detected: {', '.join(missing)}")
+    if progress_callback:
+        progress_callback(f"Installing missing packages: {', '.join(missing)}...")
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install"] + missing,
+            capture_output=True, text=True, timeout=300,
+        )
+        if result.returncode == 0:
+            log.info(f"Successfully installed: {', '.join(missing)}")
+            if progress_callback:
+                progress_callback("Packages installed OK")
+            return True
+        else:
+            log.error(f"pip install failed: {result.stderr[-300:]}")
+            if progress_callback:
+                progress_callback(f"Package install failed — run install.bat")
+            return False
+    except Exception as e:
+        log.error(f"Package install error: {e}")
+        if progress_callback:
+            progress_callback(f"Package install error: {e}")
+        return False
+
+
 def auto_setup(progress_callback=None):
     """Run all first-time setup checks. Returns True if everything is OK."""
     ensure_path()
     all_ok = True
+
+    # Check and install missing Python packages
+    if not install_missing_packages(progress_callback):
+        all_ok = False
 
     if not is_ffmpeg_installed():
         if not download_ffmpeg(progress_callback):

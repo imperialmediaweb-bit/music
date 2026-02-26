@@ -29,8 +29,10 @@ PRESERVE = {
     "input",
     "venv",
     ".venv",
+    "bin",
     "__pycache__",
     "client_secrets.json",
+    "youtube_token.pickle",
     "pipeline.log",
     ".git",
 }
@@ -150,6 +152,21 @@ def download_and_apply_update(download_url: str, progress_callback=None):
                         updated += 1
 
                 log(f"Updated {updated} files successfully!")
+
+                # Install any new dependencies from updated requirements.txt
+                req_file = BASE_DIR / "requirements.txt"
+                if req_file.exists():
+                    log("Installing updated dependencies...")
+                    try:
+                        import subprocess
+                        subprocess.run(
+                            [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
+                            capture_output=True, text=True, timeout=300,
+                        )
+                        log("Dependencies updated!")
+                    except Exception:
+                        log("Could not auto-install dependencies — run install.bat")
+
                 return True
 
             finally:
