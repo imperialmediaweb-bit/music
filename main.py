@@ -32,13 +32,17 @@ def _get_music_generator(platform: str):
     return generate_music_batch
 
 
-def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = None):
+def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = None,
+                       genre: str = "", music_style: str = "", thumbnail_style: str = ""):
     """Full pipeline: generate music → merge → thumbnail → video → upload.
 
     Args:
         gen_count: Number of times to hit Generate (each gives 2 MP3s).
         platform: Music platform — "aimusicfactory", "suno", or "udio".
         songs: Total number of songs to generate (2, 4, 6, 8). Overrides gen_count.
+        genre: Music genre (e.g. "Afro House", "Lo-Fi"). Falls back to config.
+        music_style: Custom music style prompt. Falls back to config or default.
+        thumbnail_style: Custom thumbnail prompt. Falls back to config or default.
     """
     from modules.audio_merger import merge_mp3s
     from modules.concept_generator import generate_concept
@@ -52,8 +56,9 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
 
     # Step 1: Generate concept first (for the music prompt)
     log.info("=" * 60)
-    log.info("STEP 1: Generating Afro House concept...")
-    concept = generate_concept()
+    log.info(f"STEP 1: Generating {genre or 'music'} concept...")
+    concept = generate_concept(genre=genre, music_style=music_style,
+                               thumbnail_style=thumbnail_style)
     log.info(f"Track name: {concept.track_name}")
 
     # Step 2: Generate music

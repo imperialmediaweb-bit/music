@@ -32,6 +32,10 @@ if "%1"=="gui" (
     python main.py setup-schedule
 ) else if "%1"=="login" (
     python main.py login
+) else if "%1"=="suno-login" (
+    python main.py suno-login
+) else if "%1"=="udio-login" (
+    python main.py udio-login
 ) else if "%1"=="tiktok-login" (
     python main.py tiktok-login
 ) else if "%1"=="cli" (

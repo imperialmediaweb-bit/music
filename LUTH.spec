@@ -9,6 +9,10 @@ import os
 block_cipher = None
 ROOT = os.path.abspath('.')
 
+# Bundle Playwright's driver so frozen app can install/run Chromium
+import playwright
+_pw_driver_dir = os.path.join(os.path.dirname(playwright.__file__), 'driver')
+
 a = Analysis(
     ['app.py'],
     pathex=[ROOT],
@@ -18,11 +22,14 @@ a = Analysis(
         ('assets/luth_64.png', 'assets'),
         ('assets/luth_logo.png', 'assets'),
         ('.env.example', '.'),
+        (_pw_driver_dir, 'playwright/driver'),
     ],
     hiddenimports=[
         'modules',
         'modules.concept_generator',
         'modules.music_generator',
+        'modules.suno_generator',
+        'modules.udio_generator',
         'modules.thumbnail_generator',
         'modules.video_creator',
         'modules.youtube_uploader',
@@ -35,6 +42,9 @@ a = Analysis(
         'utils.auto_setup',
         'config',
         'pipeline',
+        'playwright',
+        'playwright.sync_api',
+        'playwright._impl._driver',
         'tkinter',
         'tkinter.ttk',
         'tkinter.scrolledtext',

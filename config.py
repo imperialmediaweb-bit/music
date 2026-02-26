@@ -22,6 +22,13 @@ MUSIC_PLATFORM = os.getenv("MUSIC_PLATFORM", "aimusicfactory")
 # Default number of songs to generate per clip (2, 4, 6, 8)
 SONGS_PER_CLIP = int(os.getenv("SONGS_PER_CLIP", "2"))
 
+# Music genre (used for concept generation)
+MUSIC_GENRE = os.getenv("MUSIC_GENRE", "Afro House")
+# Custom music style prompt (overrides default genre-based style)
+MUSIC_STYLE_PROMPT = os.getenv("MUSIC_STYLE_PROMPT", "")
+# Custom thumbnail style prompt (overrides default)
+THUMBNAIL_STYLE_PROMPT = os.getenv("THUMBNAIL_STYLE_PROMPT", "")
+
 # Ensure directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 INPUT_DIR.mkdir(parents=True, exist_ok=True)

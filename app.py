@@ -377,6 +377,33 @@ class MusicFactoryApp(tk.Tk):
         ttk.Button(out_row, text="Browse", style="Secondary.TButton",
                     command=self._browse_output).pack(side="left", padx=(6, 0))
 
+        # Music Genre
+        card4 = self._make_card(scroll_frame, "Music Genre")
+        ttk.Label(card4, text="Genre used for concept generation (e.g. Afro House, Lo-Fi, Trap, EDM, Jazz)",
+                   style="Card.TLabel").pack(anchor="w")
+        self.entry_genre = ttk.Entry(card4, width=40)
+        self.entry_genre.pack(fill="x", pady=(6, 0))
+
+        # Music Style Prompt
+        card5 = self._make_card(scroll_frame, "Music Style Prompt")
+        ttk.Label(card5, text="Describes the sound, instruments, tempo, mood for AI music generation.\n"
+                   "Leave empty to use default for your genre.",
+                   style="Card.TLabel").pack(anchor="w")
+        self.text_music_prompt = tk.Text(card5, height=6, wrap="word",
+                                          bg="#1e1e3a", fg=TEXT_COLOR, insertbackground=TEXT_COLOR,
+                                          font=FONT_MONO, relief="flat", bd=1)
+        self.text_music_prompt.pack(fill="x", pady=(6, 0))
+
+        # Thumbnail Style Prompt
+        card6 = self._make_card(scroll_frame, "Thumbnail Style Prompt")
+        ttk.Label(card6, text="Describes the visual style for DALL-E thumbnail generation.\n"
+                   "Leave empty to use default (African tribal mask).",
+                   style="Card.TLabel").pack(anchor="w")
+        self.text_thumbnail_prompt = tk.Text(card6, height=6, wrap="word",
+                                              bg="#1e1e3a", fg=TEXT_COLOR, insertbackground=TEXT_COLOR,
+                                              font=FONT_MONO, relief="flat", bd=1)
+        self.text_thumbnail_prompt.pack(fill="x", pady=(6, 0))
+
         # Save button
         btn_frame = ttk.Frame(scroll_frame)
         btn_frame.pack(fill="x", pady=15, padx=10)
@@ -407,6 +434,13 @@ class MusicFactoryApp(tk.Tk):
             self.entry_openai.insert(0, api_key)
         self.headless_var.set(env.get("HEADLESS", "true").lower() == "true")
         self.entry_output_dir.insert(0, env.get("OUTPUT_DIR", "output"))
+        self.entry_genre.insert(0, env.get("MUSIC_GENRE", "Afro House"))
+        music_prompt = env.get("MUSIC_STYLE_PROMPT", "")
+        if music_prompt:
+            self.text_music_prompt.insert("1.0", music_prompt)
+        thumb_prompt = env.get("THUMBNAIL_STYLE_PROMPT", "")
+        if thumb_prompt:
+            self.text_thumbnail_prompt.insert("1.0", thumb_prompt)
 
     def _save_settings(self):
         env = read_env()
@@ -417,6 +451,13 @@ class MusicFactoryApp(tk.Tk):
         out_dir = self.entry_output_dir.get().strip()
         if out_dir:
             env["OUTPUT_DIR"] = out_dir
+        genre = self.entry_genre.get().strip()
+        if genre:
+            env["MUSIC_GENRE"] = genre
+        music_prompt = self.text_music_prompt.get("1.0", "end-1c").strip()
+        env["MUSIC_STYLE_PROMPT"] = music_prompt
+        thumb_prompt = self.text_thumbnail_prompt.get("1.0", "end-1c").strip()
+        env["THUMBNAIL_STYLE_PROMPT"] = thumb_prompt
         write_env(env)
         # Reload dotenv
         try:
@@ -798,6 +839,11 @@ class MusicFactoryApp(tk.Tk):
         count = self.clip_count.get()
         platform = self.platform_var.get()
         songs = self.songs_var.get()
+        # Read genre/prompt settings
+        env = self._load_env()
+        genre = env.get("MUSIC_GENRE", "Afro House")
+        music_style = env.get("MUSIC_STYLE_PROMPT", "")
+        thumbnail_style = env.get("THUMBNAIL_STYLE_PROMPT", "")
 
         def task():
             from main import _run_full_pipeline
@@ -806,9 +852,11 @@ class MusicFactoryApp(tk.Tk):
                     _log_queue.put("Stopped by user.")
                     break
                 _log_queue.put(f"{'#' * 50}")
-                _log_queue.put(f"CLIP {i + 1}/{count} | Platform: {platform} | Songs: {songs}")
+                _log_queue.put(f"CLIP {i + 1}/{count} | {genre} | {platform} | {songs} songs")
                 _log_queue.put(f"{'#' * 50}")
-                _run_full_pipeline(platform=platform, songs=songs)
+                _run_full_pipeline(platform=platform, songs=songs,
+                                   genre=genre, music_style=music_style,
+                                   thumbnail_style=thumbnail_style)
 
         self._run_in_thread(task, f"Running {platform} ({count} clip{'s' if count > 1 else ''}, {songs} songs)...")
 
@@ -871,68 +919,118 @@ class MusicFactoryApp(tk.Tk):
         self._run_in_thread(task, f"Re-uploading {name}...")
 
     # ------------------------------------------------------------------
-    # Login actions
+    # Login actions — run Playwright directly (no subprocess needed)
     # ------------------------------------------------------------------
-    def _on_login_music(self):
-        def task():
-            _log_queue.put("Opening browser for AI Music Factory login...")
-            import argparse
-            from main import cmd_login
-            # We need to handle the input() call — run it in subprocess instead
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, "main.py", "login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
+    def _login_with_browser(self, url, save_path, save_mode="state", label=""):
+        """Open a Chrome browser for login, save session when user closes it.
+
+        Args:
+            url: Website URL to open.
+            save_path: Path to save cookies/state to.
+            save_mode: "state" for storage_state (cookies+localStorage),
+                       "cookies" for just cookies via save_cookies().
+            label: Display name for log messages.
+        """
+        from playwright.sync_api import sync_playwright
+        import time
+
+        save_path = Path(save_path)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        _log_queue.put(f"Opening Chrome for {label} login...")
+        _log_queue.put(f"Log in, then CLOSE the browser window to save your session.")
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=False,
+                channel="chrome",
+                args=["--disable-blink-features=AutomationControlled"],
             )
-            _log_queue.put("Login window opened in new terminal. Follow instructions there.")
+            context = browser.new_context(viewport={"width": 1920, "height": 1080})
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+
+            # Periodically save session while browser is open.
+            # When the user closes the browser, the last save is kept.
+            saved = False
+            while browser.is_connected():
+                try:
+                    if save_mode == "cookies":
+                        from utils.browser import save_cookies
+                        save_cookies(context, save_path)
+                    else:
+                        context.storage_state(path=str(save_path))
+                    saved = True
+                except Exception:
+                    pass
+                try:
+                    page.wait_for_timeout(3000)
+                except Exception:
+                    break
+
+            if saved:
+                _log_queue.put(f"{label} session saved! You can now run the pipeline.")
+            else:
+                _log_queue.put(f"Warning: Could not save {label} session. Try again.")
+
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+    def _on_login_music(self):
+        env = self._load_env()
+        state_file = env.get("AIMUSICFACTORY_STATE_FILE",
+                             "cookies/aimusicfactory_state.json")
+
+        def task():
+            self._login_with_browser(
+                "https://aimusicfactory.ai", state_file,
+                save_mode="state", label="AI Music Factory")
 
         self._run_in_thread(task, "Logging into AI Music Factory...")
 
     def _on_login_suno(self):
+        env = self._load_env()
+        state_file = env.get("SUNO_STATE_FILE", "cookies/suno_state.json")
+
         def task():
-            _log_queue.put("Opening browser for Suno login...")
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, "main.py", "suno-login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
-            )
-            _log_queue.put("Suno login window opened in new terminal. Follow instructions there.")
+            self._login_with_browser(
+                "https://suno.com", state_file,
+                save_mode="state", label="Suno")
 
         self._run_in_thread(task, "Logging into Suno...")
 
     def _on_login_udio(self):
+        env = self._load_env()
+        state_file = env.get("UDIO_STATE_FILE", "cookies/udio_state.json")
+
         def task():
-            _log_queue.put("Opening browser for Udio login...")
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, "main.py", "udio-login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
-            )
-            _log_queue.put("Udio login window opened in new terminal. Follow instructions there.")
+            self._login_with_browser(
+                "https://www.udio.com", state_file,
+                save_mode="state", label="Udio")
 
         self._run_in_thread(task, "Logging into Udio...")
 
     def _on_login_youtube(self):
+        env = self._load_env()
+        cookie_file = env.get("YOUTUBE_COOKIE_FILE", "cookies/youtube_cookies.json")
+
         def task():
-            _log_queue.put("Opening browser for YouTube Studio login...")
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, "main.py", "youtube-login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
-            )
-            _log_queue.put("Login window opened in new terminal. Follow instructions there.")
+            self._login_with_browser(
+                "https://studio.youtube.com", cookie_file,
+                save_mode="cookies", label="YouTube Studio")
 
         self._run_in_thread(task, "Logging into YouTube...")
 
     def _on_login_tiktok(self):
+        env = self._load_env()
+        cookie_file = env.get("TIKTOK_COOKIE_FILE", "cookies/tiktok_cookies.json")
+
         def task():
-            _log_queue.put("Opening browser for TikTok login...")
-            import subprocess
-            subprocess.Popen(
-                [sys.executable, "main.py", "tiktok-login"],
-                creationflags=subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0,
-            )
-            _log_queue.put("Login window opened in new terminal. Follow instructions there.")
+            self._login_with_browser(
+                "https://www.tiktok.com/login", cookie_file,
+                save_mode="cookies", label="TikTok")
 
         self._run_in_thread(task, "Logging into TikTok...")
 

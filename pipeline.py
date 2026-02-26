@@ -191,7 +191,7 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
     try:
         if concept is None:
             log.info("=" * 60)
-            log.info("STEP 2: Generating Afro House concept...")
+            log.info("STEP 2: Generating music concept...")
             concept = generate_concept()
         result["concept"] = concept.track_name
         log.info(f"Track name: {concept.track_name}")
