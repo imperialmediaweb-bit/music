@@ -24,8 +24,9 @@ from packaging import version as pkg_version
 # ---------------------------------------------------------------------------
 GITHUB_REPO = "imperialmediaweb-bit/music"
 GITHUB_API_RELEASES = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-GITHUB_API_COMMITS = f"https://api.github.com/repos/{GITHUB_REPO}/commits/master"
-GITHUB_ZIPBALL = f"https://api.github.com/repos/{GITHUB_REPO}/zipball/master"
+GITHUB_DEFAULT_BRANCH = "claude/luth-software-sS5KD"
+GITHUB_API_COMMITS = f"https://api.github.com/repos/{GITHUB_REPO}/commits/{GITHUB_DEFAULT_BRANCH}"
+GITHUB_ZIPBALL = f"https://api.github.com/repos/{GITHUB_REPO}/zipball/{GITHUB_DEFAULT_BRANCH}"
 
 # Files and folders that must NEVER be overwritten during an update
 PRESERVE = {
