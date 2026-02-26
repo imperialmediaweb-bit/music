@@ -8,7 +8,7 @@ REM   run.bat gui          — Launch LUTH GUI
 REM   run.bat cli          — Run pipeline once (1 clip, command-line)
 REM   run.bat cli 3        — Run pipeline 3 times (3 clips)
 REM   run.bat schedule     — Start APScheduler (keeps running)
-REM   run.bat setup        — Install OS scheduled tasks (no PowerShell needed)
+REM   run.bat autostart    — Auto-start scheduler on Windows login
 
 cd /d "%~dp0"
 
@@ -27,9 +27,9 @@ if "%1"=="gui" (
 ) else if "%1"=="schedule" (
     echo Starting scheduler (press Ctrl+C to stop)...
     python main.py schedule
-) else if "%1"=="setup" (
-    echo Setting up Windows Task Scheduler tasks...
-    python main.py setup-schedule
+) else if "%1"=="autostart" (
+    echo Setting up auto-start on Windows login...
+    python main.py autostart
 ) else if "%1"=="login" (
     python main.py login
 ) else if "%1"=="suno-login" (
