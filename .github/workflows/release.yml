@@ -5,6 +5,7 @@ on:
     tags:
       - 'v*'
     branches:
+      - main
       - 'claude/luth-software-*'
 
 permissions:
@@ -41,41 +42,51 @@ jobs:
 
       - name: Create output directories
         run: |
-          mkdir dist\LUTH\output
-          mkdir dist\LUTH\input
-          mkdir dist\LUTH\cookies
+          New-Item -ItemType Directory -Path dist\LUTH\output -Force
+          New-Item -ItemType Directory -Path dist\LUTH\input -Force
+          New-Item -ItemType Directory -Path dist\LUTH\cookies -Force
 
       - name: Copy .env.example
         run: copy .env.example dist\LUTH\.env.example
 
+      - name: Build installer with Inno Setup
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
       - name: Create ZIP archive
         run: Compress-Archive -Path dist\LUTH\* -DestinationPath dist\LUTH-windows.zip
 
-      - name: Upload build artifact
+      - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LUTH-windows
+          name: LUTH-windows-zip
           path: dist/LUTH-windows.zip
+
+      - name: Upload Installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LUTH-windows-installer
+          path: dist/LUTH_Setup_*.exe
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/LUTH-windows.zip
+          files: |
+            dist/LUTH-windows.zip
+            dist/LUTH_Setup_*.exe
           generate_release_notes: true
           body: |
             ## LUTH ${{ github.ref_name }}
 
             ### Download & Install
-            1. Download `LUTH-windows.zip`
-            2. Extract to any folder
-            3. Run `LUTH.exe`
+            1. Download `LUTH_Setup_2.0.0.exe`
+            2. Double-click → Next → Next → Install → Done!
+            3. LUTH appears on your Desktop — just open it
+
+            **Or** download `LUTH-windows.zip`, extract, and run `LUTH.exe` directly.
 
             ### First-time setup
-            After launching LUTH for the first time:
-            1. **FFmpeg** is already included — no install needed
-            2. **Playwright Chromium** will auto-download on first run (~280 MB one-time download)
-            3. Go to **Settings** and enter your OpenAI API key
-            4. Go to **Logins** and log into your music platform (AI Music Factory, Suno, or Udio), YouTube, and TikTok
-            5. Choose your **Platform** (aimusicfactory / suno / udio) and **Songs** count (2, 4, 6, 8)
-            6. Click **RUN PIPELINE** to generate your first track!
+            1. Go to **Settings** → enter your OpenAI API key
+            2. Go to **Logins** → log into your music platform, YouTube, and TikTok
+            3. Click **RUN PIPELINE** to generate your first track!
