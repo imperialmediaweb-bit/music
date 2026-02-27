@@ -559,7 +559,7 @@ def cmd_schedule(args):
 
     # (hour, minute, gen_count) — gen_count × 2 MP3s merged into one clip
     SCHEDULE_SLOTS = [
-        (9,  50, 1),   # 09:50 → 1 gen = 2 MP3s
+        (10, 10, 1),   # 10:10 → 1 gen = 2 MP3s
         (14, 0,  1),   # 14:00 → 1 gen = 2 MP3s
         (18, 0,  2),   # 18:00 → 2 gen = 4 MP3s
         (20, 0,  4),   # 20:00 → 4 gen = 8 MP3s
