@@ -222,13 +222,34 @@ def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
     _fill_form_fields(page, concept, batch_num)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_fields_filled_{batch_num}.png"))
 
-    # Click Generate button
-    clicked = False
-    for selector in ['button:has-text("Generate")', 'button:has-text("Create")',
-                      'button:has-text("Make")', '[type="submit"]',
-                      ".generate-btn", "#generate"]:
+    # Click Generate button — dump all buttons first for debugging
+    all_buttons = page.query_selector_all('button, [role="button"], div[onclick], a.btn, a.button')
+    log.info(f"Found {len(all_buttons)} button-like elements on page:")
+    for i, b in enumerate(all_buttons):
         try:
-            btn = page.wait_for_selector(selector, timeout=3000)
+            txt = (b.text_content() or "").strip()[:80]
+            tag = b.evaluate("el => el.tagName")
+            cls = b.get_attribute("class") or ""
+            visible = b.is_visible()
+            log.info(f"  btn[{i}]: <{tag}> text='{txt}' visible={visible} class='{cls[:120]}'")
+        except Exception:
+            pass
+
+    clicked = False
+    for selector in [
+        'button:has-text("Generate")', 'button:has-text("Create")',
+        'button:has-text("Make")', '[type="submit"]',
+        'div:has-text("Generate")', 'span:has-text("Generate")',
+        'a:has-text("Generate")', '[role="button"]:has-text("Generate")',
+        'button:has-text("generate")', 'div:has-text("generate")',
+        ".generate-btn", "#generate",
+        # Gradient/colored large buttons (common on this site)
+        'button.bg-gradient', 'button[class*="gradient"]',
+        'div[class*="gradient"]:has-text("Generate")',
+        'button[class*="rounded"][class*="bg-"]',
+    ]:
+        try:
+            btn = page.wait_for_selector(selector, timeout=2000)
             if btn and btn.is_visible():
                 btn.click()
                 clicked = True
@@ -236,6 +257,25 @@ def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
                 break
         except PlaywrightTimeout:
             continue
+
+    # Last resort: find any visible button via JS
+    if not clicked:
+        log.info("Standard selectors failed, trying JS button search...")
+        clicked = page.evaluate("""() => {
+            const elements = document.querySelectorAll('button, [role="button"], div, span, a');
+            for (const el of elements) {
+                const text = (el.textContent || '').trim().toLowerCase();
+                const rect = el.getBoundingClientRect();
+                if (rect.width > 0 && rect.height > 0 && rect.width < 500 &&
+                    (text === 'generate' || text === 'create' || text === 'create music' || text === 'generate music')) {
+                    el.click();
+                    return true;
+                }
+            }
+            return false;
+        }""")
+        if clicked:
+            log.info("Clicked Generate button via JS fallback")
 
     if not clicked:
         page.screenshot(path=str(OUTPUT_DIR / f"debug_no_button_{batch_num}.png"))
