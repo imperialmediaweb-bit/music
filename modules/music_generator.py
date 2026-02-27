@@ -222,8 +222,12 @@ def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
     _fill_form_fields(page, concept, batch_num)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_fields_filled_{batch_num}.png"))
 
+    # Scroll down so the Generate button is in viewport
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    page.wait_for_timeout(1000)
+
     # Click Generate button — dump all buttons first for debugging
-    all_buttons = page.query_selector_all('button, [role="button"], div[onclick], a.btn, a.button')
+    all_buttons = page.query_selector_all('button, [role="button"], div[onclick], a.btn, a.button, a[class*="btn"], div[class*="btn"]')
     log.info(f"Found {len(all_buttons)} button-like elements on page:")
     for i, b in enumerate(all_buttons):
         try:
@@ -235,50 +239,207 @@ def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
         except Exception:
             pass
 
+    # Also dump ALL elements that contain generate/create text for debugging
+    page.evaluate("""() => {
+        const all = document.querySelectorAll('*');
+        const found = [];
+        for (const el of all) {
+            const ownText = Array.from(el.childNodes)
+                .filter(n => n.nodeType === 3)
+                .map(n => n.textContent.trim())
+                .join(' ').toLowerCase();
+            if (ownText && (ownText.includes('generat') || ownText.includes('creat'))) {
+                const rect = el.getBoundingClientRect();
+                found.push({
+                    tag: el.tagName,
+                    text: ownText.slice(0, 80),
+                    cls: (el.className || '').toString().slice(0, 120),
+                    w: Math.round(rect.width),
+                    h: Math.round(rect.height),
+                    visible: rect.width > 0 && rect.height > 0
+                });
+            }
+        }
+        console.log('Elements with generate/create text:', JSON.stringify(found, null, 2));
+        return found;
+    }""")
+
     clicked = False
     for selector in [
         'button:has-text("Generate")', 'button:has-text("Create")',
         'button:has-text("Make")', '[type="submit"]',
-        'div:has-text("Generate")', 'span:has-text("Generate")',
         'a:has-text("Generate")', '[role="button"]:has-text("Generate")',
-        'button:has-text("generate")', 'div:has-text("generate")',
+        'button:has-text("generate")', 'button:has-text("create")',
         ".generate-btn", "#generate",
         # Gradient/colored large buttons (common on this site)
         'button.bg-gradient', 'button[class*="gradient"]',
         'div[class*="gradient"]:has-text("Generate")',
         'button[class*="rounded"][class*="bg-"]',
+        # SVG-icon buttons near form
+        'button svg', 'button img',
     ]:
         try:
-            btn = page.wait_for_selector(selector, timeout=2000)
+            btn = page.wait_for_selector(selector, timeout=1500)
             if btn and btn.is_visible():
+                # For svg/img inside button, click the parent button
+                tag = btn.evaluate("el => el.tagName")
+                if tag in ("SVG", "IMG", "svg", "img"):
+                    btn = btn.evaluate_handle("el => el.closest('button') || el.parentElement")
                 btn.click()
                 clicked = True
-                log.info(f"Clicked: {selector}")
+                log.info(f"Clicked Generate button via selector: {selector}")
                 break
         except PlaywrightTimeout:
             continue
 
-    # Last resort: find any visible button via JS
+    # JS fallback 1: broad text matching (partial match)
     if not clicked:
-        log.info("Standard selectors failed, trying JS button search...")
-        clicked = page.evaluate("""() => {
-            const elements = document.querySelectorAll('button, [role="button"], div, span, a');
+        log.info("Standard selectors failed, trying JS button search (broad match)...")
+        candidates = page.evaluate("""() => {
+            const results = [];
+            const elements = document.querySelectorAll('button, [role="button"], div, span, a, input[type="submit"]');
             for (const el of elements) {
                 const text = (el.textContent || '').trim().toLowerCase();
                 const rect = el.getBoundingClientRect();
-                if (rect.width > 0 && rect.height > 0 && rect.width < 500 &&
-                    (text === 'generate' || text === 'create' || text === 'create music' || text === 'generate music')) {
-                    el.click();
-                    return true;
+                const style = window.getComputedStyle(el);
+                const bg = style.backgroundColor || '';
+                const bgImage = style.backgroundImage || '';
+                const cursor = style.cursor || '';
+                if (rect.width > 0 && rect.height > 0 && rect.width < 600) {
+                    if (text.includes('generat') || text.includes('creat') || text.includes('make')) {
+                        results.push({
+                            tag: el.tagName,
+                            text: text.slice(0, 80),
+                            w: Math.round(rect.width),
+                            h: Math.round(rect.height),
+                            x: Math.round(rect.x),
+                            y: Math.round(rect.y),
+                            bg: bg,
+                            bgImage: bgImage.slice(0, 100),
+                            cursor: cursor,
+                            cls: (el.className || '').toString().slice(0, 150)
+                        });
+                    }
                 }
+            }
+            return results;
+        }""")
+        log.info(f"JS broad search found {len(candidates)} candidates:")
+        for c in candidates:
+            log.info(f"  <{c['tag']}> text='{c['text']}' {c['w']}x{c['h']} @ ({c['x']},{c['y']}) cursor={c['cursor']} bg={c['bg']} cls={c['cls'][:100]}")
+
+        # Click the best candidate: prefer smaller elements (actual buttons, not parent divs)
+        # with pointer cursor or gradient backgrounds
+        clicked = page.evaluate("""() => {
+            const elements = document.querySelectorAll('button, [role="button"], div, span, a, input[type="submit"]');
+            let best = null;
+            let bestScore = -1;
+            for (const el of elements) {
+                const text = (el.textContent || '').trim().toLowerCase();
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                if (rect.width <= 0 || rect.height <= 0 || rect.width > 600) continue;
+                if (!text.includes('generat') && !text.includes('creat')) continue;
+
+                let score = 0;
+                // Prefer actual buttons
+                if (el.tagName === 'BUTTON') score += 10;
+                if (el.tagName === 'A') score += 5;
+                if (el.tagName === 'INPUT') score += 8;
+                // Prefer pointer cursor
+                if (style.cursor === 'pointer') score += 5;
+                // Prefer gradient/colored backgrounds
+                if (style.backgroundImage && style.backgroundImage !== 'none') score += 3;
+                if (style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent') score += 2;
+                // Prefer smaller (more specific) elements
+                if (rect.width < 300 && rect.height < 100) score += 3;
+                // Prefer elements with 'generate' in exact text (not just parent containing it)
+                const ownText = Array.from(el.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent.trim().toLowerCase()).join(' ');
+                if (ownText.includes('generat')) score += 8;
+                // Penalize very large elements (likely containers)
+                if (rect.width > 400 || rect.height > 200) score -= 10;
+
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = el;
+                }
+            }
+            if (best && bestScore > 0) {
+                best.scrollIntoView({block: 'center'});
+                best.click();
+                return true;
             }
             return false;
         }""")
         if clicked:
-            log.info("Clicked Generate button via JS fallback")
+            log.info("Clicked Generate button via JS broad match")
+
+    # JS fallback 2: find any prominent clickable element at the bottom of the form area
+    if not clicked:
+        log.info("JS broad match failed, trying to find prominent button near form...")
+        clicked = page.evaluate("""() => {
+            // Find the form area (look for textareas we filled)
+            const textareas = document.querySelectorAll('textarea');
+            if (textareas.length === 0) return false;
+            const lastTextarea = textareas[textareas.length - 1];
+            const formRect = lastTextarea.getBoundingClientRect();
+
+            // Look for clickable elements below the last textarea
+            const elements = document.querySelectorAll('button, [role="button"], a, div, span');
+            let best = null;
+            let bestDist = Infinity;
+            for (const el of elements) {
+                const rect = el.getBoundingClientRect();
+                const style = window.getComputedStyle(el);
+                if (rect.width <= 50 || rect.height <= 20 || rect.width > 500) continue;
+                if (rect.top < formRect.bottom - 10) continue;  // Must be below textarea
+                // Must look clickable
+                if (style.cursor !== 'pointer' && el.tagName !== 'BUTTON' && el.tagName !== 'A') continue;
+                const dist = rect.top - formRect.bottom;
+                if (dist < bestDist && dist < 500) {
+                    bestDist = dist;
+                    best = el;
+                }
+            }
+            if (best) {
+                const text = (best.textContent || '').trim();
+                console.log('Clicking nearest button below form:', best.tagName, text, best.className);
+                best.scrollIntoView({block: 'center'});
+                best.click();
+                return true;
+            }
+            return false;
+        }""")
+        if clicked:
+            log.info("Clicked button found near form area via position-based search")
 
     if not clicked:
         page.screenshot(path=str(OUTPUT_DIR / f"debug_no_button_{batch_num}.png"))
+        # Save detailed debug info
+        try:
+            debug_info = page.evaluate("""() => {
+                const all = document.querySelectorAll('*');
+                const clickable = [];
+                for (const el of all) {
+                    const style = window.getComputedStyle(el);
+                    const rect = el.getBoundingClientRect();
+                    if (style.cursor === 'pointer' && rect.width > 30 && rect.height > 15 && rect.width < 600) {
+                        clickable.push({
+                            tag: el.tagName,
+                            text: (el.textContent || '').trim().slice(0, 60),
+                            cls: (el.className || '').toString().slice(0, 100),
+                            size: `${Math.round(rect.width)}x${Math.round(rect.height)}`,
+                            pos: `(${Math.round(rect.x)},${Math.round(rect.y)})`
+                        });
+                    }
+                }
+                return clickable;
+            }""")
+            log.info(f"All clickable (cursor:pointer) elements on page ({len(debug_info)}):")
+            for item in debug_info:
+                log.info(f"  <{item['tag']}> {item['size']} @ {item['pos']} text='{item['text']}' cls='{item['cls']}'")
+        except Exception as e:
+            log.warning(f"Failed to dump clickable elements: {e}")
         raise RuntimeError("Could not find Generate button")
 
     log.info(f"Waiting {GENERATION_COMPLETE_SEC // 60} min for generation to complete...")
