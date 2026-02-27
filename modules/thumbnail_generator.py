@@ -66,7 +66,7 @@ def generate_cover_art(thumbnail_prompt: str, track_name: str) -> Path:
                 model="dall-e-3",
                 prompt=thumbnail_prompt,
                 size="1024x1024",
-                quality="hd",
+                quality="standard",
                 n=1,
             )
             break
@@ -124,7 +124,7 @@ def generate_thumbnail(thumbnail_prompt: str, track_name: str) -> Path:
                 model="dall-e-3",
                 prompt=thumbnail_prompt,
                 size="1792x1024",
-                quality="hd",
+                quality="standard",
                 n=1,
             )
             break
