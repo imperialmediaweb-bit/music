@@ -1,3 +1,4 @@
+import os
 import time
 from pathlib import Path
 import requests
@@ -57,7 +58,9 @@ def generate_thumbnail(thumbnail_prompt: str, track_name: str) -> Path:
     """
     log.info(f"Generating African mask thumbnail for: {track_name}")
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    # Read fresh from env (GUI's save_settings updates os.environ via load_dotenv)
+    api_key = os.environ.get("OPENAI_API_KEY", "") or OPENAI_API_KEY
+    client = OpenAI(api_key=api_key)
 
     # Retry with exponential backoff for transient connection errors
     last_err = None

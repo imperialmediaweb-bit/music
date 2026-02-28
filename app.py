@@ -922,6 +922,11 @@ class MusicFactoryApp(tk.Tk):
     # Pipeline actions
     # ------------------------------------------------------------------
     def _on_run_pipeline(self):
+        # Save current GUI settings to .env and reload into os.environ
+        try:
+            self._save_settings()
+        except Exception:
+            pass
         count = self.clip_count.get()
         platform = self.platform_var.get()
         songs = self.songs_var.get()

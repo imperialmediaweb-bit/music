@@ -1,4 +1,5 @@
 import json
+import os
 import time
 from dataclasses import dataclass
 from openai import OpenAI
@@ -96,7 +97,9 @@ def generate_concept(track_name: str = "", genre: str = "",
 
     log.info(f"Generating {genre} music concept...")
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    # Read fresh from env (GUI's save_settings updates os.environ via load_dotenv)
+    api_key = os.environ.get("OPENAI_API_KEY", "") or OPENAI_API_KEY
+    client = OpenAI(api_key=api_key)
 
     system_prompt = _build_system_prompt(genre, music_style)
 
