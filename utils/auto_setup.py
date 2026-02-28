@@ -281,8 +281,35 @@ def _check_missing_packages():
     return missing
 
 
+def _remove_obsolete_packages():
+    """Remove packages that are no longer needed (moviepy, imageio).
+
+    These were replaced by direct FFmpeg usage. Leaving them installed
+    causes 'No package metadata found for imageio' errors on Windows.
+    """
+    obsolete = ["moviepy", "imageio", "imageio-ffmpeg"]
+    to_remove = []
+    for pkg in obsolete:
+        try:
+            __import__(pkg.replace("-", "_"))
+            to_remove.append(pkg)
+        except ImportError:
+            pass
+    if to_remove:
+        log.info(f"Removing obsolete packages: {', '.join(to_remove)}")
+        try:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "uninstall", "-y"] + to_remove,
+                capture_output=True, text=True, timeout=120,
+            )
+            log.info("Obsolete packages removed OK")
+        except Exception:
+            pass
+
+
 def install_missing_packages(progress_callback=None):
     """Auto-install any missing Python packages from requirements.txt."""
+    _remove_obsolete_packages()
     missing = _check_missing_packages()
     if not missing:
         return True
