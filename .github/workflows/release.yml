@@ -39,6 +39,11 @@ jobs:
           Copy-Item ffmpeg_tmp\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe dist\LUTH\bin\
           Copy-Item ffmpeg_tmp\ffmpeg-master-latest-win64-gpl\bin\ffprobe.exe dist\LUTH\bin\
 
+      - name: Install Playwright Chromium into build
+        run: |
+          $env:PLAYWRIGHT_BROWSERS_PATH = "${{ github.workspace }}\dist\LUTH\_internal\playwright\driver\package\.local-browsers"
+          python -m playwright install chromium
+
       - name: Create output directories
         run: |
           New-Item -ItemType Directory -Path dist\LUTH\output -Force
@@ -47,10 +52,6 @@ jobs:
 
       - name: Copy .env.example
         run: copy .env.example dist\LUTH\.env.example
-
-      - name: Build installer with Inno Setup
-        run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 
       - name: Create ZIP archive
         run: Compress-Archive -Path dist\LUTH\* -DestinationPath dist\LUTH-windows.zip
@@ -61,29 +62,40 @@ jobs:
           name: LUTH-windows-zip
           path: dist/LUTH-windows.zip
 
-      - name: Upload Installer artifact
-        uses: actions/upload-artifact@v4
+      # Create/update a "latest" pre-release on every branch push
+      - name: Update latest pre-release
+        if: "!startsWith(github.ref, 'refs/tags/v')"
+        uses: softprops/action-gh-release@v2
         with:
-          name: LUTH-windows-installer
-          path: dist/LUTH_Setup_*.exe
+          tag_name: latest
+          name: "LUTH Latest Build"
+          prerelease: true
+          files: dist/LUTH-windows.zip
+          body: |
+            ## LUTH — Latest automatic build
 
+            Built from `${{ github.ref_name }}` @ ${{ github.sha }}
+
+            **How to update:**
+            1. Download `LUTH-windows.zip` below
+            2. Close LUTH if running
+            3. Extract ZIP over your LUTH folder (replace all)
+            4. Reopen LUTH
+
+      # Create formal release on version tags
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/LUTH-windows.zip
-            dist/LUTH_Setup_*.exe
           generate_release_notes: true
           body: |
             ## LUTH ${{ github.ref_name }}
 
             ### Download & Install
-            1. Download `LUTH_Setup_2.0.0.exe`
-            2. Double-click → Next → Next → Install → Done!
-            3. LUTH appears on your Desktop — just open it
-
-            **Or** download `LUTH-windows.zip`, extract, and run `LUTH.exe` directly.
+            1. Download `LUTH-windows.zip`
+            2. Extract and run `LUTH.exe`
 
             ### First-time setup
             1. Go to **Settings** → enter your OpenAI API key
