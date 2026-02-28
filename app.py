@@ -41,6 +41,30 @@ FONT_MONO = ("Consolas", 9)
 
 
 # ---------------------------------------------------------------------------
+# One-time cleanup: remove moviepy/imageio (replaced by FFmpeg)
+# These cause "No package metadata found for imageio" on Windows
+# ---------------------------------------------------------------------------
+def _cleanup_obsolete_packages():
+    try:
+        __import__("moviepy")
+    except ImportError:
+        return  # not installed, nothing to do
+    except Exception:
+        pass  # installed but broken — still need to remove it
+    import subprocess
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "uninstall", "-y",
+             "moviepy", "imageio", "imageio-ffmpeg"],
+            capture_output=True, text=True, timeout=120,
+        )
+    except Exception:
+        pass
+
+_cleanup_obsolete_packages()
+
+
+# ---------------------------------------------------------------------------
 # Log queue — captures pipeline logs and sends them to the GUI
 # ---------------------------------------------------------------------------
 _log_queue: queue.Queue = queue.Queue()
