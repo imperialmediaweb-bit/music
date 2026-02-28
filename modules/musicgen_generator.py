@@ -1,14 +1,15 @@
 """Generate music using Meta's MusicGen model via Hugging Face Inference API.
 
 No browser automation, no credits, no login needed — just an API key.
-Each generation produces short audio clips (~10-15 seconds) that get
-merged by audio_merger.py into a longer track.
+Generates many short clips (~12 seconds each), then cross-fades them
+together into long, seamless tracks (6+ minutes).
 
 Usage:
     python main.py run --platform musicgen
-    python main.py run --platform musicgen --songs 4
+    python main.py run --platform musicgen --duration 20
 """
 
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -22,6 +23,15 @@ from utils.logger import log
 
 # Hugging Face Inference API endpoint
 HF_API_URL = "https://api-inference.huggingface.co/models/facebook/musicgen-small"
+
+# Average duration of one MusicGen clip (seconds)
+CLIP_DURATION_SEC = 12
+
+# Cross-fade duration between clips (seconds)
+CROSSFADE_SEC = 3
+
+# Default target duration per track (minutes)
+DEFAULT_DURATION_MIN = 6
 
 # Retry settings (model may need to warm up on first call)
 HF_MAX_RETRIES = 5
@@ -42,6 +52,19 @@ def _validate_mp3(path: Path) -> bool:
     if len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0:
         return True
     return False
+
+
+def _get_audio_duration(path: Path) -> float:
+    """Get duration of an audio file in seconds using ffprobe."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", str(path)],
+            capture_output=True, text=True,
+        )
+        return float(json.loads(result.stdout)["format"]["duration"])
+    except Exception:
+        return 0.0
 
 
 def _convert_to_mp3(input_path: Path, output_path: Path) -> Path:
@@ -73,7 +96,6 @@ def _generate_clip(prompt: str, clip_index: int,
             response = requests.post(HF_API_URL, headers=headers, json=payload, timeout=180)
 
             if response.status_code == 503:
-                # Model is loading (cold start)
                 try:
                     info = response.json()
                     wait_time = min(info.get("estimated_time", HF_RETRY_DELAY), 120)
@@ -84,17 +106,14 @@ def _generate_clip(prompt: str, clip_index: int,
                 continue
 
             elif response.status_code == 429:
-                # Rate limited
                 log.warning(f"  Rate limited, waiting {HF_RETRY_DELAY}s...")
                 time.sleep(HF_RETRY_DELAY)
                 continue
 
             elif response.status_code == 200:
-                # Success — save raw audio then convert to MP3
                 content_type = response.headers.get("content-type", "")
-                log.info(f"  Got audio response ({len(response.content)} bytes, {content_type})")
+                log.info(f"  Got audio ({len(response.content)} bytes)")
 
-                # Determine file extension from content type
                 if "flac" in content_type:
                     ext = ".flac"
                 elif "wav" in content_type:
@@ -102,19 +121,19 @@ def _generate_clip(prompt: str, clip_index: int,
                 elif "ogg" in content_type:
                     ext = ".ogg"
                 else:
-                    ext = ".flac"  # default assumption
+                    ext = ".flac"
 
-                raw_path = output_dir / f"{safe_name}_musicgen_{clip_index}{ext}"
+                raw_path = output_dir / f"{safe_name}_clip_{clip_index}{ext}"
                 raw_path.write_bytes(response.content)
 
-                mp3_path = output_dir / f"{safe_name}_musicgen_{clip_index}.mp3"
+                mp3_path = output_dir / f"{safe_name}_clip_{clip_index}.mp3"
                 _convert_to_mp3(raw_path, mp3_path)
-                raw_path.unlink(missing_ok=True)  # clean up temp file
+                raw_path.unlink(missing_ok=True)
 
                 if _validate_mp3(mp3_path):
                     return mp3_path
                 else:
-                    log.warning(f"  Generated file failed MP3 validation: {mp3_path.name}")
+                    log.warning(f"  Generated file failed validation: {mp3_path.name}")
                     return None
 
             else:
@@ -136,21 +155,98 @@ def _generate_clip(prompt: str, clip_index: int,
     return None
 
 
-def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
-    """Generate music using Meta's MusicGen via Hugging Face API.
+def _crossfade_merge(clips: list[Path], output_path: Path, crossfade_sec: float = CROSSFADE_SEC) -> Path:
+    """Merge multiple short clips into one long track with cross-fade transitions.
 
-    Each 'generation' produces 2 audio clips (matching other generators' convention).
+    Uses ffmpeg's acrossfade filter to smoothly blend clips together.
+    """
+    if len(clips) == 1:
+        # Just copy the single clip
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(clips[0]),
+             "-codec:a", "libmp3lame", "-q:a", "2", str(output_path)],
+            capture_output=True, text=True, check=True,
+        )
+        return output_path
+
+    # For many clips, chain acrossfade filters progressively
+    # ffmpeg can handle this by chaining: clip1 + clip2 -> temp1, temp1 + clip3 -> temp2, etc.
+    current = clips[0]
+    temp_dir = output_path.parent
+    temp_files = []
+
+    for i in range(1, len(clips)):
+        next_clip = clips[i]
+        if i < len(clips) - 1:
+            temp_out = temp_dir / f"_crossfade_temp_{i}.mp3"
+            temp_files.append(temp_out)
+        else:
+            temp_out = output_path
+
+        # Use acrossfade filter for smooth transition
+        result = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(current),
+                "-i", str(next_clip),
+                "-filter_complex",
+                f"acrossfade=d={crossfade_sec}:c1=tri:c2=tri",
+                "-codec:a", "libmp3lame", "-q:a", "2",
+                str(temp_out),
+            ],
+            capture_output=True, text=True,
+        )
+
+        if result.returncode != 0:
+            log.warning(f"  Cross-fade failed at clip {i}, falling back to simple concat")
+            # Fallback: simple concatenation without crossfade
+            result = subprocess.run(
+                [
+                    "ffmpeg", "-y",
+                    "-i", str(current),
+                    "-i", str(next_clip),
+                    "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1",
+                    "-codec:a", "libmp3lame", "-q:a", "2",
+                    str(temp_out),
+                ],
+                capture_output=True, text=True,
+            )
+
+        current = temp_out
+
+        if (i % 10 == 0) or (i == len(clips) - 1):
+            log.info(f"  Cross-fade progress: {i}/{len(clips) - 1} clips merged")
+
+    # Clean up temp files
+    for temp in temp_files:
+        temp.unlink(missing_ok=True)
+
+    return output_path
+
+
+def generate_music_batch(concept: MusicConcept, count: int = 1,
+                         duration_min: int = DEFAULT_DURATION_MIN) -> list[Path]:
+    """Generate long music tracks using MusicGen with cross-fade merging.
+
+    Generates many short clips (~12 sec each), then cross-fades them together
+    into seamless long tracks. Each 'generation' (count) produces one long track.
 
     Args:
         concept: The music concept with the prompt.
-        count: Number of generations (each = 2 clips).
+        count: Number of long tracks to produce.
+        duration_min: Target duration per track in minutes (default: 6).
 
     Returns:
-        List of generated MP3 file paths.
+        List of generated MP3 file paths (long tracks).
     """
-    total_clips = count * 2
-    log.info(f"Generating {total_clips} clips via MusicGen for: {concept.track_name}")
-    log.info(f"Prompt: {concept.music_prompt or concept.description}")
+    target_sec = duration_min * 60
+    # Each clip is ~12 sec, cross-fade eats ~3 sec per join
+    effective_per_clip = CLIP_DURATION_SEC - CROSSFADE_SEC
+    clips_needed = max(3, int(target_sec / effective_per_clip) + 2)
+
+    log.info(f"MusicGen: generating {count} track(s), ~{duration_min} min each")
+    log.info(f"  Need ~{clips_needed} clips per track ({CLIP_DURATION_SEC}s each, {CROSSFADE_SEC}s cross-fade)")
+    log.info(f"  Prompt: {concept.music_prompt or concept.description}")
 
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in concept.track_name)
     safe_name = safe_name.strip().replace(" ", "_")[:50]
@@ -159,23 +255,51 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
     download_dir.mkdir(parents=True, exist_ok=True)
 
     prompt = concept.music_prompt or concept.description
-    all_mp3s = []
+    all_tracks = []
 
-    for i in range(total_clips):
-        log.info(f"--- MusicGen clip {i + 1}/{total_clips} ---")
+    for track_idx in range(count):
+        if count > 1:
+            log.info(f"\n=== Track {track_idx + 1}/{count} ===")
 
-        mp3_path = _generate_clip(prompt, i, download_dir, safe_name)
-        if mp3_path:
-            all_mp3s.append(mp3_path)
-            log.info(f"  Generated: {mp3_path.name} ({mp3_path.stat().st_size / 1024:.0f} KB)")
+        # Generate all short clips for this track
+        clips = []
+        for i in range(clips_needed):
+            log.info(f"--- Clip {i + 1}/{clips_needed} (track {track_idx + 1}) ---")
+            mp3_path = _generate_clip(prompt, track_idx * 1000 + i, download_dir, safe_name)
+            if mp3_path:
+                clips.append(mp3_path)
+                log.info(f"  OK: {mp3_path.name} ({mp3_path.stat().st_size / 1024:.0f} KB)")
+            else:
+                log.warning(f"  Clip {i + 1} failed, continuing...")
+
+        if not clips:
+            log.error(f"No clips generated for track {track_idx + 1}")
+            continue
+
+        log.info(f"\nMerging {len(clips)} clips with cross-fade into one track...")
+
+        # Cross-fade merge all clips into one long track
+        track_path = download_dir / f"{safe_name}_track_{track_idx}.mp3"
+        _crossfade_merge(clips, track_path)
+
+        if track_path.exists() and _validate_mp3(track_path):
+            duration = _get_audio_duration(track_path)
+            mins = int(duration) // 60
+            secs = int(duration) % 60
+            log.info(f"  Track ready: {track_path.name} ({mins}:{secs:02d}, {track_path.stat().st_size / 1024 / 1024:.1f} MB)")
+            all_tracks.append(track_path)
+
+            # Clean up individual clips
+            for clip in clips:
+                clip.unlink(missing_ok=True)
         else:
-            log.warning(f"  Clip {i + 1} failed")
+            log.error(f"  Track merge failed for track {track_idx + 1}")
 
-    if not all_mp3s:
+    if not all_tracks:
         raise RuntimeError(
-            "No audio files generated by MusicGen. "
+            "No tracks generated by MusicGen. "
             "Check your HF_API_KEY in .env (get free key: https://huggingface.co/settings/tokens)"
         )
 
-    log.info(f"MusicGen: generated {len(all_mp3s)} MP3 files total")
-    return all_mp3s
+    log.info(f"\nMusicGen: {len(all_tracks)} track(s) ready")
+    return all_tracks
