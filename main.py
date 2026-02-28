@@ -13,7 +13,7 @@ from config import (
 from utils.logger import log
 
 # Supported music platforms
-PLATFORMS = ["aimusicfactory", "suno", "udio"]
+PLATFORMS = ["aimusicfactory", "suno", "udio", "musicgen"]
 
 # Default: 4 clips per day (one per scheduled slot)
 DEFAULT_CLIPS_PER_DAY = 4
@@ -27,6 +27,8 @@ def _get_music_generator(platform: str):
         from modules.suno_generator import generate_music_batch
     elif platform == "udio":
         from modules.udio_generator import generate_music_batch
+    elif platform == "musicgen":
+        from modules.musicgen_generator import generate_music_batch
     else:
         from modules.music_generator import generate_music_batch
     return generate_music_batch
