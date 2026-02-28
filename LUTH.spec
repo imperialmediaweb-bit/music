@@ -7,9 +7,18 @@ Includes all Python dependencies, Playwright driver, and FFmpeg.
 
 import os
 import shutil
+from PyInstaller.utils.hooks import copy_metadata
 
 block_cipher = None
 ROOT = os.path.abspath('.')
+
+# Collect package metadata so importlib.metadata can find them at runtime
+_extra_datas = []
+for _pkg in ['imageio', 'imageio-ffmpeg', 'moviepy', 'openai', 'packaging']:
+    try:
+        _extra_datas += copy_metadata(_pkg)
+    except Exception:
+        pass
 
 # Bundle Playwright's driver so frozen app can install/run Chromium
 import playwright
@@ -34,7 +43,7 @@ a = Analysis(
         ('assets/luth_logo.png', 'assets'),
         ('.env.example', '.'),
         (_pw_driver_dir, 'playwright/driver'),
-    ],
+    ] + _extra_datas,
     hiddenimports=[
         # App modules
         'modules',
