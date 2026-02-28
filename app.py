@@ -41,6 +41,20 @@ FONT_MONO = ("Consolas", 9)
 
 
 # ---------------------------------------------------------------------------
+# Ensure Playwright finds installed browsers (frozen PyInstaller builds look
+# in .local-browsers by default which may be empty — redirect to standard path)
+# ---------------------------------------------------------------------------
+if not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+    if sys.platform == "win32":
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
+            Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+        )
+    else:
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
+            Path.home() / ".cache" / "ms-playwright"
+        )
+
+# ---------------------------------------------------------------------------
 # Clear stale __pycache__ so Python uses updated .py files after an update
 # ---------------------------------------------------------------------------
 import shutil as _shutil

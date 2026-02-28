@@ -45,19 +45,34 @@ def is_ffmpeg_installed() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
-def is_chromium_installed() -> bool:
-    """Check if Playwright Chromium browser is downloaded."""
+def _browser_search_paths():
+    """Yield directories where Playwright Chromium might be installed."""
+    # 1. Env-var override
     env_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
     if env_path:
-        bp = Path(env_path)
-    elif sys.platform == "win32":
-        bp = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
-    else:
-        bp = Path.home() / ".cache" / "ms-playwright"
+        yield Path(env_path)
 
-    if not bp.exists():
-        return False
-    return any(d.name.startswith("chromium-") for d in bp.iterdir() if d.is_dir())
+    # 2. Standard per-user location
+    if sys.platform == "win32":
+        yield Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+    else:
+        yield Path.home() / ".cache" / "ms-playwright"
+
+    # 3. Frozen app .local-browsers (PyInstaller)
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).parent
+        for sub in ("_internal", "."):
+            yield exe_dir / sub / "playwright" / "driver" / "package" / ".local-browsers"
+
+
+def is_chromium_installed() -> bool:
+    """Check if Playwright Chromium browser is downloaded."""
+    for bp in _browser_search_paths():
+        if bp.exists() and any(
+            d.name.startswith("chromium") for d in bp.iterdir() if d.is_dir()
+        ):
+            return True
+    return False
 
 
 def download_ffmpeg(progress_callback=None):
@@ -186,6 +201,17 @@ def install_playwright_chromium(progress_callback=None):
     log.info("Installing Playwright Chromium browser...")
     if progress_callback:
         progress_callback("Installing Playwright Chromium (~280 MB)...")
+
+    # Ensure PLAYWRIGHT_BROWSERS_PATH is set so install goes to a known location
+    if not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
+        if sys.platform == "win32":
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
+                Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+            )
+        else:
+            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
+                Path.home() / ".cache" / "ms-playwright"
+            )
 
     try:
         result = None
