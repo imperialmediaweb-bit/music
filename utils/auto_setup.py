@@ -261,9 +261,6 @@ def _check_missing_packages():
     """Check which required packages are not importable."""
     # Map pip package names to their Python import names
     package_import_map = {
-        "imageio": "imageio",
-        "imageio-ffmpeg": "imageio_ffmpeg",
-        "moviepy": "moviepy",
         "Pillow": "PIL",
         "openai": "openai",
         "playwright": "playwright",

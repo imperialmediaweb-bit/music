@@ -64,8 +64,7 @@ def fake_concept() -> MusicConcept:
 
 @pytest.fixture()
 def fake_mp3(tmp_path) -> Path:
-    """Create a tiny but valid MP3 file (actually WAV renamed — moviepy accepts it)."""
-    # moviepy's AudioFileClip can read WAV too, so a real WAV is fine for testing.
+    """Create a tiny but valid audio file (WAV — FFmpeg accepts it)."""
     wav_path = tmp_path / "test_track.wav"
     wav_path.write_bytes(_make_wav_bytes(duration_sec=2.0))
     return wav_path

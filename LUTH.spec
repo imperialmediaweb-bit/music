@@ -14,7 +14,7 @@ ROOT = os.path.abspath('.')
 
 # Collect package metadata so importlib.metadata can find them at runtime
 _extra_datas = []
-for _pkg in ['imageio', 'imageio-ffmpeg', 'moviepy', 'openai', 'packaging']:
+for _pkg in ['openai', 'packaging']:
     try:
         _extra_datas += copy_metadata(_pkg)
     except Exception:
@@ -68,10 +68,6 @@ a = Analysis(
         'playwright',
         'playwright.sync_api',
         'playwright._impl._driver',
-        # MoviePy / imageio
-        'moviepy',
-        'imageio',
-        'imageio_ffmpeg',
         # OpenAI
         'openai',
         # Pillow

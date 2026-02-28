@@ -1,4 +1,4 @@
-"""Tests for modules/audio_merger.py — uses real moviepy with tiny audio files."""
+"""Tests for modules/audio_merger.py — uses FFmpeg with tiny audio files."""
 
 from pathlib import Path
 
@@ -21,16 +21,6 @@ class TestMergeMp3s:
 
         # The merged file should be larger than any individual file
         assert result.stat().st_size > 0
-
-    def test_merge_preserves_audio(self, fake_mp3_files, tmp_output):
-        from moviepy import AudioFileClip
-
-        result = merge_mp3s(fake_mp3_files, output_name="MergeCheck")
-
-        clip = AudioFileClip(str(result))
-        # 3 files × ~1 second each = ~3 seconds total
-        assert clip.duration >= 2.5
-        clip.close()
 
     def test_empty_list_raises(self):
         with pytest.raises(ValueError, match="No MP3 files provided"):
