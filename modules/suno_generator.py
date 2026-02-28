@@ -166,12 +166,21 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                     # Fallback: try to find any clickable song items
                     song_cards = page.query_selector_all('a[href*="/song/"]')
 
-                songs_to_download = song_cards[:2]  # Latest 2 songs from this batch
-                log.info(f"Found {len(song_cards)} songs, downloading latest {len(songs_to_download)}")
+                num_to_download = min(2, len(song_cards))  # Latest 2 songs from this batch
+                log.info(f"Found {len(song_cards)} songs, downloading latest {num_to_download}")
 
-                for i, card in enumerate(songs_to_download):
+                for i in range(num_to_download):
                     try:
-                        card.click()
+                        # Re-query cards each iteration (previous handles become
+                        # stale after navigating back to the library page)
+                        cards = page.query_selector_all('[data-testid="song-card"], .song-row, [class*="song"], [class*="track"]')
+                        if not cards:
+                            cards = page.query_selector_all('a[href*="/song/"]')
+                        if i >= len(cards):
+                            log.warning(f"Song card {i} no longer found, skipping")
+                            break
+
+                        cards[i].click()
                         time.sleep(2)
 
                         # Look for download option in the song detail/menu
@@ -220,6 +229,12 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
 
                     except Exception as e:
                         log.warning(f"Failed to download song {i}: {e}")
+                        # Make sure we're back on library page for next iteration
+                        try:
+                            page.goto("https://suno.com/me", wait_until="domcontentloaded", timeout=30_000)
+                            time.sleep(2)
+                        except Exception:
+                            pass
                         continue
 
             except Exception as e:
@@ -281,12 +296,19 @@ def download_existing_tracks(track_name: str = "", max_cards: int = 4) -> list[P
 
         # Find song cards
         song_cards = page.query_selector_all('[data-testid="song-card"], .song-row, a[href*="/song/"]')
-        cards_to_process = song_cards[:max_cards]
-        log.info(f"Found {len(song_cards)} songs, processing {len(cards_to_process)}")
+        num_to_process = min(max_cards, len(song_cards))
+        log.info(f"Found {len(song_cards)} songs, processing {num_to_process}")
 
-        for i, card in enumerate(cards_to_process):
+        for i in range(num_to_process):
             try:
-                card.click()
+                # Re-query cards each iteration (previous handles become
+                # stale after navigating back to the library page)
+                cards = page.query_selector_all('[data-testid="song-card"], .song-row, a[href*="/song/"]')
+                if i >= len(cards):
+                    log.warning(f"Song card {i} no longer found, skipping")
+                    break
+
+                cards[i].click()
                 time.sleep(2)
 
                 # Open menu and click download
@@ -323,6 +345,12 @@ def download_existing_tracks(track_name: str = "", max_cards: int = 4) -> list[P
 
             except Exception as e:
                 log.warning(f"Failed to download song {i}: {e}")
+                # Make sure we're back on library page for next iteration
+                try:
+                    page.goto("https://suno.com/me", wait_until="domcontentloaded", timeout=30_000)
+                    time.sleep(2)
+                except Exception:
+                    pass
 
         try:
             context.storage_state(path=str(state_file))
