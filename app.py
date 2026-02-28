@@ -41,6 +41,13 @@ FONT_MONO = ("Consolas", 9)
 
 
 # ---------------------------------------------------------------------------
+# Clear stale __pycache__ so Python uses updated .py files after an update
+# ---------------------------------------------------------------------------
+import shutil as _shutil
+for _cache_dir in Path(__file__).parent.rglob("__pycache__"):
+    _shutil.rmtree(_cache_dir, ignore_errors=True)
+
+# ---------------------------------------------------------------------------
 # One-time cleanup: remove moviepy/imageio (replaced by FFmpeg)
 # These cause "No package metadata found for imageio" on Windows
 # ---------------------------------------------------------------------------

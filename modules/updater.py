@@ -209,8 +209,12 @@ def download_and_apply_update(download_url: str, progress_callback=None):
                         dest.mkdir(parents=True, exist_ok=True)
                     else:
                         dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src_path, dest)
+                        shutil.copy(src_path, dest)  # copy (not copy2) so mtime is current
                         updated += 1
+
+                # Clear __pycache__ so Python uses the new .py files
+                for cache_dir in BASE_DIR.rglob("__pycache__"):
+                    shutil.rmtree(cache_dir, ignore_errors=True)
 
                 log(f"Updated {updated} files successfully!")
 
