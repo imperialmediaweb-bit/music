@@ -686,67 +686,56 @@ def _fill_choose_sections(page, artist: str):
         except Exception as e:
             log.warning(f"  [{i}] {label}: input fill failed: {e}")
 
-        # ── CHOOSE field — type artist name (it's a React Select / searchable input) ──
-        # CHOOSE is NOT a role picker — it's another artist name field.
-        # Click CHOOSE → it becomes a text input → type artist name → pick from autocomplete.
+        # ── CHOOSE dropdown — click first option from the list ──
         try:
             cb = page.locator(f"[data-choose-idx='{i}']").first
             if cb.is_visible(timeout=2000):
                 cb.click()
-                page.wait_for_timeout(1000)
+                page.wait_for_timeout(1500)
 
-                # After clicking CHOOSE, React Select shows an input — type artist name
-                page.keyboard.type(artist, delay=60)
-                page.wait_for_timeout(3000)
-
-                # Click exact match from autocomplete (same logic as artist input)
-                clicked = page.evaluate("""(name) => {
+                # Find first real option in the dropdown and click it
+                picked = page.evaluate("""() => {
                     const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-                    const all = [...document.querySelectorAll('*')].filter(el =>
-                        vis(el) && el.children.length === 0 &&
-                        el.textContent.trim().length > 0 &&
-                        el.textContent.trim().length < 100 &&
-                        el.tagName !== 'INPUT'
-                    );
 
-                    // EXACT match
-                    for (const el of all) {
-                        if (el.textContent.trim() === name) {
-                            el.click();
-                            return { found: true, text: el.textContent.trim() };
-                        }
-                    }
-                    // Case-insensitive exact
-                    for (const el of all) {
-                        if (el.textContent.trim().toLowerCase() === name.toLowerCase()) {
-                            el.click();
-                            return { found: true, text: el.textContent.trim() };
-                        }
-                    }
-                    // Contains
-                    for (const el of all) {
-                        const txt = el.textContent.trim();
-                        if (txt.toLowerCase().includes(name.toLowerCase()) &&
-                            txt.length < name.length + 20) {
-                            el.click();
-                            return { found: true, text: txt };
-                        }
-                    }
-                    return { found: false };
-                }""", artist)
+                    // React Select menu options — try many selectors
+                    const selectors = [
+                        '[class*=option]', '[class*=Option]',
+                        '[id*=option]', '[role=option]',
+                        '[class*=menu] div', '[class*=Menu] div',
+                        '[class*=listbox] div',
+                    ];
 
-                if clicked.get('found'):
-                    log.info(f"  [{i}] {label} CHOOSE: '{clicked.get('text')}'")
+                    let allOptions = [];
+                    for (const sel of selectors) {
+                        const found = [...document.querySelectorAll(sel)].filter(el =>
+                            vis(el) && el.textContent.trim().length > 0 &&
+                            el.textContent.trim().toLowerCase() !== 'select...' &&
+                            el.textContent.trim().toUpperCase() !== 'CHOOSE' &&
+                            el.children.length === 0
+                        );
+                        allOptions.push(...found);
+                    }
+                    allOptions = [...new Set(allOptions)];
+
+                    if (allOptions.length > 0) {
+                        allOptions[0].click();
+                        return { picked: true, text: allOptions[0].textContent.trim() };
+                    }
+                    return { picked: false };
+                }""")
+
+                if picked.get('picked'):
+                    log.info(f"  [{i}] {label} Role: '{picked.get('text')}'")
                 else:
                     # Fallback: keyboard
                     page.keyboard.press("ArrowDown")
                     page.wait_for_timeout(300)
                     page.keyboard.press("Enter")
-                    log.info(f"  [{i}] {label} CHOOSE: '{artist}' (keyboard)")
+                    log.info(f"  [{i}] {label} Role: first via keyboard")
 
                 page.wait_for_timeout(500)
         except Exception as e:
-            log.warning(f"  [{i}] {label} CHOOSE: failed: {e}")
+            log.warning(f"  [{i}] {label} Role: failed: {e}")
 
 
 def _upload_file(page, file_path: Path):
