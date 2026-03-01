@@ -582,6 +582,7 @@ def _detect_page(page) -> str:
             hasLangField: has('input[name="languageCode"]'),
             hasGenreField: has('input[name="primaryGenreId"]'),
             hasAddTrackBtn: visibleBtn('add track'),
+            hasUnuploadedFile: body.includes("hasn't been uploaded") || body.includes('file hasn'),
             hasWriterField: anyVisible('input[name*="songwriter" i]', 'input[name*="writer" i]'),
             hasRoleField: has('input[name="role"]') || has('select[name="role"]')
                 || has('input[name="creativeRole"]') || has('select[name="creativeRole"]'),
@@ -608,7 +609,14 @@ def _detect_page(page) -> str:
         return 'dashboard'
     if state.get('hasReleaseBtn') and not state.get('hasTypeChoice'):
         return 'release'
-    if state.get('hasReviewBtn'):
+    # ③ Tracks page has BOTH "Add Track" AND "Continue to Review".
+    # If tracks still need uploading, stay on add_track.
+    # If all tracks uploaded, proceed to review.
+    if state.get('hasReviewBtn') and state.get('hasAddTrackBtn'):
+        if not state.get('hasUnuploadedFile'):
+            return 'review'  # all files uploaded → Continue to Review
+        # else: fall through to add_track (need to upload WAV first)
+    if state.get('hasReviewBtn') and not state.get('hasAddTrackBtn'):
         return 'review'
     if state.get('hasArtworkBtn') and not state.get('hasAddTrackBtn'):
         return 'artwork'
@@ -772,15 +780,43 @@ def _do_upload(
                                 log.info(f"  Still loading... ({(i+1)*5}s)")
 
                 # ── ADD TRACK ──
+                # Real TuneCore flow on ③ Tracks page:
+                #   1. Click "ADD TRACK" → file chooser opens
+                #   2. Select WAV file from folder
+                #   3. Wait ~1 min for upload/processing
+                #   4. Click "Continue to Review"
                 elif state == 'add_track':
+                    log.info(f"  Uploading WAV via Add Track: {wav_path.name}")
+                    _dump_page_state(page, "Add Track — before")
+
                     btn = _find_clickable(page, [
                         "text=Add Track", "button:has-text('Add Track')",
                         "a:has-text('Add Track')", "text=Add track",
+                        "text=ADD TRACK",
                     ])
                     if btn:
-                        btn.click()
-                        log.info("  Clicked Add Track — waiting 1 min...")
+                        # ADD TRACK opens file picker — upload WAV through it
+                        uploaded = False
+                        try:
+                            with page.expect_file_chooser(timeout=10_000) as fc_info:
+                                btn.click()
+                            file_chooser = fc_info.value
+                            file_chooser.set_files(str(wav_path))
+                            uploaded = True
+                            log.info(f"  WAV selected via file chooser: {wav_path.name}")
+                        except Exception as e:
+                            log.info(f"  File chooser not triggered ({e}), trying input[type=file]...")
+                            btn.click()
+                            page.wait_for_timeout(2000)
+                            uploaded = _upload_file(page, wav_path)
+
+                        if not uploaded:
+                            raise RuntimeError(f"Failed to upload WAV '{wav_path.name}' via Add Track")
+
+                        # Wait ~1 min for TuneCore to process the upload
+                        log.info("  WAV uploading — waiting 1 min for processing...")
                         page.wait_for_timeout(60_000)
+                        _dump_page_state(page, "Add Track — after 1 min wait")
 
                 # ── TRACK DETAILS ──
                 # Sections on TuneCore track page (from screenshots):
