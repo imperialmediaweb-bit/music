@@ -560,58 +560,76 @@ def _do_upload(
             page.screenshot(path="output/tunecore_01_dashboard.png")
             _dump_page_state(page, "Step 1 — Dashboard")
 
-            # ── STEP 1b: Click "Add Release" in header ──
-            log.info("Step 1b: Clicking 'Add Release'...")
-            add_release_btn = _find_clickable(page, [
-                "text=Add Release",
-                "button:has-text('Add Release')",
-                "a:has-text('Add Release')",
-                "text=Create New",
-                "button:has-text('Create')",
-            ])
-            if add_release_btn:
-                add_release_btn.click()
-                page.wait_for_timeout(3000)
+            # ── STEP 1b: Resume draft OR create new release ──
+            # Check if a draft with the same name already exists
+            draft_link = None
+            try:
+                draft_link = page.locator(f"a:has-text('{concept.track_name}')").first
+                if not draft_link.is_visible(timeout=2000):
+                    draft_link = None
+            except Exception:
+                draft_link = None
+
+            if draft_link:
+                log.info(f"  Found existing draft '{concept.track_name}' — resuming...")
+                draft_link.click()
+                page.wait_for_timeout(5000)
+                page.screenshot(path="output/tunecore_02_resume_draft.png")
+                _dump_page_state(page, "Step 1b — Resumed Draft")
             else:
-                log.warning("  'Add Release' button not found, trying direct URL...")
-                page.goto(f"{TUNECORE_BASE}/releases/new", wait_until="domcontentloaded", timeout=30_000)
-                page.wait_for_timeout(3000)
+                log.info("Step 1b: Clicking 'Add Release'...")
+                add_release_btn = _find_clickable(page, [
+                    "text=Add Release",
+                    "button:has-text('Add Release')",
+                    "a:has-text('Add Release')",
+                    "text=Create New",
+                    "button:has-text('Create')",
+                ])
+                if add_release_btn:
+                    add_release_btn.click()
+                    page.wait_for_timeout(3000)
+                else:
+                    log.warning("  'Add Release' button not found, trying direct URL...")
+                    page.goto(f"{TUNECORE_BASE}/releases/new", wait_until="domcontentloaded", timeout=30_000)
+                    page.wait_for_timeout(3000)
 
-            page.screenshot(path="output/tunecore_02_add_release.png")
-            _dump_page_state(page, "Step 1b — After Add Release")
+                page.screenshot(path="output/tunecore_02_add_release.png")
+                _dump_page_state(page, "Step 1b — After Add Release")
 
-            # ── STEP 2: Choose "Single" ──
-            log.info("Step 2: Selecting 'Single'...")
-            single_btn = _find_clickable(page, [
-                "text=Single",
-                "button:has-text('Single')",
-                "[data-type='single']",
-                "label:has-text('Single')",
-            ])
-            if single_btn:
-                single_btn.click()
-                page.wait_for_timeout(2000)
+            # ── STEP 2–3: Choose "Single" and "Start" (skip if resumed draft) ──
+            if not draft_link:
+                log.info("Step 2: Selecting 'Single'...")
+                single_btn = _find_clickable(page, [
+                    "text=Single",
+                    "button:has-text('Single')",
+                    "[data-type='single']",
+                    "label:has-text('Single')",
+                ])
+                if single_btn:
+                    single_btn.click()
+                    page.wait_for_timeout(2000)
+                else:
+                    log.warning("  'Single' option not found — may already be selected")
+
+                page.screenshot(path="output/tunecore_03_single.png")
+
+                log.info("Step 3: Clicking 'Start'...")
+                start_btn = _find_clickable(page, [
+                    "button:has-text('Start')",
+                    "a:has-text('Start')",
+                    "button:has-text('Begin')",
+                    "button:has-text('Continue')",
+                ])
+                if start_btn:
+                    start_btn.click()
+                    page.wait_for_timeout(3000)
+                else:
+                    log.warning("  'Start' button not found — continuing...")
+
+                page.screenshot(path="output/tunecore_04_start.png")
+                _dump_page_state(page, "Step 3 — After Start")
             else:
-                log.warning("  'Single' option not found — may already be selected")
-
-            page.screenshot(path="output/tunecore_03_single.png")
-
-            # ── STEP 3: Click "Start" ──
-            log.info("Step 3: Clicking 'Start'...")
-            start_btn = _find_clickable(page, [
-                "button:has-text('Start')",
-                "a:has-text('Start')",
-                "button:has-text('Begin')",
-                "button:has-text('Continue')",
-            ])
-            if start_btn:
-                start_btn.click()
-                page.wait_for_timeout(3000)
-            else:
-                log.warning("  'Start' button not found — continuing...")
-
-            page.screenshot(path="output/tunecore_04_start.png")
-            _dump_page_state(page, "Step 3 — After Start")
+                log.info("Steps 2–3: Skipped (resuming draft)")
 
             # ── STEP 4: Release details ──
             log.info("Step 4: Filling release details...")
@@ -666,7 +684,7 @@ def _do_upload(
 
             page.screenshot(path="output/tunecore_05_release_details.png")
 
-            # Click Save
+            # Click Save and wait for page to transition
             log.info("  Saving release details...")
             save_btn = _find_clickable(page, [
                 "button:has-text('Save')",
@@ -675,7 +693,19 @@ def _do_upload(
             ])
             if save_btn:
                 save_btn.click()
-                page.wait_for_timeout(5000)
+                # TuneCore needs up to ~2 min to process and load the track page
+                log.info("  Waiting for page transition (~2 min)...")
+                for i in range(24):  # 24 x 5s = 120s = 2 min
+                    page.wait_for_timeout(5000)
+                    # Check if we've moved to the track page
+                    if page.locator("text=Add Track, button:has-text('Add Track')").first.is_visible(timeout=500):
+                        log.info(f"  Track page loaded after ~{(i + 1) * 5}s")
+                        break
+                    if page.locator("input[name*='track' i], input[name*='song' i]").first.is_visible(timeout=500):
+                        log.info(f"  Track form ready after ~{(i + 1) * 5}s")
+                        break
+                    if i % 4 == 3:
+                        log.info(f"  Still waiting... ({(i + 1) * 5}s)")
             else:
                 log.warning("  'Save' button not found")
 
@@ -692,7 +722,16 @@ def _do_upload(
             ])
             if add_track_btn:
                 add_track_btn.click()
-                page.wait_for_timeout(3000)
+                # Wait for track form to load (can be slow)
+                log.info("  Waiting for track form to load...")
+                for i in range(24):  # 24 x 5s = 120s
+                    page.wait_for_timeout(5000)
+                    # Check if track form inputs are visible
+                    if page.locator("input[name*='title' i], input[name*='track' i], input[name*='song' i]").first.is_visible(timeout=500):
+                        log.info(f"  Track form loaded after ~{(i + 1) * 5}s")
+                        break
+                    if i % 4 == 3:
+                        log.info(f"  Still waiting... ({(i + 1) * 5}s)")
             else:
                 log.warning("  'Add Track' button not found — may auto-navigate")
 
