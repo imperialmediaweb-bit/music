@@ -162,10 +162,11 @@ def continue_tunecore_draft(
     track_name: str,
     artist: str = DEFAULT_ARTIST,
 ) -> str | None:
-    """Continue filling out an existing TuneCore draft (no WAV/cover needed).
+    """Continue filling out an existing TuneCore draft.
 
-    Opens TuneCore dashboard, finds the draft by name, and fills in
-    track details (songwriter, explicit, instrumental, etc.).
+    Opens TuneCore dashboard, finds the draft by name, fills track details.
+    Generates 1600x1600 cover art if none exists locally.
+    Uses local WAV if found in output/.
 
     Args:
         track_name: Name of the draft release on TuneCore.
@@ -174,6 +175,8 @@ def continue_tunecore_draft(
     Returns:
         URL or status string, or None on failure.
     """
+    from config import OUTPUT_DIR
+
     log.info(f"Continuing TuneCore draft: {track_name}")
 
     if not TUNECORE_STATE_FILE.exists():
@@ -183,18 +186,53 @@ def continue_tunecore_draft(
         )
         return None
 
-    # Create a minimal concept for the track details
     concept = MusicConcept(
         track_name=track_name,
         genre="Afro House",
         mood="energetic",
         prompt="instrumental",
-        thumbnail_prompt="abstract art",
+        thumbnail_prompt="abstract African mask art, vibrant colors, dark background",
     )
 
+    safe = track_name.replace(" ", "_")
+    name_variants = [track_name, safe]
+
+    # Look for existing cover art (1600x1600)
+    cover_path = None
+    for name in name_variants:
+        for suffix in ["_cover.jpg", "_cover.png", "_thumbnail.jpg", "_thumbnail.png"]:
+            candidate = OUTPUT_DIR / f"{name}{suffix}"
+            if candidate.exists():
+                cover_path = candidate
+                log.info(f"Found existing cover: {cover_path}")
+                break
+        if cover_path:
+            break
+
+    if not cover_path:
+        try:
+            from modules.thumbnail_generator import generate_cover_art
+            log.info("No cover art found — generating 1600x1600...")
+            cover_path = generate_cover_art(concept.thumbnail_prompt, track_name)
+            log.info(f"Cover art generated: {cover_path}")
+        except Exception as e:
+            log.warning(f"Could not generate cover art: {e}")
+
+    # Look for local WAV
+    wav_path = None
+    for name in name_variants:
+        for ext in [".wav", ".WAV"]:
+            candidate = OUTPUT_DIR / f"{name}{ext}"
+            if candidate.exists():
+                wav_path = candidate
+                log.info(f"Found existing WAV: {wav_path}")
+                break
+        if wav_path:
+            break
+
     return _do_upload(
-        wav_path=Path("/dev/null"),  # not used — draft already has audio
-        cover_path=Path("/dev/null"),
+        wav_path=wav_path or Path("/dev/null"),
+        cover_path=cover_path or Path("/dev/null"),
         concept=concept,
         artist=artist,
     )
