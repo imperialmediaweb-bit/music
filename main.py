@@ -497,6 +497,11 @@ def cmd_autostart(args):
             log.info(f"Removed autostart task: {task_name}")
         else:
             log.info("No autostart task found to remove")
+        # Clean up the silent launcher VBS file
+        vbs_path = Path(project_dir) / "schedule_silent.vbs"
+        if vbs_path.exists():
+            vbs_path.unlink()
+            log.info("Removed schedule_silent.vbs")
         return
 
     # Remove old task if exists
@@ -505,13 +510,30 @@ def cmd_autostart(args):
         capture_output=True, text=True,
     )
 
-    # Create task that runs on user login
-    cmd = f'"{python}" main.py schedule'
+    # Create a silent VBS launcher so no CMD/PowerShell window appears
+    vbs_path = Path(project_dir) / "schedule_silent.vbs"
+    vbs_content = (
+        f'Set WshShell = CreateObject("WScript.Shell")\n'
+        f'WshShell.CurrentDirectory = "{project_dir}"\n'
+    )
+    # Activate venv if it exists, then run the scheduler
+    venv_activate = Path(project_dir) / "venv" / "Scripts" / "activate.bat"
+    venv2_activate = Path(project_dir) / ".venv" / "Scripts" / "activate.bat"
+    if venv_activate.exists():
+        vbs_content += f'WshShell.Run "cmd /c call venv\\Scripts\\activate.bat && ""{python}"" main.py schedule", 0, False\n'
+    elif venv2_activate.exists():
+        vbs_content += f'WshShell.Run "cmd /c call .venv\\Scripts\\activate.bat && ""{python}"" main.py schedule", 0, False\n'
+    else:
+        vbs_content += f'WshShell.Run "cmd /c ""{python}"" main.py schedule", 0, False\n'
+    vbs_path.write_text(vbs_content, encoding="utf-8")
+    log.info(f"Created silent launcher: {vbs_path}")
+
+    # Create task that runs the VBS silently on user login (no visible window)
     result = subprocess.run(
         [
             "schtasks", "/Create",
             "/TN", task_name,
-            "/TR", f'cmd /c "cd /d {project_dir} && {cmd}"',
+            "/TR", f'wscript.exe "{vbs_path}"',
             "/SC", "ONLOGON",
             "/F",
         ],
@@ -520,7 +542,8 @@ def cmd_autostart(args):
 
     if result.returncode == 0:
         log.info(f"Autostart task created: {task_name}")
-        log.info("The scheduler will now start automatically when you log in.")
+        log.info("The scheduler will run SILENTLY (no CMD/PowerShell window).")
+        log.info("It starts automatically when you log in.")
         log.info("")
         log.info("To verify: open Task Scheduler (taskschd.msc)")
         log.info("To remove: python main.py autostart --remove")
