@@ -651,117 +651,62 @@ def _fill_choose_sections(page, artist: str):
         _fill_autocomplete(page, "[data-fill-name='true']", artist, f"Artist ({section})")
         page.wait_for_timeout(1000)
 
-    # Fill up to 5 Role dropdowns, one at a time.
-    # CHOOSE is a clickable box — click it → dropdown with roles appears → click role.
-    # "Select..." is a React Select — click it → type to filter → click role.
+    # Fill Role dropdowns — pure Playwright, NO JS evaluate.
+    # The Role field is a React Select. It shows "CHOOSE" or "Select..." text.
+    # Click it → dropdown opens with options (performer, producer, etc.) → click option.
     for attempt in range(5):
-        # Fresh scan: find the FIRST unfilled role selector
-        found = page.evaluate("""() => {
-            const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-            document.querySelectorAll('[data-fill-role]').forEach(
-                el => el.removeAttribute('data-fill-role'));
-
-            // Find elements that say "CHOOSE" or "Select..."
-            const all = [...document.querySelectorAll('*')].filter(el => {
-                if (!vis(el)) return false;
-                const t = el.textContent.trim();
-                if (t.toUpperCase() === 'CHOOSE') return true;
-                if (t === 'Select...') return true;
-                return false;
-            });
-
-            // Pick the SMALLEST element (innermost) to avoid matching parent containers
-            // that contain "CHOOSE" as part of larger text
-            all.sort((a, b) => a.textContent.length - b.textContent.length);
-
-            if (all.length === 0) return null;
-
-            all[0].setAttribute('data-fill-role', 'true');
-
-            // Detect section
-            let section = '';
-            let node = all[0];
-            for (let j = 0; j < 15; j++) {
-                node = node.parentElement;
-                if (!node) break;
-                const t = node.textContent.toLowerCase();
-                if (t.includes('performing')) { section = 'performing'; break; }
-                if (t.includes('producer') || t.includes('engineer')) { section = 'producer'; break; }
-                if (t.includes('song artists')) { section = 'song_artists'; break; }
-            }
-
-            return {
-                section: section,
-                remaining: all.length,
-                text: all[0].textContent.trim(),
-                tag: all[0].tagName
-            };
-        }""")
-
-        if not found:
-            log.info(f"  No more role dropdowns (after {attempt} fills)")
-            break
-
-        section = found.get('section', '')
-        log.info(f"  [{attempt}] Role ({section}): found '{found.get('text')}' "
-                 f"({found.get('tag')}), {found.get('remaining')} remaining")
-
-        if 'producer' in section:
-            role_names = ['producer', 'Producer']
-        else:
-            role_names = ['performer', 'Performer', 'main artist', 'Main Artist']
-
         try:
-            # Step 1: Click the CHOOSE / Select... box to open dropdown
-            role_el = page.locator("[data-fill-role='true']").first
-            if role_el.is_visible(timeout=2000):
-                role_el.click()
-                page.wait_for_timeout(2000)
-                log.info(f"  [{attempt}] Clicked role box, waiting for dropdown...")
+            # Find the first visible CHOOSE or Select... using Playwright locators
+            choose = page.get_by_text('CHOOSE', exact=True).first
+            try:
+                choose_visible = choose.is_visible(timeout=1500)
+            except Exception:
+                choose_visible = False
 
-            # Step 2: Try to select from the dropdown that appeared
-            clicked_role = False
-
-            # Strategy A: find option elements (role=option, li, etc.)
-            for role_name in role_names:
+            if not choose_visible:
+                # Try "Select..." as fallback
+                choose = page.get_by_text('Select...', exact=True).first
                 try:
-                    opt = page.locator(
-                        "[role='option'], [role='listbox'] li, "
-                        "[class*='option'], [class*='Option'], "
-                        "ul li, [class*='menu'] div, [class*='dropdown'] li"
-                    ).filter(has_text=role_name).first
-                    if opt.is_visible(timeout=1000):
+                    choose_visible = choose.is_visible(timeout=1000)
+                except Exception:
+                    choose_visible = False
+
+            if not choose_visible:
+                log.info(f"  No more CHOOSE/Select... buttons (after {attempt})")
+                break
+
+            log.info(f"  [{attempt}] Found role selector, clicking...")
+            choose.click()
+            page.wait_for_timeout(2000)
+
+            # Dropdown is now open. Pick "performer" for Performing Artists
+            # or "producer" for Producers section.
+            # Try performer first, then producer — both are in the dropdown.
+            clicked_role = False
+            for role_name in ['performer', 'producer']:
+                try:
+                    opt = page.get_by_text(role_name, exact=True).first
+                    if opt.is_visible(timeout=1500):
                         opt.click()
-                        page.wait_for_timeout(500)
-                        log.info(f"  [{attempt}] Role: '{role_name}' (option selector)")
+                        page.wait_for_timeout(1000)
+                        log.info(f"  [{attempt}] Role: selected '{role_name}'")
                         clicked_role = True
                         break
                 except Exception:
                     continue
 
-            # Strategy B: get_by_text (broadest possible)
             if not clicked_role:
-                for role_name in role_names:
-                    try:
-                        opt = page.get_by_text(role_name, exact=True).first
-                        if opt.is_visible(timeout=800):
-                            opt.click()
-                            page.wait_for_timeout(500)
-                            log.info(f"  [{attempt}] Role: '{role_name}' (text match)")
-                            clicked_role = True
-                            break
-                    except Exception:
-                        continue
-
-            # Strategy C: use _click_dropdown_option with JS
-            if not clicked_role:
-                log.info(f"  [{attempt}] Trying _click_dropdown_option...")
-                _click_dropdown_option(page, '', f"Role ({section})",
-                                       role_names)
+                # Last resort: ArrowDown + Enter to pick first option
+                page.keyboard.press("ArrowDown")
+                page.wait_for_timeout(300)
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(500)
+                log.info(f"  [{attempt}] Role: keyboard fallback (first option)")
 
             page.wait_for_timeout(1000)
         except Exception as e:
-            log.warning(f"  [{attempt}] Role failed: {e}")
+            log.warning(f"  [{attempt}] Role select failed: {e}")
+            break
 
 
 def _upload_file(page, file_path: Path):
