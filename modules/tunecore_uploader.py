@@ -635,56 +635,74 @@ def _fill_choose_sections(page, artist: str):
         except Exception as e:
             log.warning(f"  [{i}] {label}: input fill failed: {e}")
 
-        # ── Select role from CHOOSE dropdown ──
+        # ── Select role from CHOOSE dropdown (React Select component) ──
         try:
             cb = page.locator(f"[data-choose-idx='{i}']").first
             if cb.is_visible(timeout=2000):
+                # Click the CHOOSE element — may need to click parent for React Select
                 cb.click()
                 page.wait_for_timeout(1500)
 
-                # Try to find role option in popup/dropdown
-                picked = False
-                for role_text in [role, role.lower(), role.title(),
-                                  'main artist', 'Main Artist', 'PRIMARY ARTIST']:
-                    for opt_sel in [
-                        f"[role='option']:has-text('{role_text}')",
-                        f"[role='listbox'] [role='option']:has-text('{role_text}')",
-                        f"li:has-text('{role_text}')",
-                        f".ui-menu-item:has-text('{role_text}')",
-                        f"option:has-text('{role_text}')",
-                    ]:
-                        try:
-                            opt = page.locator(opt_sel).first
-                            if opt.is_visible(timeout=1500):
-                                opt.click()
-                                page.wait_for_timeout(500)
-                                log.info(f"  [{i}] {label} Role: '{role_text}'")
-                                picked = True
-                                break
-                        except Exception:
-                            continue
-                    if picked:
-                        break
+                # React Select opens a menu with div options — detect them via JS
+                picked = page.evaluate("""(args) => {
+                    const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+                    const role = args.role;
 
-                if not picked:
-                    # Fallback: pick first visible option
-                    for fallback_sel in [
-                        "[role='option']", "[role='listbox'] li",
-                        ".ui-menu-item", "ul li",
-                    ]:
-                        try:
-                            opt = page.locator(fallback_sel).first
-                            if opt.is_visible(timeout=1000):
-                                opt.click()
-                                page.wait_for_timeout(500)
-                                log.info(f"  [{i}] {label} Role: first available")
-                                picked = True
-                                break
-                        except Exception:
-                            continue
-                    if not picked:
-                        page.keyboard.press("Escape")
-                        log.warning(f"  [{i}] {label} Role: no options found")
+                    // React Select menu items have class containing "option"
+                    // Also try any visible div/li that appeared in a dropdown/menu
+                    const selectors = [
+                        '[class*=option]',
+                        '[class*=Option]',
+                        '[id*=option]',
+                        '[role=option]',
+                        '[class*=menu] div',
+                        '[class*=Menu] div',
+                        '.css-1n7v3ny-option',  // React Select default class
+                        '[class*=listbox] div',
+                    ];
+
+                    let allOptions = [];
+                    for (const sel of selectors) {
+                        const found = [...document.querySelectorAll(sel)].filter(el =>
+                            vis(el) && el.textContent.trim().length > 0 &&
+                            el.textContent.trim().toLowerCase() !== 'select...' &&
+                            el.textContent.trim().toUpperCase() !== 'CHOOSE' &&
+                            el.children.length === 0
+                        );
+                        allOptions.push(...found);
+                    }
+
+                    // Deduplicate
+                    allOptions = [...new Set(allOptions)];
+
+                    if (allOptions.length === 0) return { picked: false, reason: 'no_options' };
+
+                    // Try to find our desired role
+                    const desired = role.toLowerCase();
+                    for (const opt of allOptions) {
+                        if (opt.textContent.trim().toLowerCase() === desired) {
+                            opt.click();
+                            return { picked: true, text: opt.textContent.trim() };
+                        }
+                    }
+
+                    // Fallback: click first real option
+                    allOptions[0].click();
+                    return { picked: true, text: allOptions[0].textContent.trim(), fallback: true };
+                }""", {"role": role})
+
+                if picked.get('picked'):
+                    fb = " (fallback)" if picked.get('fallback') else ""
+                    log.info(f"  [{i}] {label} Role: '{picked.get('text')}'{fb}")
+                else:
+                    # Last resort: keyboard navigation
+                    page.keyboard.press("ArrowDown")
+                    page.wait_for_timeout(300)
+                    page.keyboard.press("Enter")
+                    page.wait_for_timeout(500)
+                    log.info(f"  [{i}] {label} Role: keyboard ArrowDown+Enter")
+
+                page.wait_for_timeout(500)
         except Exception as e:
             log.warning(f"  [{i}] {label} Role: failed: {e}")
 
@@ -1274,29 +1292,45 @@ def _do_upload(
                         log.info(f"  Instrumental: {result}")
 
                         # ── 8. Explicit lyrics = No — ALWAYS set ──
-                        page.evaluate("""() => {
-                            const btns = [...document.querySelectorAll(
-                                'button, [role=button], input[type=radio]'
-                            )].filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
-                            const noBtns = btns.filter(el =>
-                                el.textContent.trim().toLowerCase() === 'no');
-                            for (const btn of noBtns) {
-                                let node = btn;
-                                for (let i = 0; i < 8; i++) {
+                        # TuneCore uses styled Yes/No buttons (labels, divs, or buttons)
+                        explicit_result = page.evaluate("""() => {
+                            const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+                            // Find ALL clickable elements that say exactly "No"
+                            const allEls = [...document.querySelectorAll(
+                                'button, [role=button], input[type=radio], label, div, span'
+                            )].filter(vis);
+
+                            const noCandidates = allEls.filter(el =>
+                                el.textContent.trim().toLowerCase() === 'no' &&
+                                el.children.length === 0);
+
+                            // For each "No" — walk up to find "explicit" context
+                            for (const el of noCandidates) {
+                                let node = el;
+                                for (let i = 0; i < 10; i++) {
                                     node = node.parentElement;
                                     if (!node) break;
                                     if (node.textContent.toLowerCase().includes('explicit')) {
-                                        btn.click(); return true;
+                                        // Click the element AND any associated radio input
+                                        el.click();
+                                        // Also try to find a radio input inside or near
+                                        const radio = el.querySelector('input[type=radio]') ||
+                                                      el.previousElementSibling;
+                                        if (radio && radio.tagName === 'INPUT') radio.click();
+                                        return 'clicked_no_explicit';
                                     }
                                 }
                             }
-                            if (noBtns.length > 0) {
-                                noBtns[noBtns.length - 1].click();
-                                return true;
+
+                            // Fallback: last "No" button/label on page (usually explicit)
+                            if (noCandidates.length > 0) {
+                                const last = noCandidates[noCandidates.length - 1];
+                                last.click();
+                                return 'clicked_last_no';
                             }
-                            return false;
+                            return 'not_found';
                         }""")
-                        log.info("  Explicit lyrics: No")
+                        log.info(f"  Explicit lyrics: {explicit_result}")
 
                         page.wait_for_timeout(2000)
                         _dump_page_state(page, "Track Details — after fill")
