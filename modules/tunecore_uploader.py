@@ -1105,7 +1105,7 @@ def _do_upload(
                     #   Instrumental, Explicit, ISRC, Language, Lyrics, TikTok
                     # Smart: reads data-songs + DOM to detect what's filled.
                     elif state == 'track_details':
-                        log.info("  Filling track details (smart mode)...")
+                        log.info("  Filling track details (AGGRESSIVE — fill everything)...")
                         _dump_page_state(page, "Track Details — before fill")
 
                         # Wait for React #songs_app to render
@@ -1115,178 +1115,79 @@ def _do_upload(
                         except Exception:
                             page.wait_for_timeout(5000)
 
-                        # ── Read song data from React app's data attributes ──
-                        song_data = page.evaluate("""() => {
-                            const app = document.querySelector('#songs_app');
-                            if (!app) return null;
-                            try {
-                                const songs = JSON.parse(app.getAttribute('data-songs') || '[]');
-                                const d = songs[0]?.data || {};
-                                return {
-                                    name: d.name || '',
-                                    explicit: d.explicit,
-                                    instrumental: d.instrumental,
-                                    cover_song: d.cover_song,
-                                    copyrights: d.copyrights,
-                                    lyrics: d.lyrics,
-                                    artistCount: (d.artists || []).length,
-                                };
-                            } catch(e) { return null; }
-                        }""")
-                        if song_data:
-                            log.info(f"  Song data: name='{song_data.get('name')}' "
-                                     f"explicit={song_data.get('explicit')} "
-                                     f"instrumental={song_data.get('instrumental')} "
-                                     f"cover={song_data.get('cover_song')} "
-                                     f"artists={song_data.get('artistCount')}")
+                        # ── 1. Song Title — always fill ──
+                        for sel in [
+                            "input[name*='title' i]", "input[name*='trackName' i]",
+                            "input[name*='song_name' i]", "input[name*='songName' i]",
+                        ]:
+                            try:
+                                el = page.locator(sel).first
+                                if el.is_visible(timeout=1500):
+                                    el.fill(concept.track_name)
+                                    log.info(f"  Song Title: '{concept.track_name}'")
+                                    break
+                            except Exception:
+                                continue
 
-                        # ── Smart scan: detect what's rendered in the DOM ──
-                        scan = page.evaluate("""() => {
-                            const body = document.body.innerText.toLowerCase();
-                            const vis = sel => [...document.querySelectorAll(sel)]
-                                .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
-                            const textInputs = vis('input').filter(el =>
-                                !['hidden','file','checkbox','radio'].includes(el.type));
+                        # ── 2. Songwriter — always fill with artist name ──
+                        filled_writer = False
+                        for sel in [
+                            "input[placeholder*='Legal First' i]",
+                            "input[placeholder*='songwriter' i]",
+                            "input[name*='songwriter' i]",
+                            "input[name*='writer' i]",
+                        ]:
+                            try:
+                                if _fill_autocomplete(page, sel, artist, "Songwriter"):
+                                    filled_writer = True
+                                    break
+                            except Exception:
+                                continue
+                        if not filled_writer:
+                            # Brute force: find ANY empty text input in songwriter area via JS
+                            page.evaluate("""(name) => {
+                                const all = [...document.querySelectorAll('input')].filter(
+                                    el => el.offsetWidth > 0 && el.type === 'text' && !el.value.trim());
+                                // First empty text input is usually songwriter
+                                if (all.length > 0) {
+                                    const el = all[0];
+                                    el.focus(); el.value = name;
+                                    el.dispatchEvent(new Event('input', {bubbles: true}));
+                                    el.dispatchEvent(new Event('change', {bubbles: true}));
+                                }
+                            }""", artist)
+                            page.wait_for_timeout(1500)
+                            log.info(f"  Songwriter: brute-force filled '{artist}'")
 
-                            return {
-                                titleFilled: textInputs.some(el =>
-                                    (el.name.toLowerCase().includes('title') ||
-                                     el.name.toLowerCase().includes('trackname') ||
-                                     el.name.toLowerCase().includes('songname') ||
-                                     el.name.toLowerCase().includes('song_name')) && el.value.trim()),
-                                writerFilled: textInputs.some(el =>
-                                    (el.placeholder.toLowerCase().includes('legal first') ||
-                                     el.name.toLowerCase().includes('writer') ||
-                                     el.name.toLowerCase().includes('songwriter')) && el.value.trim()),
-                                hasMainArtist: body.includes('main artist') || body.includes('primary_artist'),
-                                // TuneCore uses custom React dropdowns showing "CHOOSE"
-                                chooseCount: vis('button, span, div, select').filter(el =>
-                                    el.textContent.trim().toUpperCase() === 'CHOOSE').length,
-                                instrumentalChecked: (() => {
-                                    for (const cb of vis('input[type=checkbox]')) {
-                                        const lbl = cb.closest('label') || cb.parentElement;
-                                        if (lbl && lbl.textContent.toLowerCase().includes('instrumental'))
-                                            return cb.checked;
-                                    }
-                                    return null;
-                                })(),
-                                explicitAnswered: (() => {
-                                    // TuneCore uses button pairs (Yes/No) near "explicit"
-                                    const btns = vis('button, [role=button], input[type=radio]');
-                                    for (const btn of btns) {
-                                        const txt = btn.textContent.trim().toLowerCase();
-                                        if ((txt === 'yes' || txt === 'no') &&
-                                            (btn.classList.contains('selected') ||
-                                             btn.classList.contains('active') ||
-                                             btn.getAttribute('aria-pressed') === 'true' ||
-                                             btn.getAttribute('aria-checked') === 'true' ||
-                                             (btn.type === 'radio' && btn.checked))) {
-                                            // Check if near "explicit" context
-                                            let node = btn;
-                                            for (let i = 0; i < 6; i++) {
-                                                node = node.parentElement;
-                                                if (!node) break;
-                                                if (node.textContent.toLowerCase().includes('explicit'))
-                                                    return true;
-                                            }
-                                        }
-                                    }
-                                    return false;
-                                })(),
-                                inputNames: textInputs.map(el =>
-                                    `${el.name}[${el.placeholder.substring(0,30)}]=${el.value.substring(0,20)}`
-                                ),
-                                bodyClass: document.body.className,
-                            };
-                        }""")
-
-                        log.info(f"  Scan: title={'Y' if scan['titleFilled'] else 'N'} "
-                                 f"writer={'Y' if scan['writerFilled'] else 'N'} "
-                                 f"mainArtist={'Y' if scan['hasMainArtist'] else 'N'} "
-                                 f"choose={scan['chooseCount']} "
-                                 f"instrumental={scan['instrumentalChecked']} "
-                                 f"explicit={'Y' if scan['explicitAnswered'] else 'N'}")
-                        log.info(f"  Inputs: {scan.get('inputNames', [])}")
-
-                        # ── 1. Song Title ──
-                        if not scan.get('titleFilled'):
-                            for sel in [
-                                "input[name*='title' i]", "input[name*='trackName' i]",
-                                "input[name*='song_name' i]", "input[name*='songName' i]",
-                            ]:
-                                try:
-                                    el = page.locator(sel).first
-                                    if el.is_visible(timeout=1500):
-                                        el.fill(concept.track_name)
-                                        log.info(f"  Song Title: '{concept.track_name}'")
-                                        break
-                                except Exception:
-                                    continue
-                        else:
-                            log.info("  Song Title: already filled")
-
-                        # ── 2. Songwriter (placeholder "Legal First Name and Last Name") ──
-                        # data-songwriter-names="Groove Genix, GrooveGenix" → autocomplete
-                        if not scan.get('writerFilled'):
-                            filled_writer = False
-                            for sel in [
-                                "input[placeholder*='Legal First' i]",
-                                "input[placeholder*='songwriter' i]",
-                                "input[name*='songwriter' i]",
-                                "input[name*='writer' i]",
-                            ]:
-                                try:
-                                    if _fill_autocomplete(page, sel, artist, "Songwriter"):
-                                        filled_writer = True
-                                        break
-                                except Exception:
-                                    continue
-                            if not filled_writer:
-                                log.warning("  Songwriter: could not find/fill!")
-                        else:
-                            log.info("  Songwriter: already filled")
-
-                        # ── 3. Song Artists & Creatives (primary_artist from album) ──
-                        if not scan.get('hasMainArtist'):
-                            for sel in [
-                                "input[name*='artist' i][name*='name' i]",
-                                "input[name*='creative' i]",
-                                "input[placeholder*='Artist' i]",
-                            ]:
-                                try:
-                                    el = page.locator(sel).first
-                                    if el.is_visible(timeout=1500):
-                                        _fill_autocomplete(page, sel, artist, "Song Artist")
-                                        break
-                                except Exception:
-                                    continue
-                        else:
-                            log.info("  Song Artists: already has main artist")
+                        # ── 3. Song Artists & Creatives — always try ──
+                        for sel in [
+                            "input[name*='artist' i][name*='name' i]",
+                            "input[name*='creative' i]",
+                            "input[placeholder*='Artist' i]",
+                        ]:
+                            try:
+                                el = page.locator(sel).first
+                                if el.is_visible(timeout=1500):
+                                    _fill_autocomplete(page, sel, artist, "Song Artist")
+                                    break
+                            except Exception:
+                                continue
 
                         # ── 4 & 5. Performing Artists + Producers (CHOOSE dropdowns) ──
-                        if scan.get('chooseCount', 0) > 0:
-                            log.info(f"  Found {scan['chooseCount']} CHOOSE dropdown(s) to fill...")
-                            _fill_choose_sections(page, artist)
-                        else:
-                            log.info("  All role dropdowns already filled")
+                        _fill_choose_sections(page, artist)
 
-                        # ── 6. Copyright Ownership: "Is this a cover?" = original ──
-                        # TuneCore: radio/button "I wrote this song" vs "cover song"
+                        # ── 6. Copyright Ownership: NOT a cover ──
                         page.evaluate("""() => {
-                            // Click "I wrote this song" or "No" near cover context
                             const els = [...document.querySelectorAll(
                                 'button, [role=button], label, input[type=radio], span'
                             )].filter(el => el.offsetWidth > 0);
-
-                            // Strategy 1: find radio/button with "original" or "I wrote"
                             for (const el of els) {
                                 const txt = el.textContent.trim().toLowerCase();
                                 if (txt.includes('i wrote') || txt.includes('original')) {
-                                    el.click();
-                                    return 'clicked_original';
+                                    el.click(); return 'clicked_original';
                                 }
                             }
-                            // Strategy 2: find "No" button near "cover" context
+                            // Find "No" near "cover"
                             const noBtns = els.filter(el =>
                                 el.textContent.trim().toLowerCase() === 'no');
                             for (const btn of noBtns) {
@@ -1295,8 +1196,7 @@ def _do_upload(
                                     node = node.parentElement;
                                     if (!node) break;
                                     if (node.textContent.toLowerCase().includes('cover')) {
-                                        btn.click();
-                                        return 'clicked_no_cover';
+                                        btn.click(); return 'clicked_no_cover';
                                     }
                                 }
                             }
@@ -1304,69 +1204,52 @@ def _do_upload(
                         }""")
                         log.info("  Copyright: original (not a cover)")
 
-                        # ── 7. Instrumental checkbox ──
-                        if scan.get('instrumentalChecked') is not True:
-                            result = page.evaluate("""() => {
-                                // Find checkbox with "Instrumental" or "no lyrics" label
-                                const cbs = [...document.querySelectorAll('input[type=checkbox]')];
-                                for (const cb of cbs) {
-                                    const lbl = cb.closest('label') || cb.parentElement;
-                                    if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
-                                        if (!cb.checked) {
-                                            // Try clicking the label (React needs synthetic events)
-                                            lbl.click();
-                                            return 'clicked_label';
-                                        }
-                                        return 'already_checked';
-                                    }
+                        # ── 7. Instrumental — ALWAYS check ──
+                        result = page.evaluate("""() => {
+                            const cbs = [...document.querySelectorAll('input[type=checkbox]')];
+                            for (const cb of cbs) {
+                                const lbl = cb.closest('label') || cb.parentElement;
+                                if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
+                                    if (!cb.checked) { lbl.click(); return 'clicked'; }
+                                    return 'already_checked';
                                 }
-                                // Fallback: find the label/span text and click it
-                                const labels = [...document.querySelectorAll('label, span')]
-                                    .filter(el => el.offsetWidth > 0);
-                                for (const lbl of labels) {
-                                    if (lbl.textContent.toLowerCase().includes('instrumental') &&
-                                        lbl.textContent.toLowerCase().includes('no lyrics')) {
-                                        lbl.click();
-                                        return 'clicked_text';
-                                    }
+                            }
+                            const labels = [...document.querySelectorAll('label, span')]
+                                .filter(el => el.offsetWidth > 0);
+                            for (const lbl of labels) {
+                                if (lbl.textContent.toLowerCase().includes('instrumental') &&
+                                    lbl.textContent.toLowerCase().includes('no lyrics')) {
+                                    lbl.click(); return 'clicked_text';
                                 }
-                                return 'not_found';
-                            }""")
-                            log.info(f"  Instrumental: {result}")
-                        else:
-                            log.info("  Instrumental: already checked")
+                            }
+                            return 'not_found';
+                        }""")
+                        log.info(f"  Instrumental: {result}")
 
-                        # ── 8. Explicit lyrics = No ──
-                        if not scan.get('explicitAnswered'):
-                            page.evaluate("""() => {
-                                // TuneCore: Yes/No buttons near "explicit lyrics" text
-                                const btns = [...document.querySelectorAll(
-                                    'button, [role=button], input[type=radio]'
-                                )].filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
-                                const noBtns = btns.filter(el =>
-                                    el.textContent.trim().toLowerCase() === 'no');
-                                // Find "No" near "explicit" context
-                                for (const btn of noBtns) {
-                                    let node = btn;
-                                    for (let i = 0; i < 8; i++) {
-                                        node = node.parentElement;
-                                        if (!node) break;
-                                        if (node.textContent.toLowerCase().includes('explicit')) {
-                                            btn.click();
-                                            return true;
-                                        }
+                        # ── 8. Explicit lyrics = No — ALWAYS set ──
+                        page.evaluate("""() => {
+                            const btns = [...document.querySelectorAll(
+                                'button, [role=button], input[type=radio]'
+                            )].filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+                            const noBtns = btns.filter(el =>
+                                el.textContent.trim().toLowerCase() === 'no');
+                            for (const btn of noBtns) {
+                                let node = btn;
+                                for (let i = 0; i < 8; i++) {
+                                    node = node.parentElement;
+                                    if (!node) break;
+                                    if (node.textContent.toLowerCase().includes('explicit')) {
+                                        btn.click(); return true;
                                     }
                                 }
-                                // Fallback: click last "No" button (explicit is near bottom)
-                                if (noBtns.length > 0) {
-                                    noBtns[noBtns.length - 1].click();
-                                    return true;
-                                }
-                                return false;
-                            }""")
-                            log.info("  Explicit lyrics: No")
-                        else:
-                            log.info("  Explicit lyrics: already answered")
+                            }
+                            if (noBtns.length > 0) {
+                                noBtns[noBtns.length - 1].click();
+                                return true;
+                            }
+                            return false;
+                        }""")
+                        log.info("  Explicit lyrics: No")
 
                         page.wait_for_timeout(2000)
                         _dump_page_state(page, "Track Details — after fill")
