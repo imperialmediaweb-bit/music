@@ -1422,24 +1422,92 @@ def _do_upload(
                             log.warning(f"  Prod Role EXCEPTION: {e}")
 
                         # ── 7. Copyright → No ──
+                        # DEBUG: dump the cover/copyright section DOM
+                        cover_dump = page.evaluate("""() => {
+                            const results = [];
+                            // find container with "cover" text
+                            const all = document.querySelectorAll('*');
+                            for (const el of all) {
+                                const t = (el.textContent||'').trim().toLowerCase();
+                                if (t.includes('cover') && t.length < 200) {
+                                    const kids = el.querySelectorAll('*');
+                                    for (const k of kids) {
+                                        const kt = (k.textContent||'').trim();
+                                        if (kt === 'No' || kt === 'Yes' || kt === 'no' || kt === 'yes') {
+                                            const r = k.getBoundingClientRect();
+                                            results.push({
+                                                tag: k.tagName,
+                                                cls: (k.className||'').toString().slice(0,100),
+                                                id: k.id||'',
+                                                role: k.getAttribute('role')||'',
+                                                type: k.getAttribute('type')||'',
+                                                text: kt,
+                                                w: r.width, h: r.height,
+                                                clickable: !!(r.width && r.height)
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                            // deduplicate
+                            const seen = new Set();
+                            return results.filter(r => {
+                                const key = r.tag+r.cls+r.text;
+                                if (seen.has(key)) return false;
+                                seen.add(key); return true;
+                            });
+                        }""")
+                        log.info(f"  COPYRIGHT DOM DUMP ({len(cover_dump)} elements):")
+                        for item in cover_dump:
+                            log.info(f"    {item}")
+
+                        # Try multiple approaches to click "No"
+                        copyright_done = False
+
+                        # Approach 1: Playwright text click
                         try:
-                            # Find the "No" label/button near the cover question and click it
-                            no_btn = page.locator("label, div[role='radio'], span").filter(
-                                has_text="No").last
-                            no_btn.click(timeout=3000)
-                            log.info("  Copyright No: clicked via Playwright")
-                        except Exception:
-                            # Fallback: JS approach for any radio-like element with "No"
+                            no_btn = page.get_by_text("No", exact=True).last
+                            no_btn.click(timeout=2000)
+                            log.info("  Copyright No: Playwright get_by_text click")
+                            copyright_done = True
+                        except Exception as e:
+                            log.info(f"  Copyright No approach1 fail: {e}")
+
+                        # Approach 2: click label near cover section
+                        if not copyright_done:
+                            try:
+                                cover_section = page.locator("text=cover").first
+                                parent = cover_section.locator("xpath=ancestor::*[.//text()[contains(.,'Yes')] and .//text()[contains(.,'No')]]").first
+                                no_in_section = parent.get_by_text("No", exact=True).first
+                                no_in_section.click(timeout=2000)
+                                log.info("  Copyright No: ancestor approach click")
+                                copyright_done = True
+                            except Exception as e:
+                                log.info(f"  Copyright No approach2 fail: {e}")
+
+                        # Approach 3: JS brute force - click anything that says "No"
+                        if not copyright_done:
                             cr = page.evaluate("""() => {
-                                const els = document.querySelectorAll(
-                                    'input[type=radio], [role=radio], label, [class*=radio]');
-                                for (const el of els) {
-                                    const t = el.textContent ? el.textContent.trim() : '';
-                                    if (t === 'No') { el.click(); return 'OK'; }
+                                const all = document.querySelectorAll('*');
+                                for (const el of all) {
+                                    const t = (el.textContent||'').trim();
+                                    if (t !== 'No') continue;
+                                    const r = el.getBoundingClientRect();
+                                    if (r.width === 0 || r.height === 0) continue;
+                                    // check parent chain for 'cover'
+                                    let p = el.parentElement;
+                                    for (let i=0; i<15; i++) {
+                                        if (!p) break;
+                                        if (p.textContent.toLowerCase().includes('cover')) {
+                                            el.click();
+                                            return 'CLICKED:'+el.tagName+'.'+el.className;
+                                        }
+                                        p = p.parentElement;
+                                    }
                                 }
                                 return 'NOT_FOUND';
                             }""")
-                            log.info(f"  Copyright No fallback: {cr}")
+                            log.info(f"  Copyright No JS brute: {cr}")
                         page.wait_for_timeout(500)
 
                         # ── 8. Instrumental checkbox (JS click) ──
