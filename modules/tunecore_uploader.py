@@ -1338,55 +1338,62 @@ def _do_upload(
                             except Exception as e:
                                 log.warning(f"  Instrumental: Playwright click failed: {e}")
 
-                        # ── 8. Explicit lyrics = No — ALWAYS set ──
-                        # TuneCore uses styled Yes/No toggle buttons near "explicit" text.
-                        # Tag the right "No" element with a temp ID, then Playwright clicks it.
-                        explicit_tag = page.evaluate("""() => {
-                            const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-                            const allEls = [...document.querySelectorAll(
-                                'button, [role=button], input[type=radio], label, div, span, a'
-                            )].filter(vis);
-
-                            // Find elements whose DIRECT text content is "No" (allow children)
-                            const noCandidates = allEls.filter(el => {
-                                const t = el.textContent.trim().toLowerCase();
-                                return t === 'no';
-                            });
-
-                            // Walk up from each "No" to find "explicit" context
-                            for (const el of noCandidates) {
-                                let node = el;
-                                for (let i = 0; i < 10; i++) {
-                                    node = node.parentElement;
-                                    if (!node) break;
-                                    if (node.textContent.toLowerCase().includes('explicit')) {
-                                        el.setAttribute('data-explicit-no', 'true');
-                                        return 'tagged';
-                                    }
+                        # ── 8. Explicit lyrics = No ──
+                        # When Instrumental is checked, TuneCore hides Explicit — skip it.
+                        is_instrumental = page.evaluate("""() => {
+                            const cbs = [...document.querySelectorAll('input[type=checkbox]')];
+                            for (const cb of cbs) {
+                                const lbl = cb.closest('label') || cb.parentElement;
+                                if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
+                                    return cb.checked;
                                 }
                             }
-
-                            // Fallback: tag last "No" on page
-                            if (noCandidates.length > 0) {
-                                noCandidates[noCandidates.length - 1]
-                                    .setAttribute('data-explicit-no', 'true');
-                                return 'tagged_last';
-                            }
-                            return 'not_found';
+                            return false;
                         }""")
-                        log.info(f"  Explicit tag: {explicit_tag}")
 
-                        # Now use Playwright to click — more reliable than JS click
-                        try:
-                            no_btn = page.locator("[data-explicit-no='true']").first
-                            if no_btn.is_visible(timeout=2000):
-                                no_btn.click()
-                                page.wait_for_timeout(500)
-                                log.info("  Explicit lyrics: No (Playwright click)")
-                            else:
-                                log.warning("  Explicit lyrics: tagged but not visible")
-                        except Exception as e:
-                            log.warning(f"  Explicit lyrics: Playwright click failed: {e}")
+                        if is_instrumental:
+                            log.info("  Explicit: skipped (Instrumental is checked)")
+                        else:
+                            # TuneCore styled Yes/No toggle buttons near "explicit" text.
+                            explicit_tag = page.evaluate("""() => {
+                                const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+                                const allEls = [...document.querySelectorAll(
+                                    'button, [role=button], input[type=radio], label, div, span, a'
+                                )].filter(vis);
+
+                                const noCandidates = allEls.filter(el =>
+                                    el.textContent.trim().toLowerCase() === 'no');
+
+                                for (const el of noCandidates) {
+                                    let node = el;
+                                    for (let i = 0; i < 10; i++) {
+                                        node = node.parentElement;
+                                        if (!node) break;
+                                        if (node.textContent.toLowerCase().includes('explicit')) {
+                                            el.setAttribute('data-explicit-no', 'true');
+                                            return 'tagged';
+                                        }
+                                    }
+                                }
+                                if (noCandidates.length > 0) {
+                                    noCandidates[noCandidates.length - 1]
+                                        .setAttribute('data-explicit-no', 'true');
+                                    return 'tagged_last';
+                                }
+                                return 'not_found';
+                            }""")
+                            log.info(f"  Explicit tag: {explicit_tag}")
+
+                            try:
+                                no_btn = page.locator("[data-explicit-no='true']").first
+                                if no_btn.is_visible(timeout=2000):
+                                    no_btn.click()
+                                    page.wait_for_timeout(500)
+                                    log.info("  Explicit lyrics: No (Playwright click)")
+                                else:
+                                    log.warning("  Explicit lyrics: tagged but not visible")
+                            except Exception as e:
+                                log.warning(f"  Explicit lyrics: click failed: {e}")
 
                         page.wait_for_timeout(2000)
                         _dump_page_state(page, "Track Details — after fill")
