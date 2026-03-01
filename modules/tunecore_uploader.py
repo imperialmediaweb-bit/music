@@ -1162,6 +1162,7 @@ def _do_upload(
                         page.wait_for_timeout(1000)
 
                         # ── 3. Performing Artists — Name (JS focus + keyboard type) ──
+                        log.info("  --- Step 3: Performing Artists Name ---")
                         perf_focused = page.evaluate("""() => {
                             for (const inp of document.querySelectorAll('input')) {
                                 const ph = (inp.placeholder || '').toLowerCase();
@@ -1181,10 +1182,15 @@ def _do_upload(
                             }
                             return false;
                         }""")
+                        log.info(f"  Perf Name focused: {perf_focused}")
                         if perf_focused:
                             page.wait_for_timeout(500)
                             page.keyboard.type(artist, delay=80)
+                            log.info(f"  Perf Name: typed '{artist}'")
                             page.wait_for_timeout(2000)
+                            # DEBUG: check what autocomplete options appeared
+                            ac_count = page.locator("[role='option']").count()
+                            log.info(f"  Perf Name: {ac_count} autocomplete options visible")
                             try:
                                 opt = page.locator("[role='option']").filter(
                                     has_text=artist).first
@@ -1195,8 +1201,9 @@ def _do_upload(
                                     page.keyboard.press("ArrowDown")
                                     page.wait_for_timeout(200)
                                     page.keyboard.press("Enter")
-                                    log.info("  Perf Name: keyboard")
-                            except Exception:
+                                    log.info("  Perf Name: keyboard fallback")
+                            except Exception as e:
+                                log.warning(f"  Perf Name autocomplete error: {e}")
                                 page.keyboard.press("Enter")
                             page.wait_for_timeout(1500)
                         else:
@@ -1206,10 +1213,52 @@ def _do_upload(
                         # CLICK ONLY — no typing! Open dropdown, click option.
                         try:
                             choose = page.get_by_text('CHOOSE', exact=True).first
-                            if choose.is_visible(timeout=2000):
+                            choose_visible = choose.is_visible(timeout=2000)
+                            log.info(f"  CHOOSE#1 visible: {choose_visible}")
+                            if choose_visible:
                                 choose.click()
                                 page.wait_for_timeout(2000)
-                                # Try Playwright selectors first
+
+                                # DEBUG: dump dropdown contents
+                                dropdown_dump = page.evaluate("""() => {
+                                    const items = [];
+                                    for (const el of document.querySelectorAll('*')) {
+                                        const r = el.getBoundingClientRect();
+                                        if (r.width === 0 || r.height === 0) continue;
+                                        const t = el.textContent.trim();
+                                        if (t.length === 0 || t.length > 30) continue;
+                                        const tl = t.toLowerCase();
+                                        if (['performer','producer','mixer','engineer',
+                                             'composer','writer','remixer','featured',
+                                             'main artist','primary'].some(
+                                             kw => tl.includes(kw))) {
+                                            items.push({
+                                                tag: el.tagName,
+                                                cls: (el.className||'').toString().slice(0,80),
+                                                id: el.id || '',
+                                                role: el.getAttribute('role') || '',
+                                                text: t,
+                                                kids: el.children.length
+                                            });
+                                        }
+                                    }
+                                    return items;
+                                }""")
+                                log.info(f"  CHOOSE#1 DROPDOWN DUMP ({len(dropdown_dump)} items):")
+                                for item in dropdown_dump:
+                                    log.info(f"    {item}")
+
+                                # Also log selector match counts
+                                for sel in ["[role='option']", "[class*='option']",
+                                            "[id*='option']", "[class*='menu']",
+                                            "[class*='Menu']", "li"]:
+                                    try:
+                                        cnt = page.locator(sel).count()
+                                        log.info(f"    selector '{sel}': {cnt} elements")
+                                    except Exception:
+                                        log.info(f"    selector '{sel}': ERROR")
+
+                                # Try to click performer option
                                 clicked = False
                                 for sel in [
                                     "[role='option']", "[class*='option']",
@@ -1221,25 +1270,24 @@ def _do_upload(
                                             has_text='erformer').first
                                         if opt.is_visible(timeout=800):
                                             opt.click()
-                                            log.info(f"  Perf Role: ({sel})")
+                                            log.info(f"  Perf Role CLICKED: ({sel})")
                                             clicked = True
                                             break
                                     except Exception:
                                         continue
                                 if not clicked:
-                                    # JS: find ANY visible leaf element with "performer"
                                     clicked = page.evaluate("""() => {
                                         const els = [...document.querySelectorAll('div,li,span,a')]
                                             .filter(el => {
                                                 const r = el.getBoundingClientRect();
-                                                if (r.width===0 || r.height===0) return false;
+                                                if (r.width===0||r.height===0) return false;
                                                 const t = el.textContent.trim().toLowerCase();
                                                 return t.includes('performer') && t.length < 40;
                                             });
                                         if (els.length) { els[els.length-1].click(); return true; }
                                         return false;
                                     }""")
-                                    log.info(f"  Perf Role JS: {clicked}")
+                                    log.info(f"  Perf Role JS click: {clicked}")
                                 if not clicked:
                                     page.keyboard.press("ArrowDown")
                                     page.wait_for_timeout(300)
@@ -1247,9 +1295,10 @@ def _do_upload(
                                     log.info("  Perf Role: ArrowDown+Enter")
                                 page.wait_for_timeout(1500)
                         except Exception as e:
-                            log.warning(f"  Perf Role: {e}")
+                            log.warning(f"  Perf Role EXCEPTION: {e}")
 
                         # ── 5. Producers — Name (JS focus + keyboard type) ──
+                        log.info("  --- Step 5: Producers Name ---")
                         prod_focused = page.evaluate("""() => {
                             for (const inp of document.querySelectorAll('input')) {
                                 const ph = (inp.placeholder || '').toLowerCase();
@@ -1269,10 +1318,14 @@ def _do_upload(
                             }
                             return false;
                         }""")
+                        log.info(f"  Prod Name focused: {prod_focused}")
                         if prod_focused:
                             page.wait_for_timeout(500)
                             page.keyboard.type(artist, delay=80)
+                            log.info(f"  Prod Name: typed '{artist}'")
                             page.wait_for_timeout(2000)
+                            ac_count = page.locator("[role='option']").count()
+                            log.info(f"  Prod Name: {ac_count} autocomplete options")
                             try:
                                 opt = page.locator("[role='option']").filter(
                                     has_text=artist).first
@@ -1283,8 +1336,9 @@ def _do_upload(
                                     page.keyboard.press("ArrowDown")
                                     page.wait_for_timeout(200)
                                     page.keyboard.press("Enter")
-                                    log.info("  Prod Name: keyboard")
-                            except Exception:
+                                    log.info("  Prod Name: keyboard fallback")
+                            except Exception as e:
+                                log.warning(f"  Prod Name autocomplete error: {e}")
                                 page.keyboard.press("Enter")
                             page.wait_for_timeout(1500)
                         else:
@@ -1294,9 +1348,41 @@ def _do_upload(
                         # CLICK ONLY — no typing!
                         try:
                             choose = page.get_by_text('CHOOSE', exact=True).first
-                            if choose.is_visible(timeout=2000):
+                            choose_vis = choose.is_visible(timeout=2000)
+                            log.info(f"  CHOOSE#2 visible: {choose_vis}")
+                            if choose_vis:
                                 choose.click()
                                 page.wait_for_timeout(2000)
+
+                                # DEBUG: dump dropdown
+                                dd2 = page.evaluate("""() => {
+                                    const items = [];
+                                    for (const el of document.querySelectorAll('*')) {
+                                        const r = el.getBoundingClientRect();
+                                        if (r.width===0||r.height===0) continue;
+                                        const t = el.textContent.trim();
+                                        if (t.length===0||t.length>30) continue;
+                                        const tl = t.toLowerCase();
+                                        if (['performer','producer','mixer','engineer',
+                                             'composer','writer','remixer','featured',
+                                             'main artist','primary'].some(
+                                             kw => tl.includes(kw))) {
+                                            items.push({
+                                                tag: el.tagName,
+                                                cls: (el.className||'').toString().slice(0,80),
+                                                id: el.id||'',
+                                                role: el.getAttribute('role')||'',
+                                                text: t,
+                                                kids: el.children.length
+                                            });
+                                        }
+                                    }
+                                    return items;
+                                }""")
+                                log.info(f"  CHOOSE#2 DROPDOWN DUMP ({len(dd2)} items):")
+                                for item in dd2:
+                                    log.info(f"    {item}")
+
                                 clicked = False
                                 for sel in [
                                     "[role='option']", "[class*='option']",
@@ -1308,7 +1394,7 @@ def _do_upload(
                                             has_text='roducer').first
                                         if opt.is_visible(timeout=800):
                                             opt.click()
-                                            log.info(f"  Prod Role: ({sel})")
+                                            log.info(f"  Prod Role CLICKED: ({sel})")
                                             clicked = True
                                             break
                                     except Exception:
@@ -1318,11 +1404,11 @@ def _do_upload(
                                         const els = [...document.querySelectorAll('div,li,span,a')]
                                             .filter(el => {
                                                 const r = el.getBoundingClientRect();
-                                                if (r.width===0 || r.height===0) return false;
+                                                if (r.width===0||r.height===0) return false;
                                                 const t = el.textContent.trim().toLowerCase();
-                                                return t.includes('producer') && t.length < 40;
+                                                return t.includes('producer') && t.length<40;
                                             });
-                                        if (els.length) { els[els.length-1].click(); return true; }
+                                        if (els.length) {els[els.length-1].click(); return true;}
                                         return false;
                                     }""")
                                     log.info(f"  Prod Role JS: {clicked}")
@@ -1333,7 +1419,7 @@ def _do_upload(
                                     log.info("  Prod Role: ArrowDown+Enter")
                                 page.wait_for_timeout(1500)
                         except Exception as e:
-                            log.warning(f"  Prod Role: {e}")
+                            log.warning(f"  Prod Role EXCEPTION: {e}")
 
                         # ── 7. Copyright → No (JS click on radio) ──
                         cr = page.evaluate("""() => {
