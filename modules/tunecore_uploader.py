@@ -1203,31 +1203,48 @@ def _do_upload(
                             log.warning("  Perf Name: input NOT FOUND")
 
                         # ── 4. Performing Artists — Role (first CHOOSE → performer) ──
+                        # CLICK ONLY — no typing! Open dropdown, click option.
                         try:
                             choose = page.get_by_text('CHOOSE', exact=True).first
                             if choose.is_visible(timeout=2000):
                                 choose.click()
                                 page.wait_for_timeout(2000)
+                                # Try Playwright selectors first
                                 clicked = False
                                 for sel in [
                                     "[role='option']", "[class*='option']",
                                     "[id*='option']", "[class*='menu'] div",
+                                    "[class*='Menu'] div", "li",
                                 ]:
                                     try:
                                         opt = page.locator(sel).filter(
-                                            has_text='performer').first
-                                        if opt.is_visible(timeout=1000):
+                                            has_text='erformer').first
+                                        if opt.is_visible(timeout=800):
                                             opt.click()
-                                            log.info(f"  Perf Role: performer ({sel})")
+                                            log.info(f"  Perf Role: ({sel})")
                                             clicked = True
                                             break
                                     except Exception:
                                         continue
                                 if not clicked:
-                                    page.keyboard.type('performer', delay=50)
-                                    page.wait_for_timeout(500)
+                                    # JS: find ANY visible leaf element with "performer"
+                                    clicked = page.evaluate("""() => {
+                                        const els = [...document.querySelectorAll('div,li,span,a')]
+                                            .filter(el => {
+                                                const r = el.getBoundingClientRect();
+                                                if (r.width===0 || r.height===0) return false;
+                                                const t = el.textContent.trim().toLowerCase();
+                                                return t.includes('performer') && t.length < 40;
+                                            });
+                                        if (els.length) { els[els.length-1].click(); return true; }
+                                        return false;
+                                    }""")
+                                    log.info(f"  Perf Role JS: {clicked}")
+                                if not clicked:
+                                    page.keyboard.press("ArrowDown")
+                                    page.wait_for_timeout(300)
                                     page.keyboard.press("Enter")
-                                    log.info("  Perf Role: typeahead fallback")
+                                    log.info("  Perf Role: ArrowDown+Enter")
                                 page.wait_for_timeout(1500)
                         except Exception as e:
                             log.warning(f"  Perf Role: {e}")
@@ -1274,6 +1291,7 @@ def _do_upload(
                             log.warning("  Prod Name: input NOT FOUND")
 
                         # ── 6. Producers — Role (second CHOOSE → producer) ──
+                        # CLICK ONLY — no typing!
                         try:
                             choose = page.get_by_text('CHOOSE', exact=True).first
                             if choose.is_visible(timeout=2000):
@@ -1283,22 +1301,36 @@ def _do_upload(
                                 for sel in [
                                     "[role='option']", "[class*='option']",
                                     "[id*='option']", "[class*='menu'] div",
+                                    "[class*='Menu'] div", "li",
                                 ]:
                                     try:
                                         opt = page.locator(sel).filter(
-                                            has_text='producer').first
-                                        if opt.is_visible(timeout=1000):
+                                            has_text='roducer').first
+                                        if opt.is_visible(timeout=800):
                                             opt.click()
-                                            log.info(f"  Prod Role: producer ({sel})")
+                                            log.info(f"  Prod Role: ({sel})")
                                             clicked = True
                                             break
                                     except Exception:
                                         continue
                                 if not clicked:
-                                    page.keyboard.type('producer', delay=50)
-                                    page.wait_for_timeout(500)
+                                    clicked = page.evaluate("""() => {
+                                        const els = [...document.querySelectorAll('div,li,span,a')]
+                                            .filter(el => {
+                                                const r = el.getBoundingClientRect();
+                                                if (r.width===0 || r.height===0) return false;
+                                                const t = el.textContent.trim().toLowerCase();
+                                                return t.includes('producer') && t.length < 40;
+                                            });
+                                        if (els.length) { els[els.length-1].click(); return true; }
+                                        return false;
+                                    }""")
+                                    log.info(f"  Prod Role JS: {clicked}")
+                                if not clicked:
+                                    page.keyboard.press("ArrowDown")
+                                    page.wait_for_timeout(300)
                                     page.keyboard.press("Enter")
-                                    log.info("  Prod Role: typeahead fallback")
+                                    log.info("  Prod Role: ArrowDown+Enter")
                                 page.wait_for_timeout(1500)
                         except Exception as e:
                             log.warning(f"  Prod Role: {e}")
