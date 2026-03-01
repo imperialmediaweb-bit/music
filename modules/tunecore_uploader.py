@@ -651,134 +651,133 @@ def _fill_choose_sections(page, artist: str):
         _fill_autocomplete(page, "[data-fill-name='true']", artist, f"Artist ({section})")
         page.wait_for_timeout(1000)
 
-    # Fill up to 5 CHOOSE role buttons, one at a time
+    # Fill up to 5 Role "Select..." dropdowns (React Select), one at a time
     for attempt in range(5):
-        # Fresh scan: find the FIRST CHOOSE button
+        # Fresh scan: find the FIRST "Select..." React Select dropdown
         found = page.evaluate("""() => {
             const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-            // Remove old tags
-            document.querySelectorAll('[data-fill-choose]').forEach(el =>
-                el.removeAttribute('data-fill-choose'));
+            document.querySelectorAll('[data-fill-role]').forEach(
+                el => el.removeAttribute('data-fill-role'));
 
-            const chooses = [...document.querySelectorAll('*')].filter(el =>
-                vis(el) && el.textContent.trim().toUpperCase() === 'CHOOSE' &&
-                el.children.length === 0);
-            if (chooses.length === 0) return null;
+            // React Select shows "Select..." as placeholder text.
+            // Also look for "CHOOSE" as fallback.
+            // Find the clickable container or input inside a React Select.
+            const selects = [...document.querySelectorAll('*')].filter(el => {
+                if (!vis(el)) return false;
+                const t = el.textContent.trim();
+                // React Select placeholder "Select..."
+                if (t === 'Select...' && el.children.length <= 2) return true;
+                // "CHOOSE" fallback
+                if (t.toUpperCase() === 'CHOOSE' && el.children.length === 0) return true;
+                return false;
+            });
+            if (selects.length === 0) return null;
 
-            chooses[0].setAttribute('data-fill-choose', 'true');
+            // Tag the first one
+            selects[0].setAttribute('data-fill-role', 'true');
+
+            // Also look for an input inside or near it (React Select has a hidden input)
+            let inp = selects[0].querySelector('input');
+            if (!inp) {
+                // Check parent
+                let p = selects[0].parentElement;
+                for (let i = 0; i < 5; i++) {
+                    if (!p) break;
+                    inp = p.querySelector('input');
+                    if (inp) break;
+                    p = p.parentElement;
+                }
+            }
+            if (inp) inp.setAttribute('data-fill-role-input', 'true');
 
             // Detect section
             let section = '';
-            let node = chooses[0];
+            let node = selects[0];
             for (let j = 0; j < 15; j++) {
                 node = node.parentElement;
                 if (!node) break;
                 const t = node.textContent.toLowerCase();
                 if (t.includes('performing')) { section = 'performing'; break; }
                 if (t.includes('producer') || t.includes('engineer')) { section = 'producer'; break; }
+                if (t.includes('song artists')) { section = 'song_artists'; break; }
             }
-            return { section: section, remaining: chooses.length };
+            return { section: section, remaining: selects.length };
         }""")
 
         if not found:
-            log.info(f"  No more CHOOSE buttons (after {attempt} fills)")
+            log.info(f"  No more role Select dropdowns (after {attempt} fills)")
             break
 
         section = found.get('section', '')
         if 'producer' in section:
-            prefer = ['producer', 'prod']
+            role_to_type = 'producer'
         else:
-            prefer = ['main artist', 'main', 'primary artist', 'primary']
+            role_to_type = 'performer'
 
-        log.info(f"  [{attempt}] Role ({section or 'unknown'}): clicking area near CHOOSE...")
+        log.info(f"  [{attempt}] Role ({section or 'unknown'}): clicking Select dropdown, typing '{role_to_type}'...")
         try:
-            # CHOOSE is just a label. The clickable dropdown/select is the
-            # PARENT container or a SIBLING element next to it.
-            # Tag the right clickable element.
-            page.evaluate("""() => {
-                document.querySelectorAll('[data-role-trigger]').forEach(
-                    el => el.removeAttribute('data-role-trigger'));
-                const choose = document.querySelector('[data-fill-choose]');
-                if (!choose) return;
+            # Click the "Select..." element to open dropdown
+            sel_el = page.locator("[data-fill-role='true']").first
+            if sel_el.is_visible(timeout=2000):
+                sel_el.click()
+                page.wait_for_timeout(1000)
 
-                // Try parent elements — the wrapper div/button is the trigger
-                let node = choose;
-                for (let i = 0; i < 5; i++) {
-                    node = node.parentElement;
-                    if (!node) break;
-                    // If parent is a button, select, or has role=combobox — that's it
-                    const tag = node.tagName.toLowerCase();
-                    if (tag === 'button' || tag === 'select' ||
-                        node.getAttribute('role') === 'combobox' ||
-                        node.getAttribute('role') === 'listbox' ||
-                        node.classList.contains('select') ||
-                        node.classList.toString().toLowerCase().includes('dropdown') ||
-                        node.classList.toString().toLowerCase().includes('select')) {
-                        node.setAttribute('data-role-trigger', 'true');
-                        return;
-                    }
-                }
+            # Try to type in the React Select input to filter options
+            role_input = page.locator("[data-fill-role-input='true']").first
+            try:
+                if role_input.is_visible(timeout=1000):
+                    role_input.fill("")
+                    role_input.type(role_to_type, delay=60)
+                    page.wait_for_timeout(1500)
+                    log.info(f"  [{attempt}] Typed '{role_to_type}' in role input")
+                else:
+                    raise Exception("input not visible")
+            except Exception:
+                # No input found, just type with keyboard (focus should be on select)
+                page.keyboard.type(role_to_type, delay=60)
+                page.wait_for_timeout(1500)
+                log.info(f"  [{attempt}] Typed '{role_to_type}' via keyboard")
 
-                // Try siblings of CHOOSE element
-                const parent = choose.parentElement;
-                if (parent) {
-                    for (const sib of parent.children) {
-                        if (sib === choose) continue;
-                        const tag = sib.tagName.toLowerCase();
-                        if (tag === 'select' || tag === 'input' || tag === 'button' ||
-                            sib.getAttribute('role') === 'combobox') {
-                            sib.setAttribute('data-role-trigger', 'true');
-                            return;
-                        }
-                    }
-                }
-
-                // Fallback: click the direct parent of CHOOSE
-                if (choose.parentElement) {
-                    choose.parentElement.setAttribute('data-role-trigger', 'true');
-                }
-            }""")
-
-            # Click the trigger (the box next to CHOOSE)
-            trigger = page.locator("[data-role-trigger='true']").first
-            if trigger.is_visible(timeout=2000):
-                trigger.click()
-                page.wait_for_timeout(2000)
-                log.info(f"  [{attempt}] Clicked role trigger (box near CHOOSE)")
-            else:
-                # Fallback: click CHOOSE text itself
-                cb = page.locator("[data-fill-choose='true']").first
-                if cb.is_visible(timeout=1000):
-                    cb.click()
-                    page.wait_for_timeout(2000)
-                    log.info(f"  [{attempt}] Clicked CHOOSE text directly")
-
-            # Now select from dropdown
-            if 'producer' in section:
-                role_texts = ['Producer', 'Prod', 'Engineer', 'Mixer']
-            else:
-                role_texts = ['Main Artist', 'Primary Artist', 'Featured',
-                              'Artist', 'Vocalist', 'Singer']
-
+            # Select from the filtered dropdown
             clicked_role = False
-            for role_text in role_texts:
+
+            # Strategy 1: click matching option by text
+            for role_text in [role_to_type, role_to_type.capitalize(),
+                              role_to_type.title()]:
                 try:
-                    opt = page.get_by_text(role_text, exact=True).first
-                    if opt.is_visible(timeout=800):
+                    opt = page.locator(
+                        "[role='option'], [class*='option'], [class*='Option']"
+                    ).filter(has_text=role_text).first
+                    if opt.is_visible(timeout=1000):
                         opt.click()
                         page.wait_for_timeout(500)
-                        log.info(f"  [{attempt}] Role: '{role_text}'")
+                        log.info(f"  [{attempt}] Role: selected '{role_text}' from dropdown")
                         clicked_role = True
                         break
                 except Exception:
                     continue
 
+            # Strategy 2: get_by_text
             if not clicked_role:
-                _click_dropdown_option(page, '', f"Role ({section})", prefer)
+                try:
+                    opt = page.get_by_text(role_to_type, exact=False).first
+                    if opt.is_visible(timeout=800):
+                        opt.click()
+                        page.wait_for_timeout(500)
+                        log.info(f"  [{attempt}] Role: '{role_to_type}' (text match)")
+                        clicked_role = True
+                except Exception:
+                    pass
+
+            # Strategy 3: keyboard Enter to pick first filtered option
+            if not clicked_role:
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(500)
+                log.info(f"  [{attempt}] Role: keyboard Enter fallback")
 
             page.wait_for_timeout(1000)
         except Exception as e:
-            log.warning(f"  [{attempt}] CHOOSE failed: {e}")
+            log.warning(f"  [{attempt}] Role select failed: {e}")
 
 
 def _upload_file(page, file_path: Path):
@@ -1240,7 +1239,7 @@ def _do_upload(
                             except Exception:
                                 continue
 
-                        # ── 2. Songwriter — plain text field, type the name ──
+                        # ── 2. Songwriter — autocomplete: type a few letters → select from dropdown ──
                         filled_writer = False
                         for sel in [
                             "input[placeholder*='Legal First' i]",
@@ -1251,10 +1250,8 @@ def _do_upload(
                             try:
                                 el = page.locator(sel).first
                                 if el.is_visible(timeout=1500):
-                                    el.fill(artist)
-                                    page.wait_for_timeout(500)
-                                    log.info(f"  Songwriter: '{artist}'")
-                                    filled_writer = True
+                                    filled_writer = _fill_autocomplete(
+                                        page, sel, artist, "Songwriter")
                                     break
                             except Exception:
                                 continue
