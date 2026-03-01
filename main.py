@@ -2,6 +2,7 @@
 """Afro House Music Pipeline — Full automation: generate, merge, thumbnail, video, upload."""
 
 import argparse
+import os
 import signal
 import sys
 from pathlib import Path
@@ -568,6 +569,37 @@ def cmd_schedule(args):
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.events import EVENT_JOB_MISSED, EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 
+    # ── Prevent multiple scheduler instances running at the same time ──
+    lock_path = Path(__file__).parent / ".scheduler.lock"
+    _lock_fd = None
+    import platform as plat
+    if plat.system() == "Windows":
+        import msvcrt
+        try:
+            _lock_fd = open(lock_path, "w")
+            msvcrt.locking(_lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+            _lock_fd.write(str(os.getpid()))
+            _lock_fd.flush()
+        except (OSError, IOError):
+            log.error("Scheduler-ul DEJA ruleaza intr-o alta fereastra!")
+            log.error("Inchide cealalta fereastra (CMD sau PowerShell) si incearca din nou.")
+            if _lock_fd:
+                _lock_fd.close()
+            sys.exit(1)
+    else:
+        import fcntl
+        try:
+            _lock_fd = open(lock_path, "w")
+            fcntl.flock(_lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_fd.write(str(os.getpid()))
+            _lock_fd.flush()
+        except (OSError, IOError):
+            log.error("Scheduler-ul DEJA ruleaza intr-o alta fereastra!")
+            log.error("Inchide cealalta fereastra si incearca din nou.")
+            if _lock_fd:
+                _lock_fd.close()
+            sys.exit(1)
+
     TIMEZONE = "Europe/Bucharest"
 
     # Log scheduler events (missed jobs, errors, successes)
@@ -634,6 +666,14 @@ def cmd_schedule(args):
     def shutdown(signum, frame):
         log.info("Shutting down scheduler...")
         scheduler.shutdown(wait=False)
+        # Release lock file
+        if _lock_fd:
+            _lock_fd.close()
+        if lock_path.exists():
+            try:
+                lock_path.unlink()
+            except OSError:
+                pass
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)

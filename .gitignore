@@ -29,3 +29,4 @@ Thumbs.db
 
 # Generated launcher (created by autostart command)
 schedule_silent.vbs
+.scheduler.lock
