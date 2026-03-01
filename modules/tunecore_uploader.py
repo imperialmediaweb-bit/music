@@ -1430,7 +1430,13 @@ def _do_upload(
                                 for (let i = 0; i < 10; i++) {
                                     node = node.parentElement;
                                     if (!node) break;
-                                    if (node.textContent.toLowerCase().includes('cover')) {
+                                    if (node.textContent.toLowerCase().includes('cover') ||
+                                        node.textContent.toLowerCase().includes('copyright')) {
+                                        const nativeSet = Object.getOwnPropertyDescriptor(
+                                            window.HTMLInputElement.prototype, 'checked').set;
+                                        nativeSet.call(r, true);
+                                        r.dispatchEvent(new Event('input', {bubbles: true}));
+                                        r.dispatchEvent(new Event('change', {bubbles: true}));
                                         r.click();
                                         return 'OK';
                                     }
