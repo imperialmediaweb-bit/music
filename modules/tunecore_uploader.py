@@ -720,16 +720,10 @@ def _do_upload(
             ])
             if add_track_btn:
                 add_track_btn.click()
-                # Wait for track form to load (can be slow)
-                log.info("  Waiting for track form to load...")
-                for i in range(24):  # 24 x 5s = 120s
-                    page.wait_for_timeout(5000)
-                    # Check if track form inputs are visible
-                    if page.locator("input[name*='title' i], input[name*='track' i], input[name*='song' i]").first.is_visible(timeout=500):
-                        log.info(f"  Track form loaded after ~{(i + 1) * 5}s")
-                        break
-                    if i % 4 == 3:
-                        log.info(f"  Still waiting... ({(i + 1) * 5}s)")
+                # Wait 1 minute minimum for TuneCore to load the track form
+                log.info("  Waiting 1 min for track form to load...")
+                page.wait_for_timeout(60_000)
+                log.info("  1 min passed — checking if form is ready...")
             else:
                 log.warning("  'Add Track' button not found — may auto-navigate")
 
