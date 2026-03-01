@@ -132,18 +132,28 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
 
     # Upload to TuneCore
     if only in (None, "tunecore"):
-        wav_file = OUTPUT_DIR / f"{track_name}.wav"
+        # Files may use underscores instead of spaces (audio_merger convention)
+        name_variants = [track_name, track_name.replace(" ", "_")]
+        wav_file = None
+        for name in name_variants:
+            candidate = OUTPUT_DIR / f"{name}.wav"
+            if candidate.exists():
+                wav_file = candidate
+                break
         # Look for existing cover art
         cover_file = None
-        for suffix in ["_cover.jpg", "_cover.png"]:
-            candidate = OUTPUT_DIR / f"{track_name}{suffix}"
-            if candidate.exists():
-                cover_file = candidate
+        for name in name_variants:
+            for suffix in ["_cover.jpg", "_cover.png"]:
+                candidate = OUTPUT_DIR / f"{name}{suffix}"
+                if candidate.exists():
+                    cover_file = candidate
+                    break
+            if cover_file:
                 break
 
-        if not wav_file.exists():
-            log.warning(f"WAV file not found ({wav_file}) — skipping TuneCore")
-            result["errors"].append(f"tunecore: WAV not found at {wav_file}")
+        if not wav_file:
+            log.warning(f"WAV file not found in {OUTPUT_DIR} (tried {track_name}.wav / {track_name.replace(' ', '_')}.wav) — skipping TuneCore")
+            result["errors"].append(f"tunecore: WAV not found in {OUTPUT_DIR}")
         elif not cover_file:
             # Generate cover art if missing
             try:
@@ -155,7 +165,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
                 log.error(f"Cover art generation failed: {e}")
                 result["errors"].append(f"cover_art: {e}")
 
-        if wav_file.exists() and cover_file:
+        if wav_file and cover_file:
             try:
                 log.info("=" * 60)
                 log.info("Uploading to TuneCore...")
