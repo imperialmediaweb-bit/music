@@ -220,65 +220,95 @@ def _find_clickable(page, selectors: list[str]):
 
 
 def _fill_combobox(page, input_selector: str, text: str, field_label: str) -> bool:
-    """Fill a TuneCore combobox (custom autocomplete text input).
+    """Fill any TuneCore dropdown — auto-detects MUI Select vs MUI Autocomplete.
 
-    TuneCore uses React autocomplete inputs (not <select> elements).
-    Flow: click input -> type text -> wait for dropdown options -> click match.
+    MUI Select:  hidden <input> + visible sibling <div role=combobox>.
+                 Click the div, pick from the [role=listbox] popup.
+    MUI Autocomplete:  visible <input> you type into.
+                 Type text, pick from the filtered option list.
     """
     try:
         el = page.locator(input_selector).first
-        if not el.is_visible(timeout=2000):
-            log.info(f"  Combobox '{field_label}' not visible: {input_selector}")
+        if el.count() == 0:
+            log.info(f"  '{field_label}': element not found — {input_selector}")
             return False
 
-        # Click to open the dropdown
+        # ── Auto-detect: MUI Select (hidden native input) vs Autocomplete ──
+        is_mui_select = False
+        try:
+            is_mui_select = el.evaluate(
+                "el => el.classList.contains('MuiSelect-nativeInput')"
+                " || el.getAttribute('aria-hidden') === 'true'"
+                " || el.tabIndex === -1"
+            )
+        except Exception:
+            pass
+
+        if is_mui_select:
+            # ── MUI Select path ──
+            # The visible control is a sibling <div role=combobox> in the same parent
+            combobox = el.locator("xpath=..").locator("[role='combobox']").first
+            if not combobox.is_visible(timeout=3000):
+                log.info(f"  '{field_label}': MUI Select combobox div not visible")
+                return False
+
+            combobox.click()
+            page.wait_for_timeout(1000)
+
+            # Pick from the popup listbox
+            option = page.locator("[role='listbox'] [role='option']").filter(has_text=text).first
+            try:
+                if option.is_visible(timeout=3000):
+                    option.click()
+                    page.wait_for_timeout(500)
+                    log.info(f"  {field_label}: {text} (MUI Select)")
+                    return True
+            except Exception:
+                pass
+
+            # Option not found — close dropdown
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+            log.warning(f"  '{field_label}': option '{text}' not in MUI Select list")
+            return False
+
+        # ── MUI Autocomplete path ──
+        if not el.is_visible(timeout=2000):
+            log.info(f"  '{field_label}': input not visible — {input_selector}")
+            return False
+
         el.click()
         page.wait_for_timeout(500)
-
-        # Clear existing value and type new text
         el.fill("")
         page.wait_for_timeout(300)
         el.type(text, delay=80)
         page.wait_for_timeout(1500)
 
-        # Look for dropdown option matching our text
-        option_selectors = [
-            f"li:has-text('{text}')",
-            f"[role='option']:has-text('{text}')",
-            f"[role='listbox'] >> text='{text}'",
-            f".MuiAutocomplete-option:has-text('{text}')",
-            f"[class*='option' i]:has-text('{text}')",
-            f"[class*='menu' i] >> text='{text}'",
-            f"[class*='list' i] >> text='{text}'",
-            f"div[class*='dropdown' i] >> text='{text}'",
-        ]
-        for opt_sel in option_selectors:
-            try:
-                opt = page.locator(opt_sel).first
-                if opt.is_visible(timeout=1000):
-                    opt.click()
-                    page.wait_for_timeout(500)
-                    log.info(f"  {field_label}: {text} (via {opt_sel})")
-                    return True
-            except Exception:
-                continue
+        # Find matching option in the popup
+        option = page.locator("[role='option']").filter(has_text=text).first
+        try:
+            if option.is_visible(timeout=2000):
+                option.click()
+                page.wait_for_timeout(500)
+                log.info(f"  {field_label}: {text} (Autocomplete)")
+                return True
+        except Exception:
+            pass
 
-        # Fallback: press Enter to accept the typed text or first suggestion
+        # Fallback: keyboard — select the first suggestion
         el.press("ArrowDown")
         page.wait_for_timeout(300)
         el.press("Enter")
         page.wait_for_timeout(500)
-
-        # Check if value was accepted
         val = el.input_value()
         if val.strip():
-            log.info(f"  {field_label}: {val} (via Enter key)")
+            log.info(f"  {field_label}: {val} (keyboard fallback)")
             return True
 
-        log.warning(f"  Combobox '{field_label}' could not select '{text}'")
+        log.warning(f"  '{field_label}': could not select '{text}'")
         return False
     except Exception as e:
-        log.warning(f"  Combobox '{field_label}' error: {e}")
+        log.warning(f"  '{field_label}' error: {e}")
         return False
 
 
