@@ -1149,7 +1149,7 @@ def _do_upload(
                             except Exception:
                                 continue
 
-                        # ── 2. Songwriter — always fill with artist name ──
+                        # ── 2. Songwriter — click input, select from dropdown ──
                         filled_writer = False
                         for sel in [
                             "input[placeholder*='Legal First' i]",
@@ -1158,42 +1158,30 @@ def _do_upload(
                             "input[name*='writer' i]",
                         ]:
                             try:
-                                if _fill_autocomplete(page, sel, artist, "Songwriter"):
+                                el = page.locator(sel).first
+                                if el.is_visible(timeout=1500):
+                                    el.click()
+                                    page.wait_for_timeout(1500)
+                                    _click_dropdown_option(page, artist, "Songwriter")
+                                    page.wait_for_timeout(1000)
                                     filled_writer = True
                                     break
                             except Exception:
                                 continue
                         if not filled_writer:
-                            # Brute force: find ANY empty text input in songwriter area via JS
-                            page.evaluate("""(name) => {
+                            # Brute force: click ANY empty text input in songwriter area
+                            page.evaluate("""() => {
                                 const all = [...document.querySelectorAll('input')].filter(
                                     el => el.offsetWidth > 0 && el.type === 'text' && !el.value.trim());
-                                // First empty text input is usually songwriter
-                                if (all.length > 0) {
-                                    const el = all[0];
-                                    el.focus(); el.value = name;
-                                    el.dispatchEvent(new Event('input', {bubbles: true}));
-                                    el.dispatchEvent(new Event('change', {bubbles: true}));
-                                }
-                            }""", artist)
+                                if (all.length > 0) { all[0].click(); }
+                            }""")
                             page.wait_for_timeout(1500)
-                            log.info(f"  Songwriter: brute-force filled '{artist}'")
+                            _click_dropdown_option(page, artist, "Songwriter (brute)")
+                            page.wait_for_timeout(1000)
+                            log.info(f"  Songwriter: brute-force click-select '{artist}'")
 
-                        # ── 3. Song Artists & Creatives — always try ──
-                        for sel in [
-                            "input[name*='artist' i][name*='name' i]",
-                            "input[name*='creative' i]",
-                            "input[placeholder*='Artist' i]",
-                        ]:
-                            try:
-                                el = page.locator(sel).first
-                                if el.is_visible(timeout=1500):
-                                    _fill_autocomplete(page, sel, artist, "Song Artist")
-                                    break
-                            except Exception:
-                                continue
-
-                        # ── 4 & 5. Performing Artists + Producers (CHOOSE dropdowns) ──
+                        # ── 3 & 4 & 5. Artists & Creatives + Performing Artists + Producers ──
+                        #    All handled by _fill_choose_sections (click → dropdown → select)
                         _fill_choose_sections(page, artist)
 
                         # ── 6. Copyright Ownership: NOT a cover ──
