@@ -695,8 +695,33 @@ def _fill_choose_sections(page, artist: str):
             cb = page.locator("[data-fill-choose='true']").first
             if cb.is_visible(timeout=2000):
                 cb.click()
-                page.wait_for_timeout(1500)
-                _click_dropdown_option(page, '', f"Role ({section})", prefer)
+                page.wait_for_timeout(2000)
+
+                # Strategy 1: click role option directly by text (Playwright)
+                if 'producer' in section:
+                    role_texts = ['Producer', 'Prod', 'Engineer', 'Mixer']
+                else:
+                    role_texts = ['Main Artist', 'Primary Artist', 'Featured',
+                                  'Artist', 'Vocalist', 'Singer']
+                clicked_role = False
+                for role_text in role_texts:
+                    try:
+                        opt = page.get_by_text(role_text, exact=True).first
+                        if opt.is_visible(timeout=800):
+                            opt.click()
+                            page.wait_for_timeout(500)
+                            log.info(f"  [{attempt}] Role: '{role_text}' (text match)")
+                            clicked_role = True
+                            break
+                    except Exception:
+                        continue
+
+                # Strategy 2: _click_dropdown_option (broader selectors)
+                if not clicked_role:
+                    log.info(f"  [{attempt}] Text match failed, trying dropdown selectors...")
+                    _click_dropdown_option(page, '', f"Role ({section})", prefer)
+                    clicked_role = True
+
                 page.wait_for_timeout(1000)
         except Exception as e:
             log.warning(f"  [{attempt}] CHOOSE failed: {e}")
