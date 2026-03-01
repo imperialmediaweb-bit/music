@@ -516,15 +516,18 @@ def _click_dropdown_option(page, name: str, label: str, prefer: list = None):
             '[id*=option]',
             '[class*=menu] div', '[class*=Menu] div',
             '[class*=listbox] div',
+            '[class*=dropdown] li', '[class*=Dropdown] li',
+            '[class*=dropdown] div', '[class*=Dropdown] div',
+            'ul li', '.list-group li',
         ];
 
         let opts = [];
         for (const sel of selectors) {
             const found = [...document.querySelectorAll(sel)].filter(el =>
                 vis(el) && el.textContent.trim().length > 0 &&
+                el.textContent.trim().length < 60 &&
                 el.textContent.trim().toUpperCase() !== 'CHOOSE' &&
-                el.textContent.trim().toLowerCase() !== 'select...' &&
-                el.children.length === 0);
+                el.textContent.trim().toLowerCase() !== 'select...');
             opts.push(...found);
         }
         opts = [...new Set(opts)];
@@ -1182,94 +1185,142 @@ def _do_upload(
                         _fill_choose_sections(page, artist)
 
                         # ── 6. Copyright Ownership: "No" (not a cover) ──
-                        # Tag the "No" label/radio near "cover", then Playwright clicks it
-                        page.evaluate("""() => {
+                        # Must click the actual <input type=radio>, not just the label,
+                        # AND fire React events so state updates.
+                        copyright_result = page.evaluate("""() => {
                             const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-                            // Find all labels (radio labels are typically <label> wrapping text)
-                            const labels = [...document.querySelectorAll('label, span')]
-                                .filter(el => vis(el) && el.textContent.trim().toLowerCase() === 'no');
-                            for (const lbl of labels) {
-                                let node = lbl;
-                                for (let i = 0; i < 10; i++) {
-                                    node = node.parentElement;
-                                    if (!node) break;
-                                    if (node.textContent.toLowerCase().includes('cover')) {
-                                        lbl.setAttribute('data-copyright-no', 'true');
-                                        return;
+                            const radios = [...document.querySelectorAll('input[type=radio]')];
+                            for (const r of radios) {
+                                const lbl = r.closest('label') || r.parentElement;
+                                const txt = lbl ? lbl.textContent.trim().toLowerCase() : '';
+                                if (txt === 'no' || txt.includes('no')) {
+                                    let node = r;
+                                    for (let i = 0; i < 12; i++) {
+                                        node = node.parentElement;
+                                        if (!node) break;
+                                        if (node.textContent.toLowerCase().includes('cover')) {
+                                            // Found: click radio input + fire React events
+                                            r.checked = true;
+                                            r.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+                                            r.dispatchEvent(new Event('input', {bubbles: true}));
+                                            r.dispatchEvent(new Event('change', {bubbles: true}));
+                                            if (lbl) lbl.click();
+                                            r.setAttribute('data-copyright-no', 'true');
+                                            return 'clicked_radio';
+                                        }
                                     }
                                 }
                             }
+                            return 'not_found';
                         }""")
+                        log.info(f"  Copyright JS: {copyright_result}")
+                        # Also Playwright-click the radio for extra reliability
                         try:
-                            no_el = page.locator("[data-copyright-no='true']").first
-                            if no_el.is_visible(timeout=2000):
-                                no_el.click()
+                            no_radio = page.locator("[data-copyright-no='true']").first
+                            if no_radio.is_visible(timeout=1000):
+                                no_radio.click(force=True)
                                 page.wait_for_timeout(500)
-                                log.info("  Copyright: No (not a cover)")
-                            else:
-                                log.warning("  Copyright: 'No' label not visible")
-                        except Exception as e:
-                            log.warning(f"  Copyright: failed: {e}")
+                                log.info("  Copyright: No (Playwright click on input)")
+                        except Exception:
+                            pass
 
                         # ── 7. Instrumental — check the checkbox ──
-                        page.evaluate("""() => {
+                        instr_result = page.evaluate("""() => {
                             const cbs = [...document.querySelectorAll('input[type=checkbox]')];
                             for (const cb of cbs) {
                                 const lbl = cb.closest('label') || cb.parentElement;
                                 if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
                                     if (!cb.checked) {
-                                        lbl.setAttribute('data-instrumental', 'true');
+                                        cb.checked = true;
+                                        cb.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+                                        cb.dispatchEvent(new Event('input', {bubbles: true}));
+                                        cb.dispatchEvent(new Event('change', {bubbles: true}));
+                                        cb.setAttribute('data-instrumental-cb', 'true');
+                                        if (lbl) lbl.click();
+                                        return 'clicked';
                                     }
-                                    return;
+                                    return 'already_checked';
                                 }
                             }
-                            // Fallback: any element with "instrumental" text
-                            const els = [...document.querySelectorAll('label, span, div')]
-                                .filter(el => el.offsetWidth > 0);
-                            for (const el of els) {
-                                if (el.textContent.toLowerCase().includes('instrumental') &&
-                                    el.textContent.length < 80) {
-                                    el.setAttribute('data-instrumental', 'true');
-                                    return;
-                                }
-                            }
+                            return 'not_found';
                         }""")
+                        log.info(f"  Instrumental JS: {instr_result}")
                         try:
-                            instr_el = page.locator("[data-instrumental='true']").first
-                            if instr_el.is_visible(timeout=2000):
-                                instr_el.click()
+                            instr_cb = page.locator("[data-instrumental-cb='true']").first
+                            if instr_cb.is_visible(timeout=1000):
+                                instr_cb.click(force=True)
                                 page.wait_for_timeout(500)
-                                log.info("  Instrumental: checked")
-                        except Exception as e:
-                            log.warning(f"  Instrumental: failed: {e}")
+                                log.info("  Instrumental: checked (Playwright)")
+                        except Exception:
+                            pass
 
                         # ── 8. Explicit lyrics = No ──
-                        page.evaluate("""() => {
-                            const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-                            const candidates = [...document.querySelectorAll(
-                                'button, [role=button], label, span, div, a'
-                            )].filter(el =>
-                                vis(el) && el.textContent.trim().toLowerCase() === 'no');
-                            for (const el of candidates) {
-                                let node = el;
-                                for (let i = 0; i < 10; i++) {
-                                    node = node.parentElement;
-                                    if (!node) break;
-                                    if (node.textContent.toLowerCase().includes('explicit')) {
-                                        el.setAttribute('data-explicit-no', 'true');
-                                        return;
+                        # When Instrumental is checked, TuneCore hides the Explicit section.
+                        is_instrumental = page.evaluate("""() => {
+                            const cbs = [...document.querySelectorAll('input[type=checkbox]')];
+                            for (const cb of cbs) {
+                                const lbl = cb.closest('label') || cb.parentElement;
+                                if (lbl && lbl.textContent.toLowerCase().includes('instrumental'))
+                                    return cb.checked;
+                            }
+                            return false;
+                        }""")
+                        if is_instrumental:
+                            log.info("  Explicit: skipped (Instrumental is checked, field hidden)")
+                        else:
+                            # TuneCore uses styled Yes/No toggle buttons near "explicit" text.
+                            explicit_result = page.evaluate("""() => {
+                                const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+                                document.querySelectorAll('[data-explicit-no]').forEach(
+                                    el => el.removeAttribute('data-explicit-no'));
+
+                                const candidates = [...document.querySelectorAll(
+                                    'button, [role=button], label, span, a, div'
+                                )].filter(el => vis(el) &&
+                                    el.textContent.trim().toLowerCase() === 'no' &&
+                                    el.offsetHeight < 60);
+
+                                for (const el of candidates) {
+                                    let node = el;
+                                    for (let i = 0; i < 10; i++) {
+                                        node = node.parentElement;
+                                        if (!node) break;
+                                        const t = node.textContent.toLowerCase();
+                                        if (t.includes('explicit') && !t.includes('cover')) {
+                                            el.setAttribute('data-explicit-no', 'true');
+                                            return { found: true, tag: el.tagName };
+                                        }
                                     }
                                 }
-                            }
-                        }""")
-                        try:
-                            no_btn = page.locator("[data-explicit-no='true']").first
-                            if no_btn.is_visible(timeout=2000):
-                                no_btn.click()
-                                page.wait_for_timeout(500)
-                                log.info("  Explicit: No")
-                        except Exception as e:
-                            log.warning(f"  Explicit: failed: {e}")
+
+                                // Fallback: radio buttons near "explicit"
+                                const radios = [...document.querySelectorAll('input[type=radio]')];
+                                for (const r of radios) {
+                                    const lbl = r.closest('label') || r.parentElement;
+                                    const txt = lbl ? lbl.textContent.trim().toLowerCase() : '';
+                                    if (txt === 'no') {
+                                        let node = r;
+                                        for (let i = 0; i < 10; i++) {
+                                            node = node.parentElement;
+                                            if (!node) break;
+                                            if (node.textContent.toLowerCase().includes('explicit')) {
+                                                r.setAttribute('data-explicit-no', 'true');
+                                                return { found: true, tag: 'INPUT_RADIO' };
+                                            }
+                                        }
+                                    }
+                                }
+                                return { found: false };
+                            }""")
+                            log.info(f"  Explicit tag: {explicit_result}")
+                            try:
+                                no_btn = page.locator("[data-explicit-no='true']").first
+                                if no_btn.is_visible(timeout=2000):
+                                    no_btn.click()
+                                    page.wait_for_timeout(500)
+                                    log.info("  Explicit: No (Playwright click)")
+                            except Exception as e:
+                                log.warning(f"  Explicit: failed: {e}")
 
                         page.wait_for_timeout(2000)
                         _dump_page_state(page, "Track Details — after fill")
