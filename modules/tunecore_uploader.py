@@ -690,39 +690,93 @@ def _fill_choose_sections(page, artist: str):
         else:
             prefer = ['main artist', 'main', 'primary artist', 'primary']
 
-        log.info(f"  [{attempt}] Role ({section or 'unknown'}): clicking CHOOSE...")
+        log.info(f"  [{attempt}] Role ({section or 'unknown'}): clicking area near CHOOSE...")
         try:
-            cb = page.locator("[data-fill-choose='true']").first
-            if cb.is_visible(timeout=2000):
-                cb.click()
+            # CHOOSE is just a label. The clickable dropdown/select is the
+            # PARENT container or a SIBLING element next to it.
+            # Tag the right clickable element.
+            page.evaluate("""() => {
+                document.querySelectorAll('[data-role-trigger]').forEach(
+                    el => el.removeAttribute('data-role-trigger'));
+                const choose = document.querySelector('[data-fill-choose]');
+                if (!choose) return;
+
+                // Try parent elements — the wrapper div/button is the trigger
+                let node = choose;
+                for (let i = 0; i < 5; i++) {
+                    node = node.parentElement;
+                    if (!node) break;
+                    // If parent is a button, select, or has role=combobox — that's it
+                    const tag = node.tagName.toLowerCase();
+                    if (tag === 'button' || tag === 'select' ||
+                        node.getAttribute('role') === 'combobox' ||
+                        node.getAttribute('role') === 'listbox' ||
+                        node.classList.contains('select') ||
+                        node.classList.toString().toLowerCase().includes('dropdown') ||
+                        node.classList.toString().toLowerCase().includes('select')) {
+                        node.setAttribute('data-role-trigger', 'true');
+                        return;
+                    }
+                }
+
+                // Try siblings of CHOOSE element
+                const parent = choose.parentElement;
+                if (parent) {
+                    for (const sib of parent.children) {
+                        if (sib === choose) continue;
+                        const tag = sib.tagName.toLowerCase();
+                        if (tag === 'select' || tag === 'input' || tag === 'button' ||
+                            sib.getAttribute('role') === 'combobox') {
+                            sib.setAttribute('data-role-trigger', 'true');
+                            return;
+                        }
+                    }
+                }
+
+                // Fallback: click the direct parent of CHOOSE
+                if (choose.parentElement) {
+                    choose.parentElement.setAttribute('data-role-trigger', 'true');
+                }
+            }""")
+
+            # Click the trigger (the box next to CHOOSE)
+            trigger = page.locator("[data-role-trigger='true']").first
+            if trigger.is_visible(timeout=2000):
+                trigger.click()
                 page.wait_for_timeout(2000)
+                log.info(f"  [{attempt}] Clicked role trigger (box near CHOOSE)")
+            else:
+                # Fallback: click CHOOSE text itself
+                cb = page.locator("[data-fill-choose='true']").first
+                if cb.is_visible(timeout=1000):
+                    cb.click()
+                    page.wait_for_timeout(2000)
+                    log.info(f"  [{attempt}] Clicked CHOOSE text directly")
 
-                # Strategy 1: click role option directly by text (Playwright)
-                if 'producer' in section:
-                    role_texts = ['Producer', 'Prod', 'Engineer', 'Mixer']
-                else:
-                    role_texts = ['Main Artist', 'Primary Artist', 'Featured',
-                                  'Artist', 'Vocalist', 'Singer']
-                clicked_role = False
-                for role_text in role_texts:
-                    try:
-                        opt = page.get_by_text(role_text, exact=True).first
-                        if opt.is_visible(timeout=800):
-                            opt.click()
-                            page.wait_for_timeout(500)
-                            log.info(f"  [{attempt}] Role: '{role_text}' (text match)")
-                            clicked_role = True
-                            break
-                    except Exception:
-                        continue
+            # Now select from dropdown
+            if 'producer' in section:
+                role_texts = ['Producer', 'Prod', 'Engineer', 'Mixer']
+            else:
+                role_texts = ['Main Artist', 'Primary Artist', 'Featured',
+                              'Artist', 'Vocalist', 'Singer']
 
-                # Strategy 2: _click_dropdown_option (broader selectors)
-                if not clicked_role:
-                    log.info(f"  [{attempt}] Text match failed, trying dropdown selectors...")
-                    _click_dropdown_option(page, '', f"Role ({section})", prefer)
-                    clicked_role = True
+            clicked_role = False
+            for role_text in role_texts:
+                try:
+                    opt = page.get_by_text(role_text, exact=True).first
+                    if opt.is_visible(timeout=800):
+                        opt.click()
+                        page.wait_for_timeout(500)
+                        log.info(f"  [{attempt}] Role: '{role_text}'")
+                        clicked_role = True
+                        break
+                except Exception:
+                    continue
 
-                page.wait_for_timeout(1000)
+            if not clicked_role:
+                _click_dropdown_option(page, '', f"Role ({section})", prefer)
+
+            page.wait_for_timeout(1000)
         except Exception as e:
             log.warning(f"  [{attempt}] CHOOSE failed: {e}")
 
