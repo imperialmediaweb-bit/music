@@ -211,8 +211,8 @@ def _do_upload(
 
         try:
             # ── STEP 1: Navigate to TuneCore dashboard ──
-            log.info("Step 1: Navigating to TuneCore...")
-            page.goto(TUNECORE_BASE, wait_until="domcontentloaded", timeout=30_000)
+            log.info("Step 1: Navigating to TuneCore dashboard...")
+            page.goto(f"{TUNECORE_BASE}/dashboard", wait_until="domcontentloaded", timeout=30_000)
             page.wait_for_timeout(3000)
 
             if not _check_login(page):
