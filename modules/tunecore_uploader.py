@@ -605,9 +605,9 @@ def _fill_choose_sections(page, artist: str):
     counts = page.evaluate("""() => {
         const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
 
-        // Artist/Creative name inputs — identified by placeholder text
+        // Artist/Creative name inputs — EMPTY ones only (skip already filled)
         const nameInputs = [...document.querySelectorAll('input[type=text]')].filter(el =>
-            vis(el) && (
+            vis(el) && !el.value.trim() && (
                 el.placeholder.toLowerCase().includes('artist') ||
                 el.placeholder.toLowerCase().includes('creative') ||
                 el.placeholder.toLowerCase().includes('add artist')
@@ -1149,7 +1149,7 @@ def _do_upload(
                             except Exception:
                                 continue
 
-                        # ── 2. Songwriter — click input, select from dropdown ──
+                        # ── 2. Songwriter — plain text field, type the name ──
                         filled_writer = False
                         for sel in [
                             "input[placeholder*='Legal First' i]",
@@ -1160,25 +1160,13 @@ def _do_upload(
                             try:
                                 el = page.locator(sel).first
                                 if el.is_visible(timeout=1500):
-                                    el.click()
-                                    page.wait_for_timeout(1500)
-                                    _click_dropdown_option(page, artist, "Songwriter")
-                                    page.wait_for_timeout(1000)
+                                    el.fill(artist)
+                                    page.wait_for_timeout(500)
+                                    log.info(f"  Songwriter: '{artist}'")
                                     filled_writer = True
                                     break
                             except Exception:
                                 continue
-                        if not filled_writer:
-                            # Brute force: click ANY empty text input in songwriter area
-                            page.evaluate("""() => {
-                                const all = [...document.querySelectorAll('input')].filter(
-                                    el => el.offsetWidth > 0 && el.type === 'text' && !el.value.trim());
-                                if (all.length > 0) { all[0].click(); }
-                            }""")
-                            page.wait_for_timeout(1500)
-                            _click_dropdown_option(page, artist, "Songwriter (brute)")
-                            page.wait_for_timeout(1000)
-                            log.info(f"  Songwriter: brute-force click-select '{artist}'")
 
                         # ── 3 & 4 & 5. Artists & Creatives + Performing Artists + Producers ──
                         #    All handled by _fill_choose_sections (click → dropdown → select)
