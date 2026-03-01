@@ -679,13 +679,17 @@ def _fill_choose_sections(page, artist: str):
             choose.click()
             page.wait_for_timeout(2000)
 
-            # Dropdown is now open. Pick "performer" for Performing Artists
-            # or "producer" for Producers section.
-            # Try performer first, then producer — both are in the dropdown.
+            # Dropdown is now open. Select from DROPDOWN OPTIONS ONLY
+            # (not any text on the page — avoid clicking already-filled tags).
+            # React Select options have role="option" or id/class containing "option".
             clicked_role = False
             for role_name in ['performer', 'producer']:
                 try:
-                    opt = page.get_by_text(role_name, exact=True).first
+                    # ONLY match actual dropdown options, not tags/chips on the page
+                    opt = page.locator(
+                        "[role='option'], [id*='option'], "
+                        "[class*='option'], [class*='Option']"
+                    ).filter(has_text=role_name).first
                     if opt.is_visible(timeout=1500):
                         opt.click()
                         page.wait_for_timeout(1000)
@@ -696,7 +700,7 @@ def _fill_choose_sections(page, artist: str):
                     continue
 
             if not clicked_role:
-                # Last resort: ArrowDown + Enter to pick first option
+                # Fallback: ArrowDown + Enter to pick first option
                 page.keyboard.press("ArrowDown")
                 page.wait_for_timeout(300)
                 page.keyboard.press("Enter")
