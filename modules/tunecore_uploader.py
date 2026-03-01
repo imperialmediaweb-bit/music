@@ -512,21 +512,87 @@ def _check_login(page) -> bool:
     return True
 
 
+def _detect_page(page) -> str:
+    """Scan the DOM and determine which TuneCore step the current page is on.
+
+    Returns one of: dashboard, choose_type, start, release_details,
+    add_track, track_details, upload_wav, artwork, review, release, done, unknown
+    """
+    state = page.evaluate("""() => {
+        const body = document.body?.innerText?.toLowerCase() || '';
+        const url = window.location.href.toLowerCase();
+        const has = (sel) => !!document.querySelector(sel);
+        const visible = (sel) => {
+            const el = document.querySelector(sel);
+            return el && el.offsetWidth > 0 && el.offsetHeight > 0;
+        };
+        const anyVisible = (...sels) => sels.some(s => visible(s));
+        const visibleBtn = (text) => {
+            return [...document.querySelectorAll('button, a, label, [role="button"]')]
+                .some(el => el.offsetWidth > 0 && el.textContent.toLowerCase().includes(text));
+        };
+
+        return {
+            url,
+            isDashboard: url.includes('/dashboard'),
+            hasTypeChoice: visibleBtn('single') && (visibleBtn('album') || visibleBtn('ep') || visibleBtn('ringtone')),
+            hasStartBtn: visibleBtn('start') || visibleBtn('begin'),
+            hasLangField: has('input[name="languageCode"]'),
+            hasGenreField: has('input[name="primaryGenreId"]'),
+            hasAddTrackBtn: visibleBtn('add track'),
+            hasWriterField: anyVisible('input[name*="songwriter" i]', 'input[name*="writer" i]'),
+            hasRoleField: has('input[name="role"]') || has('select[name="role"]')
+                || has('input[name="creativeRole"]') || has('select[name="creativeRole"]'),
+            hasFileInput: has('input[type="file"]'),
+            hasArtworkBtn: visibleBtn('add artwork') || visibleBtn('upload artwork')
+                || visibleBtn('cover art') || visibleBtn('add image'),
+            hasReviewBtn: visibleBtn('continue and review') || visibleBtn('continue & review'),
+            hasReleaseBtn: visibleBtn('release music'),
+            hasConfirm: body.includes('congrat') || body.includes('submitted your release')
+                || body.includes('in review'),
+        };
+    }""")
+
+    log.info(f"  Page scan: url={state.get('url', '?')}")
+    flags = [k for k, v in state.items() if k != 'url' and v]
+    if flags:
+        log.info(f"    Flags: {', '.join(flags)}")
+
+    if state.get('hasConfirm'):
+        return 'done'
+    if state.get('hasReleaseBtn') and not state.get('hasTypeChoice'):
+        return 'release'
+    if state.get('hasReviewBtn'):
+        return 'review'
+    if state.get('hasArtworkBtn') and not state.get('hasAddTrackBtn'):
+        return 'artwork'
+    if state.get('hasFileInput') and not state.get('hasWriterField'):
+        return 'upload_wav'
+    if state.get('hasWriterField') or state.get('hasRoleField'):
+        return 'track_details'
+    if state.get('hasAddTrackBtn'):
+        return 'add_track'
+    if state.get('hasLangField') or state.get('hasGenreField'):
+        return 'release_details'
+    if state.get('hasStartBtn') and not state.get('hasTypeChoice'):
+        return 'start'
+    if state.get('hasTypeChoice'):
+        return 'choose_type'
+    if state.get('isDashboard'):
+        return 'dashboard'
+    return 'unknown'
+
+
 def _do_upload(
     wav_path: Path,
     cover_path: Path,
     concept: MusicConcept,
     artist: str,
 ) -> str | None:
-    """Perform the actual TuneCore upload via Playwright.
+    """Upload to TuneCore using adaptive page detection.
 
-    Follows the exact web.tunecore.com flow:
-    1. Add Release -> Single -> Start
-    2. Release details (name, language, genre) -> Save
-    3. Tracks -> Add Track -> track details -> Save
-    4. Upload WAV -> Continue
-    5. Upload Artwork -> Save & Continue
-    6. Continue and Review -> Release Music
+    Scans the page after every action to decide what to do next.
+    Works for both new releases and resumed drafts — no hardcoded step order.
     """
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -546,432 +612,289 @@ def _do_upload(
         """)
 
         page = context.new_page()
+        step = 0
+        MAX_STEPS = 20
 
         try:
-            # ── STEP 1: Navigate to TuneCore dashboard ──
-            log.info("Step 1: Navigating to TuneCore dashboard...")
+            log.info("Navigating to TuneCore dashboard...")
             page.goto(f"{TUNECORE_BASE}/dashboard", wait_until="domcontentloaded", timeout=30_000)
             page.wait_for_timeout(3000)
 
             if not _check_login(page):
                 return None
-
             log.info(f"  Logged in: {page.url}")
-            page.screenshot(path="output/tunecore_01_dashboard.png")
-            _dump_page_state(page, "Step 1 — Dashboard")
 
-            # ── STEP 1b: Resume draft OR create new release ──
-            # Check if a draft with the same name already exists
-            draft_link = None
-            try:
-                draft_link = page.locator(f"a:has-text('{concept.track_name}')").first
-                if not draft_link.is_visible(timeout=2000):
-                    draft_link = None
-            except Exception:
-                draft_link = None
+            # ── Adaptive loop: detect → act → repeat ──
+            while step < MAX_STEPS:
+                step += 1
+                page.screenshot(path=f"output/tunecore_{step:02d}.png")
+                state = _detect_page(page)
+                log.info(f"{'='*50}")
+                log.info(f"[{step}] Page state: {state}")
+                log.info(f"{'='*50}")
 
-            if draft_link:
-                log.info(f"  Found existing draft '{concept.track_name}' — resuming...")
-                draft_link.click()
-                page.wait_for_timeout(5000)
-                page.screenshot(path="output/tunecore_02_resume_draft.png")
-                _dump_page_state(page, "Step 1b — Resumed Draft")
-            else:
-                log.info("Step 1b: Clicking 'Add Release'...")
-                add_release_btn = _find_clickable(page, [
-                    "text=Add Release",
-                    "button:has-text('Add Release')",
-                    "a:has-text('Add Release')",
-                    "text=Create New",
-                    "button:has-text('Create')",
-                ])
-                if add_release_btn:
-                    add_release_btn.click()
-                    page.wait_for_timeout(3000)
-                else:
-                    log.warning("  'Add Release' button not found, trying direct URL...")
-                    page.goto(f"{TUNECORE_BASE}/releases/new", wait_until="domcontentloaded", timeout=30_000)
-                    page.wait_for_timeout(3000)
-
-                page.screenshot(path="output/tunecore_02_add_release.png")
-                _dump_page_state(page, "Step 1b — After Add Release")
-
-            # ── STEP 2: Choose "Single" ──
-            log.info("Step 2: Selecting 'Single'...")
-            single_btn = _find_clickable(page, [
-                "text=Single",
-                "button:has-text('Single')",
-                "[data-type='single']",
-                "label:has-text('Single')",
-            ])
-            if single_btn:
-                single_btn.click()
-                page.wait_for_timeout(2000)
-            else:
-                log.warning("  'Single' option not found — may already be selected")
-
-            page.screenshot(path="output/tunecore_03_single.png")
-
-            # ── STEP 3: Click "Start" ──
-            log.info("Step 3: Clicking 'Start'...")
-            start_btn = _find_clickable(page, [
-                "button:has-text('Start')",
-                "a:has-text('Start')",
-                "button:has-text('Begin')",
-                "button:has-text('Continue')",
-            ])
-            if start_btn:
-                start_btn.click()
-                page.wait_for_timeout(3000)
-            else:
-                log.warning("  'Start' button not found — continuing...")
-
-            page.screenshot(path="output/tunecore_04_start.png")
-            _dump_page_state(page, "Step 3 — After Start")
-
-            # ── STEP 4: Release details ──
-            log.info("Step 4: Filling release details...")
-
-            # Track name / Release title
-            for sel in [
-                "input[name*='title' i]", "input[name*='name' i]",
-                "input[id*='title' i]", "input[id*='name' i]",
-                "input[placeholder*='title' i]", "input[placeholder*='name' i]",
-            ]:
-                try:
-                    el = page.locator(sel).first
-                    if el.is_visible(timeout=1500):
-                        el.fill(concept.track_name)
-                        log.info(f"  Title: {concept.track_name}")
-                        break
-                except Exception:
-                    continue
-
-            # Language = English
-            if not _smart_fill(page, "languageCode", "English", "Language"):
-                log.warning("  Could not fill Language dropdown")
-
-            # Primary genre = Afro house
-            genre_filled = False
-            for genre_label in ["Afro house", "Afro House", "Electronic", "Dance"]:
-                if _smart_fill(page, "primaryGenreId", genre_label, "Primary genre"):
-                    genre_filled = True
-                    break
-            if not genre_filled:
-                log.warning("  Could not fill Primary genre dropdown")
-
-            # Secondary genre = Afro house
-            sec_genre_filled = False
-            for genre_label in ["Afro house", "Afro House", "Electronic", "Dance"]:
-                if _smart_fill(page, "secondaryGenreId", genre_label, "Secondary genre"):
-                    sec_genre_filled = True
-                    break
-            if not sec_genre_filled:
-                log.warning("  Could not fill Secondary genre dropdown")
-
-            # Previously Released? = No
-            no_btn = _find_clickable(page, [
-                "label:has-text('No')",
-                "input[type='radio'][value='no']",
-                "input[type='radio'][value='false']",
-                "button:has-text('No')",
-            ])
-            if no_btn:
-                no_btn.click()
-                log.info("  Previously Released: No")
-
-            page.screenshot(path="output/tunecore_05_release_details.png")
-
-            # Click Save and wait for page to transition
-            log.info("  Saving release details...")
-            save_btn = _find_clickable(page, [
-                "button:has-text('Save')",
-                "button[type='submit']",
-                "a:has-text('Save')",
-            ])
-            if save_btn:
-                save_btn.click()
-                # TuneCore needs up to ~2 min to process and load the track page
-                log.info("  Waiting for page transition (~2 min)...")
-                for i in range(24):  # 24 x 5s = 120s = 2 min
-                    page.wait_for_timeout(5000)
-                    # Check if we've moved to the track page
-                    if page.locator("text=Add Track, button:has-text('Add Track')").first.is_visible(timeout=500):
-                        log.info(f"  Track page loaded after ~{(i + 1) * 5}s")
-                        break
-                    if page.locator("input[name*='track' i], input[name*='song' i]").first.is_visible(timeout=500):
-                        log.info(f"  Track form ready after ~{(i + 1) * 5}s")
-                        break
-                    if i % 4 == 3:
-                        log.info(f"  Still waiting... ({(i + 1) * 5}s)")
-            else:
-                log.warning("  'Save' button not found")
-
-            page.screenshot(path="output/tunecore_06_saved.png")
-            _dump_page_state(page, "Step 4 — After Save Release Details")
-
-            # ── STEP 5: Tracks -> Add Track ──
-            log.info("Step 5: Adding track...")
-            add_track_btn = _find_clickable(page, [
-                "text=Add Track",
-                "button:has-text('Add Track')",
-                "a:has-text('Add Track')",
-                "text=Add track",
-            ])
-            if add_track_btn:
-                add_track_btn.click()
-                # Wait 1 minute minimum for TuneCore to load the track form
-                log.info("  Waiting 1 min for track form to load...")
-                page.wait_for_timeout(60_000)
-                log.info("  1 min passed — checking if form is ready...")
-            else:
-                log.warning("  'Add Track' button not found — may auto-navigate")
-
-            page.screenshot(path="output/tunecore_07_add_track.png")
-            _dump_page_state(page, "Step 5 — After Add Track")
-
-            # ── STEP 6: Track details ──
-            log.info("Step 6: Filling track details...")
-
-            # Track name (may already be filled from release title)
-            for sel in [
-                "input[name*='track' i][name*='name' i]",
-                "input[name*='song' i][name*='title' i]",
-                "input[name*='title' i]",
-                "input[id*='track' i][id*='name' i]",
-                "input[placeholder*='track' i]",
-            ]:
-                try:
-                    el = page.locator(sel).first
-                    if el.is_visible(timeout=1500):
-                        current = el.input_value()
-                        if not current.strip():
-                            el.fill(concept.track_name)
-                        log.info(f"  Track name: {concept.track_name}")
-                        break
-                except Exception:
-                    continue
-
-            # Songwriter = GrooveGenix
-            for sel in [
-                "input[name*='songwriter' i]", "input[name*='writer' i]",
-                "input[id*='songwriter' i]", "input[id*='writer' i]",
-                "input[placeholder*='songwriter' i]", "input[placeholder*='writer' i]",
-            ]:
-                try:
-                    el = page.locator(sel).first
-                    if el.is_visible(timeout=1500):
-                        el.fill(artist)
-                        log.info(f"  Songwriter: {artist}")
-                        break
-                except Exception:
-                    continue
-
-            # Performing Artists: Artist Name = GrooveGenix
-            for sel in [
-                "input[name*='artist' i][name*='name' i]",
-                "input[name*='performing' i]",
-                "input[name*='creative' i]",
-                "input[id*='artist' i]",
-                "input[placeholder*='artist' i]",
-            ]:
-                try:
-                    el = page.locator(sel).first
-                    if el.is_visible(timeout=1500):
-                        el.fill(artist)
-                        log.info(f"  Performing Artist: {artist}")
-                        break
-                except Exception:
-                    continue
-
-            # Role = Main Artist — _smart_fill auto-detects select vs combobox
-            role_filled = False
-            for role_name in ["role", "creativeRole"]:
-                for role_val in ["Main Artist", "Primary Artist", "Artist"]:
-                    if _smart_fill(page, role_name, role_val, "Role"):
-                        role_filled = True
-                        break
-                if role_filled:
-                    break
-
-            # Copyright: Is this a cover? = No
-            # Look for radio buttons or toggles near "cover" text
-            cover_no = _find_clickable(page, [
-                "text=Is this a cover >> .. >> label:has-text('No')",
-                "input[name*='cover' i][value='no']",
-                "input[name*='cover' i][value='false']",
-            ])
-            if cover_no:
-                cover_no.click()
-                log.info("  Is this a cover: No")
-            else:
-                # Try generic No buttons near copyright section
-                no_btns = page.locator("label:has-text('No'), input[value='no']")
-                for i in range(no_btns.count()):
+                # ── DASHBOARD ──
+                if state == 'dashboard':
+                    draft = None
                     try:
-                        btn = no_btns.nth(i)
-                        if btn.is_visible(timeout=500):
-                            btn.click()
-                            break
+                        draft = page.locator(f"a:has-text('{concept.track_name}')").first
+                        if not draft.is_visible(timeout=2000):
+                            draft = None
                     except Exception:
-                        continue
+                        draft = None
 
-            # Instrumental - This song has no lyrics = check box (it IS instrumental)
-            instrumental_check = _find_clickable(page, [
-                "text=Instrumental",
-                "label:has-text('Instrumental')",
-                "input[name*='instrumental' i]",
-                "label:has-text('no lyrics')",
-            ])
-            if instrumental_check:
-                instrumental_check.click()
-                log.info("  Instrumental: checked")
+                    if draft:
+                        log.info(f"  Found draft '{concept.track_name}' — clicking...")
+                        draft.click()
+                        page.wait_for_timeout(5000)
+                    else:
+                        log.info("  No draft found — creating new release...")
+                        btn = _find_clickable(page, [
+                            "text=Add Release", "button:has-text('Add Release')",
+                            "a:has-text('Add Release')", "text=Create New",
+                        ])
+                        if btn:
+                            btn.click()
+                            page.wait_for_timeout(3000)
+                        else:
+                            page.goto(f"{TUNECORE_BASE}/releases/new",
+                                      wait_until="domcontentloaded", timeout=30_000)
+                            page.wait_for_timeout(3000)
 
-            page.screenshot(path="output/tunecore_08_track_details.png")
+                # ── CHOOSE TYPE (Single) ──
+                elif state == 'choose_type':
+                    btn = _find_clickable(page, [
+                        "text=Single", "button:has-text('Single')",
+                        "[data-type='single']", "label:has-text('Single')",
+                    ])
+                    if btn:
+                        btn.click()
+                        log.info("  Selected: Single")
+                        page.wait_for_timeout(2000)
 
-            # Save track details
-            log.info("  Saving track details...")
-            save_btn = _find_clickable(page, [
-                "button:has-text('Save')",
-                "button[type='submit']",
-            ])
-            if save_btn:
-                save_btn.click()
-                page.wait_for_timeout(5000)
+                # ── START ──
+                elif state == 'start':
+                    btn = _find_clickable(page, [
+                        "button:has-text('Start')", "a:has-text('Start')",
+                        "button:has-text('Begin')", "button:has-text('Continue')",
+                    ])
+                    if btn:
+                        btn.click()
+                        log.info("  Clicked Start")
+                        page.wait_for_timeout(3000)
 
-            page.screenshot(path="output/tunecore_09_track_saved.png")
-            _dump_page_state(page, "Step 6 — After Save Track Details")
+                # ── RELEASE DETAILS (title, language, genre) ──
+                elif state == 'release_details':
+                    log.info("  Filling release details...")
+                    for sel in ["input[name*='title' i]", "input[name*='name' i]"]:
+                        try:
+                            el = page.locator(sel).first
+                            if el.is_visible(timeout=1500):
+                                el.fill(concept.track_name)
+                                log.info(f"  Title: {concept.track_name}")
+                                break
+                        except Exception:
+                            continue
 
-            # ── STEP 7: Upload WAV ──
-            log.info(f"Step 7: Uploading WAV: {wav_path.name}")
-            _dump_page_state(page, "Step 7 — Before WAV Upload")
-            wav_uploaded = _upload_file(page, wav_path)
+                    _smart_fill(page, "languageCode", "English", "Language")
+                    for g in ["Afro house", "Afro House", "Electronic", "Dance"]:
+                        if _smart_fill(page, "primaryGenreId", g, "Primary genre"):
+                            break
+                    for g in ["Afro house", "Afro House", "Electronic", "Dance"]:
+                        if _smart_fill(page, "secondaryGenreId", g, "Secondary genre"):
+                            break
 
-            if not wav_uploaded:
-                page.screenshot(path="output/tunecore_error_wav_upload.png")
-                raise RuntimeError(
-                    f"CRITICAL: Failed to upload WAV file '{wav_path.name}'. "
-                    "Check the page state dump above and screenshots in output/ folder."
-                )
+                    no_btn = _find_clickable(page, [
+                        "label:has-text('No')", "input[type='radio'][value='no']",
+                        "input[type='radio'][value='false']",
+                    ])
+                    if no_btn:
+                        no_btn.click()
+                        log.info("  Previously Released: No")
 
-            # WAV files are large — wait up to 5 minutes
-            log.info("  Waiting for WAV upload (~5 min)...")
-            _wait_for_upload(page, timeout=360, file_was_set=wav_uploaded)
-            page.screenshot(path="output/tunecore_10_wav_uploaded.png")
-            _dump_page_state(page, "Step 7 — After WAV Upload")
+                    save = _find_clickable(page, [
+                        "button:has-text('Save')", "button[type='submit']",
+                    ])
+                    if save:
+                        save.click()
+                        log.info("  Saved — waiting for next page (~2 min)...")
+                        for i in range(24):
+                            page.wait_for_timeout(5000)
+                            ns = _detect_page(page)
+                            if ns != 'release_details':
+                                log.info(f"  Page changed → '{ns}' after ~{(i+1)*5}s")
+                                break
+                            if i % 4 == 3:
+                                log.info(f"  Still loading... ({(i+1)*5}s)")
 
-            # Click Continue after WAV upload
-            continue_btn = _find_clickable(page, [
-                "button:has-text('Continue')",
-                "button:has-text('Next')",
-                "a:has-text('Continue')",
-            ])
-            if continue_btn:
-                continue_btn.click()
-                page.wait_for_timeout(3000)
-                log.info("  Clicked Continue after WAV upload")
+                # ── ADD TRACK ──
+                elif state == 'add_track':
+                    btn = _find_clickable(page, [
+                        "text=Add Track", "button:has-text('Add Track')",
+                        "a:has-text('Add Track')", "text=Add track",
+                    ])
+                    if btn:
+                        btn.click()
+                        log.info("  Clicked Add Track — waiting 1 min...")
+                        page.wait_for_timeout(60_000)
 
-            page.screenshot(path="output/tunecore_11_after_wav.png")
+                # ── TRACK DETAILS (songwriter, artist, role) ──
+                elif state == 'track_details':
+                    log.info("  Filling track details...")
+                    for sel in [
+                        "input[name*='track' i][name*='name' i]",
+                        "input[name*='song' i][name*='title' i]",
+                        "input[name*='title' i]",
+                    ]:
+                        try:
+                            el = page.locator(sel).first
+                            if el.is_visible(timeout=1500):
+                                if not el.input_value().strip():
+                                    el.fill(concept.track_name)
+                                log.info(f"  Track name: {concept.track_name}")
+                                break
+                        except Exception:
+                            continue
 
-            # ── STEP 8: Upload Artwork ──
-            log.info(f"Step 8: Uploading cover art: {cover_path.name}")
-            _dump_page_state(page, "Step 8 — Before Cover Art Upload")
+                    for sel in ["input[name*='songwriter' i]", "input[name*='writer' i]"]:
+                        try:
+                            el = page.locator(sel).first
+                            if el.is_visible(timeout=1500):
+                                el.fill(artist)
+                                log.info(f"  Songwriter: {artist}")
+                                break
+                        except Exception:
+                            continue
 
-            # Look for "Add Artwork" button
-            artwork_btn = _find_clickable(page, [
-                "text=Add Artwork",
-                "button:has-text('Add Artwork')",
-                "a:has-text('Add Artwork')",
-                "text=Upload Artwork",
-                "button:has-text('Upload Artwork')",
-                "text=Add Cover Art",
-                "text=Upload Cover",
-                "text=Add Image",
-            ])
-            if artwork_btn:
-                artwork_btn.click()
-                page.wait_for_timeout(3000)
-                _dump_page_state(page, "Step 8 — After clicking Add Artwork")
+                    for sel in [
+                        "input[name*='artist' i][name*='name' i]",
+                        "input[name*='performing' i]", "input[name*='creative' i]",
+                    ]:
+                        try:
+                            el = page.locator(sel).first
+                            if el.is_visible(timeout=1500):
+                                el.fill(artist)
+                                log.info(f"  Performing Artist: {artist}")
+                                break
+                        except Exception:
+                            continue
 
-            cover_uploaded = _upload_file(page, cover_path)
+                    for rn in ["role", "creativeRole"]:
+                        ok = False
+                        for rv in ["Main Artist", "Primary Artist", "Artist"]:
+                            if _smart_fill(page, rn, rv, "Role"):
+                                ok = True
+                                break
+                        if ok:
+                            break
 
-            if not cover_uploaded:
-                page.screenshot(path="output/tunecore_error_cover_upload.png")
-                raise RuntimeError(
-                    f"CRITICAL: Failed to upload cover art '{cover_path.name}'. "
-                    "Check the page state dump above and screenshots in output/ folder."
-                )
+                    cover_no = _find_clickable(page, [
+                        "input[name*='cover' i][value='no']",
+                        "input[name*='cover' i][value='false']",
+                    ])
+                    if cover_no:
+                        cover_no.click()
+                        log.info("  Is this a cover: No")
 
-            # Wait for artwork upload (~1 min)
-            log.info("  Waiting for artwork upload (~1 min)...")
-            _wait_for_upload(page, timeout=120, file_was_set=cover_uploaded)
-            page.screenshot(path="output/tunecore_12_artwork_uploaded.png")
+                    instr = _find_clickable(page, [
+                        "label:has-text('Instrumental')", "input[name*='instrumental' i]",
+                        "label:has-text('no lyrics')",
+                    ])
+                    if instr:
+                        instr.click()
+                        log.info("  Instrumental: checked")
 
-            # Save and Continue
-            save_continue_btn = _find_clickable(page, [
-                "button:has-text('Save and Continue')",
-                "button:has-text('Save & Continue')",
-                "button:has-text('Continue')",
-                "button:has-text('Save')",
-            ])
-            if save_continue_btn:
-                save_continue_btn.click()
-                page.wait_for_timeout(5000)
-                log.info("  Clicked Save & Continue after artwork")
+                    save = _find_clickable(page, [
+                        "button:has-text('Save')", "button[type='submit']",
+                    ])
+                    if save:
+                        save.click()
+                        log.info("  Saved track — waiting 1 min...")
+                        page.wait_for_timeout(60_000)
 
-            page.screenshot(path="output/tunecore_13_after_artwork.png")
+                # ── UPLOAD WAV ──
+                elif state == 'upload_wav':
+                    log.info(f"  Uploading WAV: {wav_path.name}")
+                    _dump_page_state(page, "Before WAV Upload")
+                    wav_ok = _upload_file(page, wav_path)
+                    if not wav_ok:
+                        raise RuntimeError(f"Failed to upload WAV '{wav_path.name}'")
+                    log.info("  Waiting for WAV upload (~5 min)...")
+                    _wait_for_upload(page, timeout=360, file_was_set=wav_ok)
 
-            # ── STEP 9: Continue and Review ──
-            log.info("Step 9: Continue and Review...")
-            _dump_page_state(page, "Step 9 — Before Review")
-            review_btn = _find_clickable(page, [
-                "button:has-text('Continue and Review')",
-                "button:has-text('Continue & Review')",
-                "button:has-text('Review')",
-                "button:has-text('Continue')",
-                "a:has-text('Continue and Review')",
-                "a:has-text('Review')",
-            ])
-            if review_btn:
-                review_btn.click()
-                page.wait_for_timeout(5000)
-                log.info("  Clicked Continue and Review")
+                    cont = _find_clickable(page, [
+                        "button:has-text('Continue')", "button:has-text('Next')",
+                        "a:has-text('Continue')",
+                    ])
+                    if cont:
+                        cont.click()
+                        page.wait_for_timeout(5000)
+                        log.info("  Clicked Continue after WAV")
 
-            page.screenshot(path="output/tunecore_14_review.png")
+                # ── ARTWORK ──
+                elif state == 'artwork':
+                    log.info(f"  Uploading cover art: {cover_path.name}")
+                    art_btn = _find_clickable(page, [
+                        "text=Add Artwork", "button:has-text('Add Artwork')",
+                        "text=Upload Artwork", "text=Add Cover Art", "text=Add Image",
+                    ])
+                    if art_btn:
+                        art_btn.click()
+                        page.wait_for_timeout(3000)
 
-            # ── STEP 10: Release Music ──
-            log.info("Step 10: Release Music...")
-            _dump_page_state(page, "Step 10 — Before Release Music")
-            release_btn = _find_clickable(page, [
-                "button:has-text('Release Music')",
-                "button:has-text('Release')",
-                "button:has-text('Submit')",
-                "button:has-text('Distribute')",
-                "a:has-text('Release Music')",
-            ])
-            if release_btn:
-                release_btn.click()
-                page.wait_for_timeout(5000)
-                log.info("  Clicked Release Music")
+                    cover_ok = _upload_file(page, cover_path)
+                    if not cover_ok:
+                        raise RuntimeError(f"Failed to upload cover '{cover_path.name}'")
+                    log.info("  Waiting for artwork upload (~1 min)...")
+                    _wait_for_upload(page, timeout=120, file_was_set=cover_ok)
 
-            page.screenshot(path="output/tunecore_15_released.png")
+                    sc = _find_clickable(page, [
+                        "button:has-text('Save and Continue')",
+                        "button:has-text('Save & Continue')",
+                        "button:has-text('Continue')", "button:has-text('Save')",
+                    ])
+                    if sc:
+                        sc.click()
+                        page.wait_for_timeout(5000)
+                        log.info("  Clicked Save & Continue after artwork")
 
-            # ── STEP 11: Check for confirmation ──
-            log.info("Step 11: Checking for confirmation...")
-            for indicator in ["Congrats", "Congratulations", "submitted your release",
-                              "Submitted", "In Review", "Distribution"]:
-                try:
-                    if page.locator(f"text={indicator}").first.is_visible(timeout=3000):
-                        log.info(f"  Confirmation found: {indicator}")
-                        break
-                except Exception:
-                    continue
+                # ── REVIEW ──
+                elif state == 'review':
+                    btn = _find_clickable(page, [
+                        "button:has-text('Continue and Review')",
+                        "button:has-text('Continue & Review')",
+                        "button:has-text('Review')", "button:has-text('Continue')",
+                    ])
+                    if btn:
+                        btn.click()
+                        page.wait_for_timeout(5000)
+                        log.info("  Clicked Continue and Review")
 
-            page.screenshot(path="output/tunecore_16_done.png")
+                # ── RELEASE ──
+                elif state == 'release':
+                    btn = _find_clickable(page, [
+                        "button:has-text('Release Music')", "button:has-text('Release')",
+                        "button:has-text('Submit')", "button:has-text('Distribute')",
+                    ])
+                    if btn:
+                        btn.click()
+                        page.wait_for_timeout(5000)
+                        log.info("  Clicked Release Music")
 
-            # Save updated session
+                # ── DONE ──
+                elif state == 'done':
+                    log.info("  Release confirmed!")
+                    break
+
+                # ── UNKNOWN ──
+                else:
+                    _dump_page_state(page, f"Unknown page (step {step})")
+                    log.warning("  Unknown page — waiting 10s and retrying...")
+                    page.wait_for_timeout(10_000)
+
+            # ── Wrap up ──
+            page.screenshot(path="output/tunecore_final.png")
             context.storage_state(path=str(TUNECORE_STATE_FILE))
-
             final_url = page.url
             log.info(f"TuneCore upload completed: {final_url}")
             return final_url
