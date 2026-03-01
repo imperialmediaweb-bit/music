@@ -219,6 +219,69 @@ def _find_clickable(page, selectors: list[str]):
     return None
 
 
+def _fill_combobox(page, input_selector: str, text: str, field_label: str) -> bool:
+    """Fill a TuneCore combobox (custom autocomplete text input).
+
+    TuneCore uses React autocomplete inputs (not <select> elements).
+    Flow: click input -> type text -> wait for dropdown options -> click match.
+    """
+    try:
+        el = page.locator(input_selector).first
+        if not el.is_visible(timeout=2000):
+            log.info(f"  Combobox '{field_label}' not visible: {input_selector}")
+            return False
+
+        # Click to open the dropdown
+        el.click()
+        page.wait_for_timeout(500)
+
+        # Clear existing value and type new text
+        el.fill("")
+        page.wait_for_timeout(300)
+        el.type(text, delay=80)
+        page.wait_for_timeout(1500)
+
+        # Look for dropdown option matching our text
+        option_selectors = [
+            f"li:has-text('{text}')",
+            f"[role='option']:has-text('{text}')",
+            f"[role='listbox'] >> text='{text}'",
+            f".MuiAutocomplete-option:has-text('{text}')",
+            f"[class*='option' i]:has-text('{text}')",
+            f"[class*='menu' i] >> text='{text}'",
+            f"[class*='list' i] >> text='{text}'",
+            f"div[class*='dropdown' i] >> text='{text}'",
+        ]
+        for opt_sel in option_selectors:
+            try:
+                opt = page.locator(opt_sel).first
+                if opt.is_visible(timeout=1000):
+                    opt.click()
+                    page.wait_for_timeout(500)
+                    log.info(f"  {field_label}: {text} (via {opt_sel})")
+                    return True
+            except Exception:
+                continue
+
+        # Fallback: press Enter to accept the typed text or first suggestion
+        el.press("ArrowDown")
+        page.wait_for_timeout(300)
+        el.press("Enter")
+        page.wait_for_timeout(500)
+
+        # Check if value was accepted
+        val = el.input_value()
+        if val.strip():
+            log.info(f"  {field_label}: {val} (via Enter key)")
+            return True
+
+        log.warning(f"  Combobox '{field_label}' could not select '{text}'")
+        return False
+    except Exception as e:
+        log.warning(f"  Combobox '{field_label}' error: {e}")
+        return False
+
+
 def _upload_file(page, file_path: Path):
     """Upload a file via input[type=file] or file chooser dialog."""
     log.info(f"  _upload_file: looking for file input for {file_path.name}...")
@@ -477,60 +540,50 @@ def _do_upload(
                 except Exception:
                     continue
 
-            # Language = English
+            # Language = English (TuneCore uses combobox text inputs, not <select>)
+            lang_filled = False
             for sel in [
-                "select[name*='language' i]", "select[id*='language' i]",
-                "[data-field='language'] select",
+                "input[name='languageCode']",
+                "input[name*='language' i]",
+                "input[id*='language' i]",
             ]:
-                try:
-                    el = page.locator(sel).first
-                    if el.is_visible(timeout=1500):
-                        el.select_option(label="English")
-                        log.info("  Language: English")
-                        break
-                except Exception:
-                    continue
+                if _fill_combobox(page, sel, "English", "Language"):
+                    lang_filled = True
+                    break
+            if not lang_filled:
+                log.warning("  Could not fill Language dropdown")
 
-            # Primary genre = Afro House
+            # Primary genre = Afro House (combobox)
+            genre_filled = False
             for sel in [
-                "select[name*='primary' i][name*='genre' i]",
-                "select[name*='genre' i]",
-                "select[id*='primary' i][id*='genre' i]",
-                "select[id*='genre' i]",
+                "input[name='primaryGenreId']",
+                "input[name*='primaryGenre' i]",
+                "input[name*='genre' i]",
             ]:
-                try:
-                    el = page.locator(sel).first
-                    if el.is_visible(timeout=1500):
-                        for genre_label in ["Afro House", "Afro-House", "Electronic", "Dance"]:
-                            try:
-                                el.select_option(label=genre_label)
-                                log.info(f"  Primary genre: {genre_label}")
-                                break
-                            except Exception:
-                                continue
+                for genre_label in ["Afro house", "Afro House", "Afro-House", "Electronic", "Dance"]:
+                    if _fill_combobox(page, sel, genre_label, "Primary genre"):
+                        genre_filled = True
                         break
-                except Exception:
-                    continue
+                if genre_filled:
+                    break
+            if not genre_filled:
+                log.warning("  Could not fill Primary genre dropdown")
 
-            # Secondary genre = Afro House
+            # Secondary genre = Afro house (combobox)
+            sec_genre_filled = False
             for sel in [
-                "select[name*='secondary' i][name*='genre' i]",
-                "select[name*='subgenre' i]",
-                "select[id*='secondary' i]",
+                "input[name='secondaryGenreId']",
+                "input[name*='secondaryGenre' i]",
+                "input[name*='subgenre' i]",
             ]:
-                try:
-                    el = page.locator(sel).first
-                    if el.is_visible(timeout=1500):
-                        for genre_label in ["Afro House", "Afro-House", "Electronic", "Dance"]:
-                            try:
-                                el.select_option(label=genre_label)
-                                log.info(f"  Secondary genre: {genre_label}")
-                                break
-                            except Exception:
-                                continue
+                for genre_label in ["Afro house", "Afro House", "Afro-House", "Electronic", "Dance"]:
+                    if _fill_combobox(page, sel, genre_label, "Secondary genre"):
+                        sec_genre_filled = True
                         break
-                except Exception:
-                    continue
+                if sec_genre_filled:
+                    break
+            if not sec_genre_filled:
+                log.warning("  Could not fill Secondary genre dropdown")
 
             # Previously Released? = No
             no_btn = _find_clickable(page, [
@@ -632,7 +685,9 @@ def _do_upload(
                 except Exception:
                     continue
 
-            # Role = Main Artist (dropdown)
+            # Role = Main Artist (may be <select> or combobox)
+            role_filled = False
+            # Try native <select> first
             for sel in [
                 "select[name*='role' i]",
                 "select[id*='role' i]",
@@ -644,12 +699,25 @@ def _do_upload(
                             try:
                                 el.select_option(label=role)
                                 log.info(f"  Role: {role}")
+                                role_filled = True
                                 break
                             except Exception:
                                 continue
                         break
                 except Exception:
                     continue
+            # Fallback: combobox (MUI Autocomplete)
+            if not role_filled:
+                for sel in [
+                    "input[name*='role' i]",
+                    "input[id*='role' i]",
+                ]:
+                    for role in ["Main Artist", "Primary Artist", "Artist"]:
+                        if _fill_combobox(page, sel, role, "Role"):
+                            role_filled = True
+                            break
+                    if role_filled:
+                        break
 
             # Copyright: Is this a cover? = No
             # Look for radio buttons or toggles near "cover" text
