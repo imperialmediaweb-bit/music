@@ -51,12 +51,13 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     if not thumbnail.exists():
         log.warning(f"Thumbnail not found: {thumbnail} — continuing without it")
 
-    if not video:
+    if not video and only != "tunecore":
         log.error(f"Video not found in output/ (tried _video.mp4, _tiktok.mp4, .mp4)")
         result["errors"].append(f"missing: {track_name} video in {OUTPUT_DIR}")
         return result
 
-    log.info(f"Found video: {video}")
+    if video:
+        log.info(f"Found video: {video}")
 
     # Detect duration from MP3 (if available)
     duration_sec = 0
@@ -109,7 +110,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
             log.error(f"YouTube upload failed: {e}")
             result["errors"].append(f"youtube: {e}")
     else:
-        log.info("Skipping YouTube (--only tiktok)")
+        log.info(f"Skipping YouTube (--only {only})")
 
     # Upload to TikTok
     if only in (None, "tiktok"):
@@ -127,7 +128,49 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
             log.error(f"TikTok upload failed: {e}")
             result["errors"].append(f"tiktok: {e}")
     else:
-        log.info("Skipping TikTok (--only youtube)")
+        log.info(f"Skipping TikTok (--only {only})")
+
+    # Upload to TuneCore
+    if only in (None, "tunecore"):
+        wav_file = OUTPUT_DIR / f"{track_name}.wav"
+        # Look for existing cover art
+        cover_file = None
+        for suffix in ["_cover.jpg", "_cover.png"]:
+            candidate = OUTPUT_DIR / f"{track_name}{suffix}"
+            if candidate.exists():
+                cover_file = candidate
+                break
+
+        if not wav_file.exists():
+            log.warning(f"WAV file not found ({wav_file}) — skipping TuneCore")
+            result["errors"].append(f"tunecore: WAV not found at {wav_file}")
+        elif not cover_file:
+            # Generate cover art if missing
+            try:
+                log.info("=" * 60)
+                log.info("Generating 1600x1600 cover art for TuneCore...")
+                cover_file = generate_cover_art(concept.thumbnail_prompt, concept.track_name)
+                log.info(f"Cover art: {cover_file}")
+            except Exception as e:
+                log.error(f"Cover art generation failed: {e}")
+                result["errors"].append(f"cover_art: {e}")
+
+        if wav_file.exists() and cover_file:
+            try:
+                log.info("=" * 60)
+                log.info("Uploading to TuneCore...")
+                tunecore_url = upload_to_tunecore(wav_file, cover_file, concept)
+                result["tunecore_url"] = tunecore_url
+                if tunecore_url:
+                    log.info(f"TuneCore: {tunecore_url}")
+                else:
+                    log.error("TuneCore upload returned None — run: python main.py tunecore-login")
+                    result["errors"].append("tunecore: upload returned None (session expired)")
+            except Exception as e:
+                log.error(f"TuneCore upload failed: {e}")
+                result["errors"].append(f"tunecore: {e}")
+    else:
+        log.info(f"Skipping TuneCore (--only {only})")
 
     # Summary
     log.info("=" * 60)
