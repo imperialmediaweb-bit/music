@@ -752,6 +752,9 @@ def _detect_page(page) -> str:
             hasGenreField: has('input[name="primaryGenreId"]'),
             hasAddTrackBtn: visibleBtn('add track'),
             hasUnuploadedFile: body.includes("hasn't been uploaded") || body.includes('file hasn'),
+            // Real TuneCore React app detection
+            hasSongsApp: has('#songs_app'),
+            isTracksUrl: url.includes('/tracks'),
             hasWriterField: anyVisible('input[name*="songwriter" i]', 'input[name*="writer" i]'),
             hasRoleField: has('input[name="role"]') || has('select[name="role"]')
                 || has('input[name="creativeRole"]') || has('select[name="creativeRole"]'),
@@ -762,6 +765,9 @@ def _detect_page(page) -> str:
             hasReleaseBtn: visibleBtn('release music'),
             hasConfirm: body.includes('congrat') || body.includes('submitted your release')
                 || body.includes('in review'),
+            // Overview page (after songs, shows Continue link)
+            hasSecondaryBtn: visible('a.secondary-btn'),
+            bodyClass: document.body.className || '',
         };
     }""")
 
@@ -789,8 +795,11 @@ def _detect_page(page) -> str:
         return 'review'
     if state.get('hasArtworkBtn') and not state.get('hasAddTrackBtn'):
         return 'artwork'
-    if state.get('hasFileInput') and not state.get('hasWriterField'):
+    if state.get('hasFileInput') and not state.get('hasWriterField') and not state.get('hasSongsApp'):
         return 'upload_wav'
+    # TuneCore React songs app on /singles/{id}/tracks or /albums/{id}/tracks
+    if state.get('hasSongsApp') or (state.get('isTracksUrl') and not state.get('isDashboard')):
+        return 'track_details'
     if state.get('hasWriterField') or state.get('hasRoleField'):
         return 'track_details'
     if state.get('hasAddTrackBtn'):
@@ -988,18 +997,50 @@ def _do_upload(
                         _dump_page_state(page, "Add Track — after 1 min wait")
 
                 # ── TRACK DETAILS (smart fill) ──
-                # TuneCore track page (step 2/4) sections:
-                #   1. Song Title           2. Songwriter (autocomplete)
-                #   3. Song Artists          4. Performing Artists (name+role)
-                #   5. Producers/Engineers   6. Copyright Ownership
-                #   7. Instrumental checkbox 8. Explicit Lyrics (Yes/No)
-                #   9. ISRC (auto)          10. Language 11. Lyrics 12. TikTok
-                # Smart: scans what's filled, only fills empty fields.
+                # TuneCore React app #songs_app on /singles/{id}/tracks
+                # Real DOM (from HTML source): jQuery + React, NOT Material UI.
+                # data-songs JSON has current state: explicit, instrumental, etc.
+                # Sections: Song Title, Songwriter*, Song Artists & Creatives,
+                #   Performing Artists*, Producers & Engineers*, Copyright Ownership*,
+                #   Instrumental, Explicit, ISRC, Language, Lyrics, TikTok
+                # Smart: reads data-songs + DOM to detect what's filled.
                 elif state == 'track_details':
                     log.info("  Filling track details (smart mode)...")
                     _dump_page_state(page, "Track Details — before fill")
 
-                    # ── Smart scan: detect what's already filled ──
+                    # Wait for React #songs_app to render
+                    try:
+                        page.wait_for_selector('#songs_app', timeout=15_000)
+                        page.wait_for_timeout(3000)
+                    except Exception:
+                        page.wait_for_timeout(5000)
+
+                    # ── Read song data from React app's data attributes ──
+                    song_data = page.evaluate("""() => {
+                        const app = document.querySelector('#songs_app');
+                        if (!app) return null;
+                        try {
+                            const songs = JSON.parse(app.getAttribute('data-songs') || '[]');
+                            const d = songs[0]?.data || {};
+                            return {
+                                name: d.name || '',
+                                explicit: d.explicit,
+                                instrumental: d.instrumental,
+                                cover_song: d.cover_song,
+                                copyrights: d.copyrights,
+                                lyrics: d.lyrics,
+                                artistCount: (d.artists || []).length,
+                            };
+                        } catch(e) { return null; }
+                    }""")
+                    if song_data:
+                        log.info(f"  Song data: name='{song_data.get('name')}' "
+                                 f"explicit={song_data.get('explicit')} "
+                                 f"instrumental={song_data.get('instrumental')} "
+                                 f"cover={song_data.get('cover_song')} "
+                                 f"artists={song_data.get('artistCount')}")
+
+                    # ── Smart scan: detect what's rendered in the DOM ──
                     scan = page.evaluate("""() => {
                         const body = document.body.innerText.toLowerCase();
                         const vis = sel => [...document.querySelectorAll(sel)]
@@ -1011,14 +1052,16 @@ def _do_upload(
                             titleFilled: textInputs.some(el =>
                                 (el.name.toLowerCase().includes('title') ||
                                  el.name.toLowerCase().includes('trackname') ||
-                                 el.name.toLowerCase().includes('songname')) && el.value.trim()),
+                                 el.name.toLowerCase().includes('songname') ||
+                                 el.name.toLowerCase().includes('song_name')) && el.value.trim()),
                             writerFilled: textInputs.some(el =>
                                 (el.placeholder.toLowerCase().includes('legal first') ||
                                  el.name.toLowerCase().includes('writer') ||
                                  el.name.toLowerCase().includes('songwriter')) && el.value.trim()),
-                            hasMainArtist: body.includes('main artist'),
-                            chooseCount: vis('[role=combobox], [role=button], [class*=Select] div')
-                                .filter(el => el.textContent.trim().toLowerCase() === 'choose').length,
+                            hasMainArtist: body.includes('main artist') || body.includes('primary_artist'),
+                            // TuneCore uses custom React dropdowns showing "CHOOSE"
+                            chooseCount: vis('button, span, div, select').filter(el =>
+                                el.textContent.trim().toUpperCase() === 'CHOOSE').length,
                             instrumentalChecked: (() => {
                                 for (const cb of vis('input[type=checkbox]')) {
                                     const lbl = cb.closest('label') || cb.parentElement;
@@ -1028,22 +1071,32 @@ def _do_upload(
                                 return null;
                             })(),
                             explicitAnswered: (() => {
-                                // Check if Yes or No button near "explicit" is selected
-                                const btns = vis('button, [role=button]');
+                                // TuneCore uses button pairs (Yes/No) near "explicit"
+                                const btns = vis('button, [role=button], input[type=radio]');
                                 for (const btn of btns) {
                                     const txt = btn.textContent.trim().toLowerCase();
                                     if ((txt === 'yes' || txt === 'no') &&
-                                        (btn.classList.contains('Mui-selected') ||
+                                        (btn.classList.contains('selected') ||
+                                         btn.classList.contains('active') ||
                                          btn.getAttribute('aria-pressed') === 'true' ||
-                                         btn.classList.contains('selected') ||
-                                         btn.classList.contains('active'))) {
-                                        return true;
+                                         btn.getAttribute('aria-checked') === 'true' ||
+                                         (btn.type === 'radio' && btn.checked))) {
+                                        // Check if near "explicit" context
+                                        let node = btn;
+                                        for (let i = 0; i < 6; i++) {
+                                            node = node.parentElement;
+                                            if (!node) break;
+                                            if (node.textContent.toLowerCase().includes('explicit'))
+                                                return true;
+                                        }
                                     }
                                 }
                                 return false;
                             })(),
-                            coverAnswered: body.includes('copyright ownership'),
-                            inputNames: textInputs.map(el => el.name).filter(Boolean),
+                            inputNames: textInputs.map(el =>
+                                `${el.name}[${el.placeholder.substring(0,30)}]=${el.value.substring(0,20)}`
+                            ),
+                            bodyClass: document.body.className,
                         };
                     }""")
 
@@ -1053,13 +1106,13 @@ def _do_upload(
                              f"choose={scan['chooseCount']} "
                              f"instrumental={scan['instrumentalChecked']} "
                              f"explicit={'Y' if scan['explicitAnswered'] else 'N'}")
-                    log.info(f"  Input names: {scan.get('inputNames', [])}")
+                    log.info(f"  Inputs: {scan.get('inputNames', [])}")
 
                     # ── 1. Song Title ──
                     if not scan.get('titleFilled'):
                         for sel in [
                             "input[name*='title' i]", "input[name*='trackName' i]",
-                            "input[name*='songName' i]", "input[name*='name' i]",
+                            "input[name*='song_name' i]", "input[name*='songName' i]",
                         ]:
                             try:
                                 el = page.locator(sel).first
@@ -1072,7 +1125,8 @@ def _do_upload(
                     else:
                         log.info("  Song Title: already filled")
 
-                    # ── 2. Songwriter (autocomplete "Legal First Name...") ──
+                    # ── 2. Songwriter (placeholder "Legal First Name and Last Name") ──
+                    # data-songwriter-names="Groove Genix, GrooveGenix" → autocomplete
                     if not scan.get('writerFilled'):
                         filled_writer = False
                         for sel in [
@@ -1088,15 +1142,15 @@ def _do_upload(
                             except Exception:
                                 continue
                         if not filled_writer:
-                            log.warning("  Songwriter: could not find/fill input!")
+                            log.warning("  Songwriter: could not find/fill!")
                     else:
                         log.info("  Songwriter: already filled")
 
-                    # ── 3. Song Artists & Creatives ──
+                    # ── 3. Song Artists & Creatives (primary_artist from album) ──
                     if not scan.get('hasMainArtist'):
                         for sel in [
                             "input[name*='artist' i][name*='name' i]",
-                            "input[name*='creative' i][name*='name' i]",
+                            "input[name*='creative' i]",
                             "input[placeholder*='Artist' i]",
                         ]:
                             try:
@@ -1106,14 +1160,6 @@ def _do_upload(
                                     break
                             except Exception:
                                 continue
-                        for rn in ["role", "creativeRole"]:
-                            ok = False
-                            for rv in ["Main Artist", "main artist", "Primary Artist"]:
-                                if _smart_fill(page, rn, rv, "Song Artist Role"):
-                                    ok = True
-                                    break
-                            if ok:
-                                break
                     else:
                         log.info("  Song Artists: already has main artist")
 
@@ -1124,12 +1170,25 @@ def _do_upload(
                     else:
                         log.info("  All role dropdowns already filled")
 
-                    # ── 6. Copyright: Is this a cover? = No ──
-                    # Use JS to click "No" near "cover" context
+                    # ── 6. Copyright Ownership: "Is this a cover?" = original ──
+                    # TuneCore: radio/button "I wrote this song" vs "cover song"
                     page.evaluate("""() => {
-                        const btns = [...document.querySelectorAll('button, [role=button], label, input[type=radio]')];
-                        const noBtns = btns.filter(el =>
-                            el.offsetWidth > 0 && el.textContent.trim().toLowerCase() === 'no');
+                        // Click "I wrote this song" or "No" near cover context
+                        const els = [...document.querySelectorAll(
+                            'button, [role=button], label, input[type=radio], span'
+                        )].filter(el => el.offsetWidth > 0);
+
+                        // Strategy 1: find radio/button with "original" or "I wrote"
+                        for (const el of els) {
+                            const txt = el.textContent.trim().toLowerCase();
+                            if (txt.includes('i wrote') || txt.includes('original')) {
+                                el.click();
+                                return 'clicked_original';
+                            }
+                        }
+                        // Strategy 2: find "No" button near "cover" context
+                        const noBtns = els.filter(el =>
+                            el.textContent.trim().toLowerCase() === 'no');
                         for (const btn of noBtns) {
                             let node = btn;
                             for (let i = 0; i < 8; i++) {
@@ -1137,59 +1196,56 @@ def _do_upload(
                                 if (!node) break;
                                 if (node.textContent.toLowerCase().includes('cover')) {
                                     btn.click();
-                                    return true;
+                                    return 'clicked_no_cover';
                                 }
                             }
                         }
-                        return false;
+                        return 'not_found';
                     }""")
-                    log.info("  Copyright: No (cover)")
+                    log.info("  Copyright: original (not a cover)")
 
                     # ── 7. Instrumental checkbox ──
-                    if scan.get('instrumentalChecked') is False:
-                        checked = page.evaluate("""() => {
-                            // Try clicking the checkbox directly
+                    if scan.get('instrumentalChecked') is not True:
+                        result = page.evaluate("""() => {
+                            // Find checkbox with "Instrumental" or "no lyrics" label
                             const cbs = [...document.querySelectorAll('input[type=checkbox]')];
                             for (const cb of cbs) {
                                 const lbl = cb.closest('label') || cb.parentElement;
                                 if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
-                                    if (!cb.checked) { cb.click(); return 'clicked_cb'; }
+                                    if (!cb.checked) {
+                                        // Try clicking the label (React needs synthetic events)
+                                        lbl.click();
+                                        return 'clicked_label';
+                                    }
                                     return 'already_checked';
                                 }
                             }
-                            // Try clicking the label
-                            const labels = [...document.querySelectorAll('label, span, div')]
+                            // Fallback: find the label/span text and click it
+                            const labels = [...document.querySelectorAll('label, span')]
                                 .filter(el => el.offsetWidth > 0);
                             for (const lbl of labels) {
-                                const txt = lbl.textContent.toLowerCase();
-                                if (txt.includes('instrumental') && txt.includes('no lyrics')) {
+                                if (lbl.textContent.toLowerCase().includes('instrumental') &&
+                                    lbl.textContent.toLowerCase().includes('no lyrics')) {
                                     lbl.click();
-                                    return 'clicked_label';
+                                    return 'clicked_text';
                                 }
                             }
                             return 'not_found';
                         }""")
-                        log.info(f"  Instrumental: {checked}")
-                    elif scan.get('instrumentalChecked') is True:
-                        log.info("  Instrumental: already checked")
+                        log.info(f"  Instrumental: {result}")
                     else:
-                        # Checkbox not found in scan — try clicking by label text
-                        instr = _find_clickable(page, [
-                            "label:has-text('Instrumental')",
-                            "text=Instrumental",
-                            "label:has-text('no lyrics')",
-                        ])
-                        if instr:
-                            instr.click()
-                            log.info("  Instrumental: clicked via fallback")
+                        log.info("  Instrumental: already checked")
 
                     # ── 8. Explicit lyrics = No ──
                     if not scan.get('explicitAnswered'):
                         page.evaluate("""() => {
-                            const btns = [...document.querySelectorAll('button, [role=button]')]
-                                .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+                            // TuneCore: Yes/No buttons near "explicit lyrics" text
+                            const btns = [...document.querySelectorAll(
+                                'button, [role=button], input[type=radio]'
+                            )].filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
                             const noBtns = btns.filter(el =>
                                 el.textContent.trim().toLowerCase() === 'no');
+                            // Find "No" near "explicit" context
                             for (const btn of noBtns) {
                                 let node = btn;
                                 for (let i = 0; i < 8; i++) {
@@ -1201,7 +1257,7 @@ def _do_upload(
                                     }
                                 }
                             }
-                            // Fallback: click last "No" button on page
+                            // Fallback: click last "No" button (explicit is near bottom)
                             if (noBtns.length > 0) {
                                 noBtns[noBtns.length - 1].click();
                                 return true;
@@ -1212,22 +1268,24 @@ def _do_upload(
                     else:
                         log.info("  Explicit lyrics: already answered")
 
-                    page.wait_for_timeout(1000)
+                    page.wait_for_timeout(2000)
                     _dump_page_state(page, "Track Details — after fill")
 
-                    # ── SAVE ──
+                    # ── SAVE (within the React form) ──
                     save = _find_clickable(page, [
                         "button:has-text('Save')", "button[type='submit']:has-text('Save')",
+                        "#songs_app button:has-text('Save')",
                     ])
                     if save:
                         save.click()
                         log.info("  Saved track details — waiting 10s...")
                         page.wait_for_timeout(10_000)
 
-                    # ── CONTINUE ──
+                    # ── CONTINUE (a.secondary-btn link at bottom of page) ──
                     cont = _find_clickable(page, [
-                        "button:has-text('Continue')", "a:has-text('Continue')",
-                        "button:has-text('Next')",
+                        "a.secondary-btn",
+                        "a:has-text('Continue')",
+                        "button:has-text('Continue')",
                     ])
                     if cont:
                         cont.click()
