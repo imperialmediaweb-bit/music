@@ -1421,30 +1421,25 @@ def _do_upload(
                         except Exception as e:
                             log.warning(f"  Prod Role EXCEPTION: {e}")
 
-                        # ── 7. Copyright → No (JS click on radio) ──
-                        cr = page.evaluate("""() => {
-                            for (const r of document.querySelectorAll('input[type=radio]')) {
-                                const lbl = r.closest('label') || r.parentElement;
-                                if (!lbl || lbl.textContent.trim() !== 'No') continue;
-                                let node = r;
-                                for (let i = 0; i < 10; i++) {
-                                    node = node.parentElement;
-                                    if (!node) break;
-                                    if (node.textContent.toLowerCase().includes('cover') ||
-                                        node.textContent.toLowerCase().includes('copyright')) {
-                                        const nativeSet = Object.getOwnPropertyDescriptor(
-                                            window.HTMLInputElement.prototype, 'checked').set;
-                                        nativeSet.call(r, true);
-                                        r.dispatchEvent(new Event('input', {bubbles: true}));
-                                        r.dispatchEvent(new Event('change', {bubbles: true}));
-                                        r.click();
-                                        return 'OK';
-                                    }
+                        # ── 7. Copyright → No ──
+                        try:
+                            # Find the "No" label/button near the cover question and click it
+                            no_btn = page.locator("label, div[role='radio'], span").filter(
+                                has_text="No").last
+                            no_btn.click(timeout=3000)
+                            log.info("  Copyright No: clicked via Playwright")
+                        except Exception:
+                            # Fallback: JS approach for any radio-like element with "No"
+                            cr = page.evaluate("""() => {
+                                const els = document.querySelectorAll(
+                                    'input[type=radio], [role=radio], label, [class*=radio]');
+                                for (const el of els) {
+                                    const t = el.textContent ? el.textContent.trim() : '';
+                                    if (t === 'No') { el.click(); return 'OK'; }
                                 }
-                            }
-                            return 'NOT_FOUND';
-                        }""")
-                        log.info(f"  Copyright No: {cr}")
+                                return 'NOT_FOUND';
+                            }""")
+                            log.info(f"  Copyright No fallback: {cr}")
                         page.wait_for_timeout(500)
 
                         # ── 8. Instrumental checkbox (JS click) ──
