@@ -560,6 +560,10 @@ def _detect_page(page) -> str:
 
     if state.get('hasConfirm'):
         return 'done'
+    # Dashboard has "Singles/Albums" filter tabs — check URL early to avoid
+    # misidentifying those tabs as the release-type chooser page.
+    if state.get('isDashboard'):
+        return 'dashboard'
     if state.get('hasReleaseBtn') and not state.get('hasTypeChoice'):
         return 'release'
     if state.get('hasReviewBtn'):
@@ -578,8 +582,6 @@ def _detect_page(page) -> str:
         return 'start'
     if state.get('hasTypeChoice'):
         return 'choose_type'
-    if state.get('isDashboard'):
-        return 'dashboard'
     return 'unknown'
 
 
