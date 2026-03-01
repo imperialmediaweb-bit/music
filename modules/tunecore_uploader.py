@@ -1208,20 +1208,26 @@ def _do_upload(
                             if choose.is_visible(timeout=2000):
                                 choose.click()
                                 page.wait_for_timeout(2000)
-                                try:
-                                    opt = page.locator(
-                                        "[role='option']"
-                                    ).filter(has_text='performer').first
-                                    if opt.is_visible(timeout=2000):
-                                        opt.click()
-                                        log.info("  Perf Role: performer OK")
-                                    else:
-                                        page.keyboard.press("ArrowDown")
-                                        page.keyboard.press("Enter")
-                                        log.info("  Perf Role: keyboard")
-                                except Exception:
-                                    page.keyboard.press("ArrowDown")
+                                clicked = False
+                                for sel in [
+                                    "[role='option']", "[class*='option']",
+                                    "[id*='option']", "[class*='menu'] div",
+                                ]:
+                                    try:
+                                        opt = page.locator(sel).filter(
+                                            has_text='performer').first
+                                        if opt.is_visible(timeout=1000):
+                                            opt.click()
+                                            log.info(f"  Perf Role: performer ({sel})")
+                                            clicked = True
+                                            break
+                                    except Exception:
+                                        continue
+                                if not clicked:
+                                    page.keyboard.type('performer', delay=50)
+                                    page.wait_for_timeout(500)
                                     page.keyboard.press("Enter")
+                                    log.info("  Perf Role: typeahead fallback")
                                 page.wait_for_timeout(1500)
                         except Exception as e:
                             log.warning(f"  Perf Role: {e}")
@@ -1273,20 +1279,26 @@ def _do_upload(
                             if choose.is_visible(timeout=2000):
                                 choose.click()
                                 page.wait_for_timeout(2000)
-                                try:
-                                    opt = page.locator(
-                                        "[role='option']"
-                                    ).filter(has_text='producer').first
-                                    if opt.is_visible(timeout=2000):
-                                        opt.click()
-                                        log.info("  Prod Role: producer OK")
-                                    else:
-                                        page.keyboard.press("ArrowDown")
-                                        page.keyboard.press("Enter")
-                                        log.info("  Prod Role: keyboard")
-                                except Exception:
-                                    page.keyboard.press("ArrowDown")
+                                clicked = False
+                                for sel in [
+                                    "[role='option']", "[class*='option']",
+                                    "[id*='option']", "[class*='menu'] div",
+                                ]:
+                                    try:
+                                        opt = page.locator(sel).filter(
+                                            has_text='producer').first
+                                        if opt.is_visible(timeout=1000):
+                                            opt.click()
+                                            log.info(f"  Prod Role: producer ({sel})")
+                                            clicked = True
+                                            break
+                                    except Exception:
+                                        continue
+                                if not clicked:
+                                    page.keyboard.type('producer', delay=50)
+                                    page.wait_for_timeout(500)
                                     page.keyboard.press("Enter")
+                                    log.info("  Prod Role: typeahead fallback")
                                 page.wait_for_timeout(1500)
                         except Exception as e:
                             log.warning(f"  Prod Role: {e}")
