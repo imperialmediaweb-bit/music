@@ -591,23 +591,20 @@ def _fill_choose_sections(page, artist: str):
     """Fill Performing Artists + Producers sections on TuneCore track details.
 
     Each section row has:
-      - An input with placeholder "Add Artist/Creative" — click it, a dropdown
-        appears with registered artist names, pick the right one.
-      - A CHOOSE button for role — click it, a dropdown appears with roles
-        (Main Artist, Featured, Producer …), pick the right one.
-
-    NO typing — just click the field, dropdown appears, select from list.
+      - An input with placeholder "Add Artist/Creative" — click it, type artist
+        name to trigger autocomplete dropdown, then select from list.
+      - A CHOOSE button for role — click it, dropdown appears, select role.
     """
     log.info(f"  _fill_choose_sections: artist='{artist}'")
 
-    # ── Step 1: Find artist-name inputs (placeholder "Add Artist/Creative") ──
-    #            and CHOOSE buttons (for role), tag them ──
+    # ── Step 1: Find EMPTY artist-name inputs + CHOOSE buttons, tag them ──
     counts = page.evaluate("""() => {
         const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
 
         // Artist/Creative name inputs — EMPTY ones only (skip already filled)
-        const nameInputs = [...document.querySelectorAll('input[type=text]')].filter(el =>
-            vis(el) && !el.value.trim() && (
+        // Use broad 'input' selector, then filter by type in JS
+        const nameInputs = [...document.querySelectorAll('input')].filter(el =>
+            vis(el) && el.type === 'text' && !el.value.trim() && (
                 el.placeholder.toLowerCase().includes('artist') ||
                 el.placeholder.toLowerCase().includes('creative') ||
                 el.placeholder.toLowerCase().includes('add artist')
@@ -625,13 +622,15 @@ def _fill_choose_sections(page, artist: str):
         return {
             nameInputs: nameInputs.length,
             chooses: chooses.length,
-            placeholders: nameInputs.map(el => el.placeholder)
+            placeholders: nameInputs.map(el => el.placeholder),
+            inputTypes: nameInputs.map(el => el.type)
         };
     }""")
 
     n_names = counts.get('nameInputs', 0)
     n_roles = counts.get('chooses', 0)
-    log.info(f"  Found {n_names} name inputs (placeholders: {counts.get('placeholders')}), "
+    log.info(f"  Found {n_names} empty name inputs "
+             f"(placeholders: {counts.get('placeholders')}, types: {counts.get('inputTypes')}), "
              f"{n_roles} CHOOSE role buttons")
 
     pairs = min(n_names, n_roles)
@@ -659,19 +658,23 @@ def _fill_choose_sections(page, artist: str):
         sect_label = section or 'unknown'
         log.info(f"  [{i}] Section: {sect_label}")
 
-        # ── 2a. Click the name input → dropdown appears → select artist ──
+        # ── 2a. Name: click input, type artist name, select from dropdown ──
         try:
             inp = page.locator(f"[data-artist-input-idx='{i}']").first
             if inp.is_visible(timeout=2000):
                 inp.click()
-                page.wait_for_timeout(1500)
-                log.info(f"  [{i}] Clicked name input, looking for '{artist}' in dropdown...")
+                page.wait_for_timeout(300)
+                inp.fill("")
+                page.wait_for_timeout(200)
+                inp.type(artist, delay=60)
+                page.wait_for_timeout(2000)
+                log.info(f"  [{i}] Typed '{artist}', selecting from dropdown...")
                 _click_dropdown_option(page, artist, f"[{i}] NAME ({sect_label})")
                 page.wait_for_timeout(1000)
         except Exception as e:
-            log.warning(f"  [{i}] Name input click failed: {e}")
+            log.warning(f"  [{i}] Name input failed: {e}")
 
-        # ── 2b. Click the CHOOSE button → dropdown appears → select role ──
+        # ── 2b. Role: click CHOOSE → dropdown appears → select role ──
         try:
             cb = page.locator(f"[data-choose-idx='{i}']").first
             if cb.is_visible(timeout=2000):
