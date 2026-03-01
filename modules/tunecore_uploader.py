@@ -1209,273 +1209,59 @@ def _do_upload(
                         else:
                             log.warning("  Perf Name: input NOT FOUND")
 
-                        # ── 4. Performing Artists — Role (first CHOOSE → performer) ──
+                        # ── 4. Fill ALL react-select role dropdowns ──
+                        # The page may have multiple artist rows, each with
+                        # div.artist-song-role-select containing a react-select.
+                        # Find all of them and select "producer" for any that are empty.
                         try:
-                            choose = page.get_by_text('CHOOSE', exact=True).first
-                            choose_visible = choose.is_visible(timeout=2000)
-                            log.info(f"  CHOOSE#1 visible: {choose_visible}")
-                            if choose_visible:
-                                # Check if there's a native <select> nearby
-                                select_result = page.evaluate("""() => {
-                                    const sels = document.querySelectorAll('select');
-                                    const info = [];
-                                    for (const s of sels) {
-                                        const opts = [...s.options].map(o => o.text + '=' + o.value);
-                                        info.push({name: s.name, id: s.id,
-                                            cls: (s.className||'').toString().slice(0,60),
-                                            options: opts.slice(0, 20)});
-                                    }
-                                    return info;
-                                }""")
-                                log.info(f"  CHOOSE#1 SELECT elements: {select_result}")
-
-                                # Try native select first
-                                native_set = page.evaluate("""() => {
-                                    const sels = document.querySelectorAll('select');
-                                    for (const s of sels) {
-                                        // Find select near "Producers" or "Role"
-                                        let node = s.parentElement;
-                                        for (let i=0; i<10 && node; i++) {
-                                            const t = (node.textContent||'').toLowerCase();
-                                            if (t.includes('role') && t.includes('performing')) {
-                                                // Find performer/main artist option
-                                                for (const opt of s.options) {
-                                                    const ot = opt.text.toLowerCase();
-                                                    if (ot.includes('performer') || ot.includes('main artist')
-                                                        || ot.includes('primary')) {
-                                                        s.value = opt.value;
-                                                        s.dispatchEvent(new Event('change', {bubbles:true}));
-                                                        return 'SET:'+opt.text;
-                                                    }
-                                                }
-                                                // Just select first non-empty option
-                                                for (const opt of s.options) {
-                                                    if (opt.value && opt.text.toLowerCase() !== 'choose') {
-                                                        s.value = opt.value;
-                                                        s.dispatchEvent(new Event('change', {bubbles:true}));
-                                                        return 'SET_FIRST:'+opt.text;
-                                                    }
-                                                }
-                                            }
-                                            node = node.parentElement;
-                                        }
-                                    }
-                                    return null;
-                                }""")
-                                log.info(f"  CHOOSE#1 native select: {native_set}")
-
-                                if not native_set:
-                                    # Click the CHOOSE button to open dropdown
-                                    choose.click()
-                                    page.wait_for_timeout(2000)
-
-                                    # DEBUG: dump ALL visible elements after click
-                                    dropdown_dump = page.evaluate("""() => {
-                                        const items = [];
-                                        for (const el of document.querySelectorAll('*')) {
-                                            const r = el.getBoundingClientRect();
-                                            if (r.width === 0 || r.height === 0) continue;
-                                            const t = el.textContent.trim();
-                                            if (t.length === 0 || t.length > 40) continue;
-                                            const tl = t.toLowerCase();
-                                            if (['performer','producer','mixer','engineer',
-                                                 'composer','writer','remixer','featured',
-                                                 'main artist','primary artist','lyricist',
-                                                 'arranger','conductor'].some(
-                                                 kw => tl.includes(kw))) {
-                                                items.push({
-                                                    tag: el.tagName, text: t,
-                                                    cls: (el.className||'').toString().slice(0,60),
-                                                    role: el.getAttribute('role')||'',
-                                                    kids: el.children.length
-                                                });
-                                            }
-                                        }
-                                        return items;
-                                    }""")
-                                    log.info(f"  CHOOSE#1 DROPDOWN ({len(dropdown_dump)} items):")
-                                    for item in dropdown_dump:
-                                        log.info(f"    {item}")
-
-                                    # Try clicking any role option
-                                    clicked = False
-                                    for keyword in ['Performer', 'Main Artist', 'Primary',
-                                                    'Featured', 'Producer', 'Composer']:
-                                        try:
-                                            opt = page.get_by_text(keyword, exact=True).first
-                                            if opt.is_visible(timeout=500):
-                                                opt.click()
-                                                log.info(f"  CHOOSE#1: clicked '{keyword}'")
-                                                clicked = True
-                                                break
-                                        except Exception:
+                            role_selects = page.locator(".artist-song-role-select")
+                            count = role_selects.count()
+                            log.info(f"  Role selects found: {count}")
+                            for i in range(count):
+                                rs = role_selects.nth(i)
+                                try:
+                                    # Check if already has a value (no placeholder visible)
+                                    has_placeholder = rs.locator(
+                                        "[class*='placeholder']").count() > 0
+                                    if not has_placeholder:
+                                        # Check for "CHOOSE" text
+                                        txt = rs.inner_text(timeout=1000).strip()
+                                        if txt and txt != 'CHOOSE':
+                                            log.info(f"  Role[{i}]: already set to '{txt}'")
                                             continue
-                                    if not clicked:
-                                        # JS: click any visible leaf element with role keywords
-                                        clicked = page.evaluate("""() => {
-                                            const kws = ['performer','main artist','primary',
-                                                         'featured','producer','composer'];
-                                            const els = [...document.querySelectorAll('div,li,span,a,option')]
-                                                .filter(el => {
-                                                    const r = el.getBoundingClientRect();
-                                                    if (r.width===0||r.height===0) return false;
-                                                    const t = el.textContent.trim().toLowerCase();
-                                                    return t.length < 40 && kws.some(k => t.includes(k));
-                                                });
-                                            // prefer leaf elements (fewer children)
-                                            els.sort((a,b) => a.children.length - b.children.length);
-                                            if (els.length) {
-                                                els[0].click();
-                                                return 'CLICKED:'+els[0].textContent.trim();
-                                            }
-                                            return null;
-                                        }""")
-                                        log.info(f"  CHOOSE#1 JS leaf: {clicked}")
-                                    if not clicked:
-                                        # keyboard fallback
-                                        page.keyboard.press("ArrowDown")
-                                        page.wait_for_timeout(300)
-                                        page.keyboard.press("Enter")
-                                        log.info("  CHOOSE#1: ArrowDown+Enter")
-                                page.wait_for_timeout(1500)
-                        except Exception as e:
-                            log.warning(f"  Perf Role EXCEPTION: {e}")
-
-                        # ── 5. Producers — Name (JS focus + keyboard type) ──
-                        log.info("  --- Step 5: Producers Name ---")
-                        prod_focused = page.evaluate("""() => {
-                            for (const inp of document.querySelectorAll('input')) {
-                                const ph = (inp.placeholder || '').toLowerCase();
-                                if (inp.value.trim()) continue;
-                                if (!ph.includes('artist') && !ph.includes('creative')) continue;
-                                let node = inp.parentElement;
-                                for (let j = 0; j < 8 && node; j++) {
-                                    for (const child of node.children) {
-                                        if (child.textContent.trim().startsWith('Producer')) {
-                                            inp.focus();
-                                            inp.scrollIntoView({block:'center'});
-                                            return true;
-                                        }
-                                    }
-                                    node = node.parentElement;
-                                }
-                            }
-                            return false;
-                        }""")
-                        log.info(f"  Prod Name focused: {prod_focused}")
-                        if prod_focused:
-                            page.wait_for_timeout(500)
-                            page.keyboard.type(artist, delay=80)
-                            log.info(f"  Prod Name: typed '{artist}'")
-                            page.wait_for_timeout(2000)
-                            ac_count = page.locator("[role='option']").count()
-                            log.info(f"  Prod Name: {ac_count} autocomplete options")
-                            try:
-                                opt = page.locator("[role='option']").filter(
-                                    has_text=artist).first
-                                if opt.is_visible(timeout=2000):
-                                    opt.click()
-                                    log.info("  Prod Name: dropdown OK")
-                                else:
-                                    page.keyboard.press("ArrowDown")
-                                    page.wait_for_timeout(200)
-                                    page.keyboard.press("Enter")
-                                    log.info("  Prod Name: keyboard fallback")
-                            except Exception as e:
-                                log.warning(f"  Prod Name autocomplete error: {e}")
-                                page.keyboard.press("Enter")
-                            page.wait_for_timeout(1500)
-                        else:
-                            log.warning("  Prod Name: input NOT FOUND")
-
-                        # ── 6. Producers — Role (CHOOSE/Select → producer) ──
-                        try:
-                            # The role dropdown may show "CHOOSE" or "Select..."
-                            role_opened = False
-                            for trigger_text in ['CHOOSE', 'Select...', 'Select']:
-                                try:
-                                    trigger = page.get_by_text(trigger_text, exact=True).first
-                                    if trigger.is_visible(timeout=1000):
-                                        trigger.click()
-                                        page.wait_for_timeout(1500)
-                                        log.info(f"  Prod Role: opened via '{trigger_text}'")
-                                        role_opened = True
-                                        break
-                                except Exception:
-                                    continue
-
-                            if not role_opened:
-                                # Try clicking any element with placeholder "Select..."
-                                page.evaluate("""() => {
-                                    const els = document.querySelectorAll('*');
-                                    for (const el of els) {
-                                        const ph = el.getAttribute('placeholder') || '';
-                                        if (ph.toLowerCase().includes('select')) {
-                                            el.click();
-                                            return true;
-                                        }
-                                    }
-                                    return false;
-                                }""")
-                                page.wait_for_timeout(1500)
-                                log.info("  Prod Role: tried placeholder click")
-                                role_opened = True
-
-                            if role_opened:
-                                # Now select "producer" from the visible dropdown
-                                clicked = False
-
-                                # Method 1: Playwright exact text
-                                try:
-                                    opt = page.get_by_text('producer', exact=True).first
-                                    if opt.is_visible(timeout=1000):
-                                        opt.click()
-                                        log.info("  Prod Role: clicked 'producer' text")
-                                        clicked = True
                                 except Exception:
                                     pass
 
-                                # Method 2: role=option or div/li with "producer"
-                                if not clicked:
-                                    for sel in ["[role='option']", "[class*='option']",
-                                                "li", "div"]:
-                                        try:
-                                            opt = page.locator(sel).filter(
-                                                has_text='producer').first
-                                            if opt.is_visible(timeout=500):
-                                                opt.click()
-                                                log.info(f"  Prod Role: clicked ({sel})")
-                                                clicked = True
-                                                break
-                                        except Exception:
-                                            continue
+                                # Click the react-select control
+                                try:
+                                    ctrl = rs.locator("[class*='control']").first
+                                    ctrl.click(timeout=2000)
+                                except Exception:
+                                    rs.click(timeout=2000)
+                                log.info(f"  Role[{i}]: clicked to open")
+                                page.wait_for_timeout(800)
 
-                                # Method 3: JS leaf-node click
-                                if not clicked:
-                                    cr = page.evaluate("""() => {
-                                        const els = [...document.querySelectorAll('div,li,span')]
-                                            .filter(el => {
-                                                const r = el.getBoundingClientRect();
-                                                if (r.width===0||r.height===0) return false;
-                                                const t = el.textContent.trim().toLowerCase();
-                                                return t === 'producer';
-                                            });
-                                        els.sort((a,b) => a.children.length - b.children.length);
-                                        if (els.length) { els[0].click(); return true; }
-                                        return false;
-                                    }""")
-                                    log.info(f"  Prod Role JS: {cr}")
+                                # Type "producer" to filter
+                                page.keyboard.type("producer", delay=50)
+                                page.wait_for_timeout(500)
 
-                                # Method 4: keyboard
-                                if not clicked:
-                                    page.keyboard.press("ArrowDown")
-                                    page.wait_for_timeout(200)
+                                # Click the option or press Enter
+                                option_clicked = False
+                                try:
+                                    opt = page.locator("[class*='option']").filter(
+                                        has_text="producer").first
+                                    if opt.is_visible(timeout=1000):
+                                        opt.click()
+                                        option_clicked = True
+                                        log.info(f"  Role[{i}]: clicked 'producer'")
+                                except Exception:
+                                    pass
+                                if not option_clicked:
                                     page.keyboard.press("Enter")
-                                    log.info("  Prod Role: ArrowDown+Enter")
-
-                                page.wait_for_timeout(1500)
+                                    log.info(f"  Role[{i}]: Enter to select")
+                                page.wait_for_timeout(800)
                         except Exception as e:
-                            log.warning(f"  Prod Role EXCEPTION: {e}")
+                            log.warning(f"  Role selects EXCEPTION: {e}")
 
                         # ── 7. Copyright → No ──
                         # Known HTML: <input id="song-cover-song-metadata-cover-song-no"
