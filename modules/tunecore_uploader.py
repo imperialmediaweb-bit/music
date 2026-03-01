@@ -1044,22 +1044,28 @@ def _do_upload(
                                 log.info(f"  Still loading... ({(i+1)*5}s)")
 
                 # ── ADD TRACK ──
-                # Real TuneCore flow on ③ Tracks page:
-                #   1. Click "ADD TRACK" → file chooser opens
-                #   2. Select WAV file from folder
-                #   3. Wait ~1 min for upload/processing
-                #   4. Click "Continue to Review"
                 elif state == 'add_track':
-                    log.info(f"  Uploading WAV via Add Track: {wav_path.name}")
                     _dump_page_state(page, "Add Track — before")
 
+                    # If no WAV file, skip and try to continue
+                    if not wav_path.exists() or str(wav_path) == '/dev/null':
+                        log.info("  Add Track step — no WAV file, skipping...")
+                        cont = _find_clickable(page, [
+                            "a.secondary-btn", "a:has-text('Continue')",
+                            "button:has-text('Continue')",
+                        ])
+                        if cont:
+                            cont.click()
+                            page.wait_for_timeout(5000)
+                        continue
+
+                    log.info(f"  Uploading WAV via Add Track: {wav_path.name}")
                     btn = _find_clickable(page, [
                         "text=Add Track", "button:has-text('Add Track')",
                         "a:has-text('Add Track')", "text=Add track",
                         "text=ADD TRACK",
                     ])
                     if btn:
-                        # ADD TRACK opens file picker — upload WAV through it
                         uploaded = False
                         try:
                             with page.expect_file_chooser(timeout=10_000) as fc_info:
@@ -1075,12 +1081,11 @@ def _do_upload(
                             uploaded = _upload_file(page, wav_path)
 
                         if not uploaded:
-                            raise RuntimeError(f"Failed to upload WAV '{wav_path.name}' via Add Track")
-
-                        # Wait ~1 min for TuneCore to process the upload
-                        log.info("  WAV uploading — waiting 1 min for processing...")
-                        page.wait_for_timeout(60_000)
-                        _dump_page_state(page, "Add Track — after 1 min wait")
+                            log.warning("  WAV upload failed — skipping, continuing...")
+                        else:
+                            log.info("  WAV uploading — waiting 1 min for processing...")
+                            page.wait_for_timeout(60_000)
+                            _dump_page_state(page, "Add Track — after 1 min wait")
 
                 # ── TRACK DETAILS (smart fill) ──
                 # TuneCore React app #songs_app on /singles/{id}/tracks
@@ -1394,7 +1399,8 @@ def _do_upload(
                     _dump_page_state(page, "Before WAV Upload")
                     wav_ok = _upload_file(page, wav_path)
                     if not wav_ok:
-                        raise RuntimeError(f"Failed to upload WAV '{wav_path.name}'")
+                        log.warning(f"  WAV upload failed for '{wav_path.name}' — skipping...")
+                        continue
                     log.info("  Waiting for WAV upload (~5 min)...")
                     _wait_for_upload(page, timeout=360, file_was_set=wav_ok)
 
@@ -1430,7 +1436,8 @@ def _do_upload(
 
                     cover_ok = _upload_file(page, cover_path)
                     if not cover_ok:
-                        raise RuntimeError(f"Failed to upload cover '{cover_path.name}'")
+                        log.warning(f"  Cover upload failed for '{cover_path.name}' — skipping...")
+                        continue
                     log.info("  Waiting for artwork upload (~1 min)...")
                     _wait_for_upload(page, timeout=120, file_was_set=cover_ok)
 
