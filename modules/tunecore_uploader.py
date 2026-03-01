@@ -502,172 +502,191 @@ def _fill_autocomplete(page, input_sel: str, value: str, label: str) -> bool:
 
 
 def _fill_choose_sections(page, artist: str):
-    """Find sections with 'CHOOSE' role dropdowns and fill artist name + select role.
+    """Fill Performing Artists + Producers sections on TuneCore track details.
 
-    TuneCore track details has multiple sections (Performing Artists, Producers &
-    Engineers) each with an artist-name autocomplete + a role dropdown showing
-    'CHOOSE'. This function finds each such section by walking the DOM upward from
-    the CHOOSE combobox to the section heading, determines the correct role, fills
-    the artist name, and selects the role.
+    Each section has:
+      - An input with placeholder containing "Artist" or "Creative"
+      - A CHOOSE dropdown/button for role selection
+    Strategy: find ALL visible text inputs that are empty + all CHOOSE elements,
+    pair them by proximity in DOM, fill name + select role.
     """
-    # ── Find all CHOOSE comboboxes and their section context ──
-    sections = page.evaluate("""(artistName) => {
-        const result = [];
-        // Find all visible combobox-like elements showing "CHOOSE"
-        const allEls = [...document.querySelectorAll('[role=combobox], [role=button], [class*=Select] div')];
-        const chooseEls = allEls.filter(el =>
-            el.offsetWidth > 0 && el.offsetHeight > 0 &&
-            el.textContent.trim().toLowerCase() === 'choose'
+    log.info(f"  _fill_choose_sections: looking for empty inputs + CHOOSE dropdowns...")
+
+    # ── Step 1: Dump what we see ──
+    info = page.evaluate("""() => {
+        const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+        const inputs = [...document.querySelectorAll('input')].filter(el =>
+            vis(el) && el.type === 'text' && !el.value.trim());
+        const chooses = [...document.querySelectorAll('*')].filter(el =>
+            vis(el) && el.textContent.trim().toUpperCase() === 'CHOOSE' &&
+            el.children.length === 0);
+        return {
+            emptyInputs: inputs.map(el => ({
+                name: el.name, placeholder: el.placeholder,
+                id: el.id, tag: el.tagName
+            })),
+            chooseEls: chooses.map(el => ({
+                tag: el.tagName, cls: el.className.substring(0, 80),
+                text: el.textContent.trim()
+            }))
+        };
+    }""")
+    log.info(f"  Empty inputs: {info.get('emptyInputs', [])}")
+    log.info(f"  CHOOSE elements: {info.get('chooseEls', [])}")
+
+    # ── Step 2: Tag empty inputs and CHOOSE elements with temp IDs ──
+    section_count = page.evaluate("""(artistName) => {
+        const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+
+        // Find all sections that have BOTH an empty input AND a CHOOSE element
+        // Walk the page top-to-bottom looking for sections like:
+        //   "Performing Artists*" / "Producers & Engineers*"
+        const sections = document.querySelectorAll(
+            'fieldset, [class*=section], [class*=Section], [class*=group], ' +
+            '[class*=Group], [class*=row], [class*=Row], div, section'
         );
 
-        for (let idx = 0; idx < chooseEls.length; idx++) {
-            const cb = chooseEls[idx];
-            // Walk up to find the section heading
-            let sectionName = '';
-            let sectionEl = cb;
-            for (let i = 0; i < 12; i++) {
-                sectionEl = sectionEl.parentElement;
-                if (!sectionEl) break;
-                const heading = sectionEl.querySelector('h1,h2,h3,h4,h5,h6,legend');
-                if (heading && heading.textContent.trim().length > 2) {
-                    sectionName = heading.textContent.trim();
-                    break;
-                }
-                // Also check bold/strong text as section label
-                const bold = sectionEl.querySelector('b, strong, p');
-                if (bold && bold.textContent.trim().length > 3 &&
-                    bold.textContent.trim().length < 60 &&
-                    bold !== cb) {
-                    sectionName = bold.textContent.trim();
-                    break;
-                }
-            }
+        // Simpler approach: find all empty text inputs, tag them
+        const emptyInputs = [...document.querySelectorAll('input')].filter(el =>
+            vis(el) && el.type === 'text' && !el.value.trim());
 
-            // Find the artist-name autocomplete input in the same section
-            const container = sectionEl || cb.parentElement;
-            const inputs = container ? [...container.querySelectorAll('input')]
-                .filter(el => el.offsetWidth > 0 && el.type !== 'hidden' &&
-                    el.type !== 'file' && el.type !== 'checkbox' && el.type !== 'radio')
-                : [];
-
-            // Tag the CHOOSE combobox with a temp ID so Playwright can find it
-            const tempId = '_choose_' + idx + '_' + Date.now();
-            cb.id = tempId;
-
-            result.push({
-                sectionName,
-                tempId,
-                hasEmptyInput: inputs.some(el => !el.value.trim()),
-                inputPlaceholder: inputs.find(el => !el.value.trim())?.placeholder || '',
-                inputName: inputs.find(el => !el.value.trim())?.name || '',
-            });
+        for (let i = 0; i < emptyInputs.length; i++) {
+            emptyInputs[i].setAttribute('data-fill-idx', i);
         }
-        return result;
+
+        // Find all CHOOSE leaf elements, tag them
+        const chooses = [...document.querySelectorAll('*')].filter(el =>
+            vis(el) && el.textContent.trim().toUpperCase() === 'CHOOSE' &&
+            el.children.length === 0);
+
+        for (let i = 0; i < chooses.length; i++) {
+            chooses[i].setAttribute('data-choose-idx', i);
+        }
+
+        return Math.min(emptyInputs.length, chooses.length);
     }""", artist)
 
-    for sec in sections:
-        name = sec.get('sectionName', '').lower()
-        # Determine the role based on section heading
-        if 'performing' in name or 'perform' in name:
-            role = 'Performer'
-            label = 'Performing Artist'
-        elif 'producer' in name or 'engineer' in name:
+    log.info(f"  Found {section_count} input+CHOOSE pairs to fill")
+
+    # ── Step 3: Fill each pair ──
+    for i in range(section_count):
+        # Determine role based on nearby text
+        role_info = page.evaluate("""(idx) => {
+            const input = document.querySelector(`[data-fill-idx="${idx}"]`);
+            if (!input) return { found: false };
+
+            // Walk up to find section heading text
+            let node = input;
+            let sectionText = '';
+            for (let j = 0; j < 10; j++) {
+                node = node.parentElement;
+                if (!node) break;
+                const t = node.textContent.toLowerCase();
+                if (t.includes('performing')) { sectionText = 'performing'; break; }
+                if (t.includes('producer')) { sectionText = 'producer'; break; }
+                if (t.includes('engineer')) { sectionText = 'engineer'; break; }
+            }
+            return { found: true, section: sectionText };
+        }""", i)
+
+        if not role_info.get('found'):
+            continue
+
+        section = role_info.get('section', '')
+        if 'producer' in section or 'engineer' in section:
             role = 'Producer'
             label = 'Producer'
-        elif 'artist' in name or 'creative' in name:
-            role = 'Main Artist'
-            label = 'Song Artist'
         else:
             role = 'Performer'
-            label = f'Section({sec["sectionName"]})'
+            label = 'Performing Artist'
 
-        log.info(f"  {label}: filling '{artist}' / '{role}' "
-                 f"(section='{sec['sectionName']}', input='{sec.get('inputName')}')")
+        log.info(f"  [{i}] {label}: filling '{artist}' with role '{role}'...")
 
-        # ── Fill the artist name autocomplete ──
-        if sec.get('hasEmptyInput'):
-            inp_name = sec.get('inputName', '')
-            inp_placeholder = sec.get('inputPlaceholder', '')
-            # Try to find the input by name or placeholder
-            filled = False
-            for sel in [
-                f"input[name='{inp_name}']" if inp_name else None,
-                f"input[placeholder='{inp_placeholder}']" if inp_placeholder else None,
-            ]:
-                if not sel:
-                    continue
-                try:
-                    if _fill_autocomplete(page, sel, artist, label):
-                        filled = True
-                        break
-                except Exception:
-                    continue
-
-            if not filled:
-                # Fallback: use JS to focus the input, then type
-                page.evaluate("""(args) => {
-                    const el = document.querySelector(`input[name="${args.name}"]`) ||
-                               document.querySelector(`input[placeholder="${args.placeholder}"]`);
-                    if (el) { el.focus(); el.click(); }
-                }""", {"name": inp_name, "placeholder": inp_placeholder})
+        # ── Fill artist name ──
+        try:
+            inp = page.locator(f"[data-fill-idx='{i}']").first
+            if inp.is_visible(timeout=2000):
+                inp.click()
                 page.wait_for_timeout(300)
-                try:
-                    focused = page.locator(':focus').first
-                    if focused.is_visible(timeout=1000):
-                        focused.fill("")
-                        focused.type(artist, delay=60)
-                        page.wait_for_timeout(1500)
-                        option = page.locator("[role='option']").filter(has_text=artist).first
-                        try:
-                            if option.is_visible(timeout=2000):
-                                option.click()
-                                page.wait_for_timeout(500)
-                                log.info(f"  {label}: '{artist}' (focused fallback)")
-                                filled = True
-                        except Exception:
-                            focused.press("ArrowDown")
-                            page.wait_for_timeout(300)
-                            focused.press("Enter")
-                            page.wait_for_timeout(500)
-                            filled = True
-                except Exception as e:
-                    log.warning(f"  {label}: fallback fill failed: {e}")
+                inp.fill("")
+                page.wait_for_timeout(200)
+                inp.type(artist, delay=60)
+                page.wait_for_timeout(2000)
 
-        # ── Select the role from the CHOOSE dropdown ──
-        temp_id = sec.get('tempId', '')
-        if temp_id:
-            try:
-                cb = page.locator(f"#{temp_id}").first
-                if cb.is_visible(timeout=2000):
-                    cb.click()
-                    page.wait_for_timeout(1000)
-                    # Try to find the role option in the popup
-                    picked = False
-                    for role_text in [role, role.lower(), role.title()]:
-                        option = page.locator("[role='listbox'] [role='option']").filter(
-                            has_text=role_text).first
+                # Try autocomplete dropdown
+                option = page.locator("[role='option'], [role='listbox'] li, .ui-menu-item").filter(
+                    has_text=artist).first
+                try:
+                    if option.is_visible(timeout=3000):
+                        option.click()
+                        page.wait_for_timeout(500)
+                        log.info(f"  [{i}] {label}: '{artist}' (autocomplete)")
+                    else:
+                        inp.press("ArrowDown")
+                        page.wait_for_timeout(300)
+                        inp.press("Enter")
+                        log.info(f"  [{i}] {label}: '{artist}' (keyboard)")
+                except Exception:
+                    inp.press("ArrowDown")
+                    page.wait_for_timeout(300)
+                    inp.press("Enter")
+                    log.info(f"  [{i}] {label}: '{artist}' (keyboard fallback)")
+                page.wait_for_timeout(500)
+        except Exception as e:
+            log.warning(f"  [{i}] {label}: input fill failed: {e}")
+
+        # ── Select role from CHOOSE dropdown ──
+        try:
+            cb = page.locator(f"[data-choose-idx='{i}']").first
+            if cb.is_visible(timeout=2000):
+                cb.click()
+                page.wait_for_timeout(1500)
+
+                # Try to find role option in popup/dropdown
+                picked = False
+                for role_text in [role, role.lower(), role.title(),
+                                  'main artist', 'Main Artist', 'PRIMARY ARTIST']:
+                    for opt_sel in [
+                        f"[role='option']:has-text('{role_text}')",
+                        f"[role='listbox'] [role='option']:has-text('{role_text}')",
+                        f"li:has-text('{role_text}')",
+                        f".ui-menu-item:has-text('{role_text}')",
+                        f"option:has-text('{role_text}')",
+                    ]:
                         try:
-                            if option.is_visible(timeout=2000):
-                                option.click()
+                            opt = page.locator(opt_sel).first
+                            if opt.is_visible(timeout=1500):
+                                opt.click()
                                 page.wait_for_timeout(500)
-                                log.info(f"  {label} Role: '{role_text}'")
+                                log.info(f"  [{i}] {label} Role: '{role_text}'")
+                                picked = True
+                                break
+                        except Exception:
+                            continue
+                    if picked:
+                        break
+
+                if not picked:
+                    # Fallback: pick first visible option
+                    for fallback_sel in [
+                        "[role='option']", "[role='listbox'] li",
+                        ".ui-menu-item", "ul li",
+                    ]:
+                        try:
+                            opt = page.locator(fallback_sel).first
+                            if opt.is_visible(timeout=1000):
+                                opt.click()
+                                page.wait_for_timeout(500)
+                                log.info(f"  [{i}] {label} Role: first available")
                                 picked = True
                                 break
                         except Exception:
                             continue
                     if not picked:
-                        # Fallback: pick first non-choose option
-                        first_opt = page.locator("[role='listbox'] [role='option']").first
-                        try:
-                            if first_opt.is_visible(timeout=1000):
-                                first_opt.click()
-                                page.wait_for_timeout(500)
-                                log.info(f"  {label} Role: picked first available option")
-                        except Exception:
-                            page.keyboard.press("Escape")
-                            log.warning(f"  {label} Role: no options found")
-            except Exception as e:
-                log.warning(f"  {label} Role: dropdown interaction failed: {e}")
+                        page.keyboard.press("Escape")
+                        log.warning(f"  [{i}] {label} Role: no options found")
+        except Exception as e:
+            log.warning(f"  [{i}] {label} Role: failed: {e}")
 
 
 def _upload_file(page, file_path: Path):
@@ -1177,32 +1196,60 @@ def _do_upload(
                         _fill_choose_sections(page, artist)
 
                         # ── 6. Copyright Ownership: NOT a cover ──
-                        page.evaluate("""() => {
-                            const els = [...document.querySelectorAll(
-                                'button, [role=button], label, input[type=radio], span'
-                            )].filter(el => el.offsetWidth > 0);
-                            for (const el of els) {
-                                const txt = el.textContent.trim().toLowerCase();
-                                if (txt.includes('i wrote') || txt.includes('original')) {
-                                    el.click(); return 'clicked_original';
+                        # TuneCore uses radio buttons Yes/No near "cover" text
+                        cover_result = page.evaluate("""() => {
+                            const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+
+                            // Strategy 1: find radio inputs near "cover" text
+                            const radios = [...document.querySelectorAll('input[type=radio]')]
+                                .filter(vis);
+                            for (const r of radios) {
+                                const lbl = r.closest('label') || r.parentElement;
+                                const txt = lbl ? lbl.textContent.trim().toLowerCase() : '';
+                                if (txt === 'no') {
+                                    // Check if this "No" is in a "cover" context
+                                    let node = r;
+                                    for (let i = 0; i < 10; i++) {
+                                        node = node.parentElement;
+                                        if (!node) break;
+                                        if (node.textContent.toLowerCase().includes('cover')) {
+                                            r.click();
+                                            if (lbl) lbl.click();
+                                            return 'clicked_no_radio';
+                                        }
+                                    }
                                 }
                             }
-                            // Find "No" near "cover"
-                            const noBtns = els.filter(el =>
+
+                            // Strategy 2: click "No" label/button near "cover"
+                            const allEls = [...document.querySelectorAll(
+                                'button, [role=button], label, span'
+                            )].filter(vis);
+                            const noBtns = allEls.filter(el =>
                                 el.textContent.trim().toLowerCase() === 'no');
                             for (const btn of noBtns) {
                                 let node = btn;
-                                for (let i = 0; i < 8; i++) {
+                                for (let i = 0; i < 10; i++) {
                                     node = node.parentElement;
                                     if (!node) break;
                                     if (node.textContent.toLowerCase().includes('cover')) {
-                                        btn.click(); return 'clicked_no_cover';
+                                        btn.click();
+                                        return 'clicked_no_btn';
                                     }
+                                }
+                            }
+
+                            // Strategy 3: "I wrote" or "original"
+                            for (const el of allEls) {
+                                const txt = el.textContent.trim().toLowerCase();
+                                if (txt.includes('i wrote') || txt === 'original') {
+                                    el.click();
+                                    return 'clicked_original';
                                 }
                             }
                             return 'not_found';
                         }""")
-                        log.info("  Copyright: original (not a cover)")
+                        log.info(f"  Copyright: {cover_result}")
 
                         # ── 7. Instrumental — ALWAYS check ──
                         result = page.evaluate("""() => {
