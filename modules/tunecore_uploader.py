@@ -190,8 +190,14 @@ def continue_tunecore_draft(
         track_name=track_name,
         genre="Afro House",
         mood="energetic",
-        prompt="instrumental",
+        description=f"A track called {track_name}",
+        music_prompt="instrumental afro house",
+        hashtags=["afrohouse", "music"],
         thumbnail_prompt="abstract African mask art, vibrant colors, dark background",
+        youtube_title=track_name,
+        youtube_description=track_name,
+        youtube_tags=["afrohouse"],
+        tiktok_caption=track_name,
     )
 
     safe = track_name.replace(" ", "_")
