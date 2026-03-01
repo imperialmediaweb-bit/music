@@ -501,216 +501,193 @@ def _fill_autocomplete(page, input_sel: str, value: str, label: str) -> bool:
         return False
 
 
+def _click_dropdown_option(page, name: str, label: str, prefer: list = None):
+    """After a dropdown is already open, find and click the right option.
+
+    Args:
+        name:    exact text to match (for artist name fields)
+        label:   logging label
+        prefer:  if set, try these keywords first (for role fields)
+    Returns True if an option was clicked.
+    """
+    picked = page.evaluate("""(args) => {
+        const { name, prefer } = args;
+        const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+        const selectors = [
+            '[role=option]', '[role=listbox] li',
+            '[class*=option]', '[class*=Option]',
+            '[id*=option]',
+            '[class*=menu] div', '[class*=Menu] div',
+            '[class*=listbox] div',
+        ];
+
+        let opts = [];
+        for (const sel of selectors) {
+            const found = [...document.querySelectorAll(sel)].filter(el =>
+                vis(el) && el.textContent.trim().length > 0 &&
+                el.textContent.trim().toUpperCase() !== 'CHOOSE' &&
+                el.textContent.trim().toLowerCase() !== 'select...' &&
+                el.children.length === 0);
+            opts.push(...found);
+        }
+        opts = [...new Set(opts)];
+
+        // If we have preferred keywords (role selection), try those first
+        if (prefer && prefer.length > 0) {
+            for (const pref of prefer) {
+                for (const el of opts) {
+                    if (el.textContent.trim().toLowerCase().includes(pref)) {
+                        el.click();
+                        return { picked: true, text: el.textContent.trim() };
+                    }
+                }
+            }
+        }
+
+        // Exact match by name
+        for (const el of opts) {
+            if (el.textContent.trim() === name) {
+                el.click();
+                return { picked: true, text: el.textContent.trim() };
+            }
+        }
+        // Case-insensitive
+        for (const el of opts) {
+            if (el.textContent.trim().toLowerCase() === name.toLowerCase()) {
+                el.click();
+                return { picked: true, text: el.textContent.trim() };
+            }
+        }
+        // Contains
+        for (const el of opts) {
+            const t = el.textContent.trim();
+            if (t.toLowerCase().includes(name.toLowerCase()) &&
+                t.length < name.length + 30) {
+                el.click();
+                return { picked: true, text: t };
+            }
+        }
+        // Last resort: first option
+        if (opts.length > 0) {
+            opts[0].click();
+            return { picked: true, text: opts[0].textContent.trim(), fallback: true };
+        }
+        return { picked: false, total: opts.length };
+    }""", {"name": name, "prefer": prefer or []})
+
+    if picked.get('picked'):
+        fb = ' (fallback)' if picked.get('fallback') else ''
+        log.info(f"  {label}: selected '{picked.get('text')}'{fb}")
+        return True
+    # Keyboard fallback
+    page.keyboard.press("ArrowDown")
+    page.wait_for_timeout(300)
+    page.keyboard.press("Enter")
+    log.info(f"  {label}: keyboard fallback")
+    return True
+
+
 def _fill_choose_sections(page, artist: str):
     """Fill Performing Artists + Producers sections on TuneCore track details.
 
-    Both artist name AND role are CHOOSE dropdowns — click each, pick from list.
-    Strategy: find ALL CHOOSE elements, classify them (name vs role) by nearby
-    label text, then click each and select the right option from the dropdown.
-    """
-    log.info(f"  _fill_choose_sections: looking for CHOOSE dropdowns...")
+    Each section row has:
+      - An input with placeholder "Add Artist/Creative" — click it, a dropdown
+        appears with registered artist names, pick the right one.
+      - A CHOOSE button for role — click it, a dropdown appears with roles
+        (Main Artist, Featured, Producer …), pick the right one.
 
-    # ── Step 1: Find & tag all visible CHOOSE elements ──
-    choose_info = page.evaluate("""() => {
+    NO typing — just click the field, dropdown appears, select from list.
+    """
+    log.info(f"  _fill_choose_sections: artist='{artist}'")
+
+    # ── Step 1: Find artist-name inputs (placeholder "Add Artist/Creative") ──
+    #            and CHOOSE buttons (for role), tag them ──
+    counts = page.evaluate("""() => {
         const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+
+        // Artist/Creative name inputs — identified by placeholder text
+        const nameInputs = [...document.querySelectorAll('input[type=text]')].filter(el =>
+            vis(el) && (
+                el.placeholder.toLowerCase().includes('artist') ||
+                el.placeholder.toLowerCase().includes('creative') ||
+                el.placeholder.toLowerCase().includes('add artist')
+            ));
+        for (let i = 0; i < nameInputs.length; i++)
+            nameInputs[i].setAttribute('data-artist-input-idx', i);
+
+        // CHOOSE buttons — for role selection
         const chooses = [...document.querySelectorAll('*')].filter(el =>
             vis(el) && el.textContent.trim().toUpperCase() === 'CHOOSE' &&
             el.children.length === 0);
-
-        const results = [];
-        for (let i = 0; i < chooses.length; i++) {
+        for (let i = 0; i < chooses.length; i++)
             chooses[i].setAttribute('data-choose-idx', i);
 
-            let type = 'unknown';
-            let section = '';
+        return {
+            nameInputs: nameInputs.length,
+            chooses: chooses.length,
+            placeholders: nameInputs.map(el => el.placeholder)
+        };
+    }""")
 
-            // Walk up the DOM to find context labels
-            let node = chooses[i];
+    n_names = counts.get('nameInputs', 0)
+    n_roles = counts.get('chooses', 0)
+    log.info(f"  Found {n_names} name inputs (placeholders: {counts.get('placeholders')}), "
+             f"{n_roles} CHOOSE role buttons")
+
+    pairs = min(n_names, n_roles)
+    if pairs == 0:
+        log.warning("  No name+role pairs found, nothing to fill")
+        return
+
+    # ── Step 2: For each pair, determine section and fill ──
+    for i in range(pairs):
+        # Determine section (performing / producer)
+        section = page.evaluate("""(idx) => {
+            const el = document.querySelector(`[data-artist-input-idx="${idx}"]`);
+            if (!el) return '';
+            let node = el;
             for (let j = 0; j < 15; j++) {
                 node = node.parentElement;
                 if (!node) break;
                 const t = node.textContent.toLowerCase();
-
-                // Determine which section (performing / producer)
-                if (!section && t.includes('performing')) section = 'performing';
-                if (!section && (t.includes('producer') || t.includes('engineer')))
-                    section = 'producer';
-
-                // Look for nearby labels (only in close ancestors)
-                if (j < 6 && type === 'unknown') {
-                    const labels = [...node.querySelectorAll(
-                        'label, [class*=label], [class*=Label], span, p'
-                    )].filter(l => l.textContent.trim().length < 60);
-                    for (const lbl of labels) {
-                        const lt = lbl.textContent.toLowerCase();
-                        if (lt.includes('role')) { type = 'role'; break; }
-                        if (lt.includes('artist') || lt.includes('creative') ||
-                            lt.includes('name')) { type = 'name'; break; }
-                    }
-                }
+                if (t.includes('performing')) return 'performing';
+                if (t.includes('producer') || t.includes('engineer')) return 'producer';
             }
-            results.push({ idx: i, type, section,
-                tag: chooses[i].tagName,
-                cls: chooses[i].className.substring(0, 80) });
-        }
-        return results;
-    }""")
+            return '';
+        }""", i)
 
-    log.info(f"  CHOOSE dropdowns found: {choose_info}")
+        sect_label = section or 'unknown'
+        log.info(f"  [{i}] Section: {sect_label}")
 
-    if not choose_info:
-        log.warning("  No CHOOSE dropdowns found")
-        return
-
-    # ── Step 2: If label detection didn't work, assume alternating name/role ──
-    for i, info in enumerate(choose_info):
-        if info['type'] == 'unknown':
-            info['type'] = 'name' if i % 2 == 0 else 'role'
-
-    log.info(f"  Classified dropdowns: "
-             f"{[(d['idx'], d['type'], d['section']) for d in choose_info]}")
-
-    # ── Step 3: Click each CHOOSE dropdown and select from the list ──
-    for info in choose_info:
-        idx = info['idx']
-        dtype = info['type']
-        section = info.get('section', '')
-        label = f"[{idx}] {dtype.upper()} ({section or 'unknown'})"
-
-        log.info(f"  {label}: clicking CHOOSE dropdown...")
-
+        # ── 2a. Click the name input → dropdown appears → select artist ──
         try:
-            el = page.locator(f"[data-choose-idx='{idx}']").first
-            if not el.is_visible(timeout=2000):
-                log.warning(f"  {label}: not visible, skipping")
-                continue
-
-            el.click()
-            page.wait_for_timeout(1500)
-
-            if dtype == 'name':
-                # ── Select artist name from the dropdown list ──
-                picked = page.evaluate("""(name) => {
-                    const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-                    const selectors = [
-                        '[role=option]', '[role=listbox] li',
-                        '[class*=option]', '[class*=Option]',
-                        '[id*=option]',
-                        '[class*=menu] div', '[class*=Menu] div',
-                        '[class*=listbox] div',
-                    ];
-
-                    let allOptions = [];
-                    for (const sel of selectors) {
-                        const found = [...document.querySelectorAll(sel)].filter(el =>
-                            vis(el) && el.textContent.trim().length > 0 &&
-                            el.textContent.trim().toUpperCase() !== 'CHOOSE' &&
-                            el.children.length === 0);
-                        allOptions.push(...found);
-                    }
-                    allOptions = [...new Set(allOptions)];
-
-                    // Exact match
-                    for (const el of allOptions) {
-                        if (el.textContent.trim() === name) {
-                            el.click();
-                            return { picked: true, text: el.textContent.trim() };
-                        }
-                    }
-                    // Case-insensitive exact
-                    for (const el of allOptions) {
-                        if (el.textContent.trim().toLowerCase() === name.toLowerCase()) {
-                            el.click();
-                            return { picked: true, text: el.textContent.trim() };
-                        }
-                    }
-                    // Contains
-                    for (const el of allOptions) {
-                        const t = el.textContent.trim();
-                        if (t.toLowerCase().includes(name.toLowerCase()) &&
-                            t.length < name.length + 30) {
-                            el.click();
-                            return { picked: true, text: t };
-                        }
-                    }
-                    // Last resort: first option
-                    if (allOptions.length > 0) {
-                        allOptions[0].click();
-                        return { picked: true, text: allOptions[0].textContent.trim(),
-                                 fallback: true };
-                    }
-                    return { picked: false, total: allOptions.length };
-                }""", artist)
-
-                if picked.get('picked'):
-                    fb = ' (fallback)' if picked.get('fallback') else ''
-                    log.info(f"  {label}: selected '{picked.get('text')}'{fb}")
-                else:
-                    # Keyboard fallback
-                    page.keyboard.press("ArrowDown")
-                    page.wait_for_timeout(300)
-                    page.keyboard.press("Enter")
-                    log.info(f"  {label}: keyboard fallback")
-
-            else:
-                # ── Select role from the dropdown list ──
-                if 'producer' in section:
-                    preferred = ['producer', 'prod']
-                else:
-                    preferred = ['main artist', 'main', 'primary artist', 'primary']
-
-                picked = page.evaluate("""(preferred) => {
-                    const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-                    const selectors = [
-                        '[role=option]', '[role=listbox] li',
-                        '[class*=option]', '[class*=Option]',
-                        '[id*=option]',
-                        '[class*=menu] div', '[class*=Menu] div',
-                        '[class*=listbox] div',
-                    ];
-
-                    let allOptions = [];
-                    for (const sel of selectors) {
-                        const found = [...document.querySelectorAll(sel)].filter(el =>
-                            vis(el) && el.textContent.trim().length > 0 &&
-                            el.textContent.trim().toUpperCase() !== 'CHOOSE' &&
-                            el.textContent.trim().toLowerCase() !== 'select...' &&
-                            el.children.length === 0);
-                        allOptions.push(...found);
-                    }
-                    allOptions = [...new Set(allOptions)];
-
-                    // Try preferred roles first
-                    for (const pref of preferred) {
-                        for (const el of allOptions) {
-                            if (el.textContent.trim().toLowerCase().includes(pref)) {
-                                el.click();
-                                return { picked: true, text: el.textContent.trim() };
-                            }
-                        }
-                    }
-                    // Fallback: first option
-                    if (allOptions.length > 0) {
-                        allOptions[0].click();
-                        return { picked: true, text: allOptions[0].textContent.trim(),
-                                 fallback: true };
-                    }
-                    return { picked: false, total: allOptions.length };
-                }""", preferred)
-
-                if picked.get('picked'):
-                    fb = ' (fallback)' if picked.get('fallback') else ''
-                    log.info(f"  {label}: selected role '{picked.get('text')}'{fb}")
-                else:
-                    page.keyboard.press("ArrowDown")
-                    page.wait_for_timeout(300)
-                    page.keyboard.press("Enter")
-                    log.info(f"  {label}: role keyboard fallback")
-
-            page.wait_for_timeout(1000)
-
+            inp = page.locator(f"[data-artist-input-idx='{i}']").first
+            if inp.is_visible(timeout=2000):
+                inp.click()
+                page.wait_for_timeout(1500)
+                log.info(f"  [{i}] Clicked name input, looking for '{artist}' in dropdown...")
+                _click_dropdown_option(page, artist, f"[{i}] NAME ({sect_label})")
+                page.wait_for_timeout(1000)
         except Exception as e:
-            log.warning(f"  {label}: failed: {e}")
+            log.warning(f"  [{i}] Name input click failed: {e}")
+
+        # ── 2b. Click the CHOOSE button → dropdown appears → select role ──
+        try:
+            cb = page.locator(f"[data-choose-idx='{i}']").first
+            if cb.is_visible(timeout=2000):
+                cb.click()
+                page.wait_for_timeout(1500)
+
+                if 'producer' in section:
+                    prefer = ['producer', 'prod']
+                else:
+                    prefer = ['main artist', 'main', 'primary artist', 'primary']
+
+                log.info(f"  [{i}] Clicked CHOOSE, selecting role (prefer: {prefer})...")
+                _click_dropdown_option(page, '', f"[{i}] ROLE ({sect_label})", prefer)
+                page.wait_for_timeout(1000)
+        except Exception as e:
+            log.warning(f"  [{i}] Role CHOOSE click failed: {e}")
 
 
 def _upload_file(page, file_path: Path):
