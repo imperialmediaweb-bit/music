@@ -504,203 +504,98 @@ def _fill_autocomplete(page, input_sel: str, value: str, label: str) -> bool:
 def _fill_choose_sections(page, artist: str):
     """Fill Performing Artists + Producers sections on TuneCore track details.
 
-    Each section has:
-      - An input with placeholder containing "Artist" or "Creative"
-      - A CHOOSE dropdown/button for role selection
-    Strategy: find ALL visible text inputs that are empty + all CHOOSE elements,
-    pair them by proximity in DOM, fill name + select role.
+    Both artist name AND role are CHOOSE dropdowns — click each, pick from list.
+    Strategy: find ALL CHOOSE elements, classify them (name vs role) by nearby
+    label text, then click each and select the right option from the dropdown.
     """
-    log.info(f"  _fill_choose_sections: looking for empty inputs + CHOOSE dropdowns...")
+    log.info(f"  _fill_choose_sections: looking for CHOOSE dropdowns...")
 
-    # ── Step 1: Dump what we see ──
-    info = page.evaluate("""() => {
+    # ── Step 1: Find & tag all visible CHOOSE elements ──
+    choose_info = page.evaluate("""() => {
         const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-        const inputs = [...document.querySelectorAll('input')].filter(el =>
-            vis(el) && el.type === 'text' && !el.value.trim());
-        const chooses = [...document.querySelectorAll('*')].filter(el =>
-            vis(el) && el.textContent.trim().toUpperCase() === 'CHOOSE' &&
-            el.children.length === 0);
-        return {
-            emptyInputs: inputs.map(el => ({
-                name: el.name, placeholder: el.placeholder,
-                id: el.id, tag: el.tagName
-            })),
-            chooseEls: chooses.map(el => ({
-                tag: el.tagName, cls: el.className.substring(0, 80),
-                text: el.textContent.trim()
-            }))
-        };
-    }""")
-    log.info(f"  Empty inputs: {info.get('emptyInputs', [])}")
-    log.info(f"  CHOOSE elements: {info.get('chooseEls', [])}")
-
-    # ── Step 2: Tag empty inputs and CHOOSE elements with temp IDs ──
-    section_count = page.evaluate("""(artistName) => {
-        const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-
-        // Find all sections that have BOTH an empty input AND a CHOOSE element
-        // Walk the page top-to-bottom looking for sections like:
-        //   "Performing Artists*" / "Producers & Engineers*"
-        const sections = document.querySelectorAll(
-            'fieldset, [class*=section], [class*=Section], [class*=group], ' +
-            '[class*=Group], [class*=row], [class*=Row], div, section'
-        );
-
-        // Simpler approach: find all empty text inputs, tag them
-        const emptyInputs = [...document.querySelectorAll('input')].filter(el =>
-            vis(el) && el.type === 'text' && !el.value.trim());
-
-        for (let i = 0; i < emptyInputs.length; i++) {
-            emptyInputs[i].setAttribute('data-fill-idx', i);
-        }
-
-        // Find all CHOOSE leaf elements, tag them
         const chooses = [...document.querySelectorAll('*')].filter(el =>
             vis(el) && el.textContent.trim().toUpperCase() === 'CHOOSE' &&
             el.children.length === 0);
 
+        const results = [];
         for (let i = 0; i < chooses.length; i++) {
             chooses[i].setAttribute('data-choose-idx', i);
-        }
 
-        return Math.min(emptyInputs.length, chooses.length);
-    }""", artist)
+            let type = 'unknown';
+            let section = '';
 
-    log.info(f"  Found {section_count} input+CHOOSE pairs to fill")
-
-    # ── Step 3: Fill each pair ──
-    for i in range(section_count):
-        # Determine role based on nearby text
-        role_info = page.evaluate("""(idx) => {
-            const input = document.querySelector(`[data-fill-idx="${idx}"]`);
-            if (!input) return { found: false };
-
-            // Walk up to find section heading text
-            let node = input;
-            let sectionText = '';
-            for (let j = 0; j < 10; j++) {
+            // Walk up the DOM to find context labels
+            let node = chooses[i];
+            for (let j = 0; j < 15; j++) {
                 node = node.parentElement;
                 if (!node) break;
                 const t = node.textContent.toLowerCase();
-                if (t.includes('performing')) { sectionText = 'performing'; break; }
-                if (t.includes('producer')) { sectionText = 'producer'; break; }
-                if (t.includes('engineer')) { sectionText = 'engineer'; break; }
+
+                // Determine which section (performing / producer)
+                if (!section && t.includes('performing')) section = 'performing';
+                if (!section && (t.includes('producer') || t.includes('engineer')))
+                    section = 'producer';
+
+                // Look for nearby labels (only in close ancestors)
+                if (j < 6 && type === 'unknown') {
+                    const labels = [...node.querySelectorAll(
+                        'label, [class*=label], [class*=Label], span, p'
+                    )].filter(l => l.textContent.trim().length < 60);
+                    for (const lbl of labels) {
+                        const lt = lbl.textContent.toLowerCase();
+                        if (lt.includes('role')) { type = 'role'; break; }
+                        if (lt.includes('artist') || lt.includes('creative') ||
+                            lt.includes('name')) { type = 'name'; break; }
+                    }
+                }
             }
-            return { found: true, section: sectionText };
-        }""", i)
+            results.push({ idx: i, type, section,
+                tag: chooses[i].tagName,
+                cls: chooses[i].className.substring(0, 80) });
+        }
+        return results;
+    }""")
 
-        if not role_info.get('found'):
-            continue
+    log.info(f"  CHOOSE dropdowns found: {choose_info}")
 
-        section = role_info.get('section', '')
-        if 'producer' in section or 'engineer' in section:
-            role = 'Producer'
-            label = 'Producer'
-        else:
-            role = 'Performer'
-            label = 'Performing Artist'
+    if not choose_info:
+        log.warning("  No CHOOSE dropdowns found")
+        return
 
-        log.info(f"  [{i}] {label}: filling '{artist}' with role '{role}'...")
+    # ── Step 2: If label detection didn't work, assume alternating name/role ──
+    for i, info in enumerate(choose_info):
+        if info['type'] == 'unknown':
+            info['type'] = 'name' if i % 2 == 0 else 'role'
 
-        # ── Fill artist name ──
+    log.info(f"  Classified dropdowns: "
+             f"{[(d['idx'], d['type'], d['section']) for d in choose_info]}")
+
+    # ── Step 3: Click each CHOOSE dropdown and select from the list ──
+    for info in choose_info:
+        idx = info['idx']
+        dtype = info['type']
+        section = info.get('section', '')
+        label = f"[{idx}] {dtype.upper()} ({section or 'unknown'})"
+
+        log.info(f"  {label}: clicking CHOOSE dropdown...")
+
         try:
-            inp = page.locator(f"[data-fill-idx='{i}']").first
-            if inp.is_visible(timeout=2000):
-                inp.click()
-                page.wait_for_timeout(300)
-                inp.fill("")
-                page.wait_for_timeout(200)
-                inp.type(artist, delay=60)
-                page.wait_for_timeout(3000)
+            el = page.locator(f"[data-choose-idx='{idx}']").first
+            if not el.is_visible(timeout=2000):
+                log.warning(f"  {label}: not visible, skipping")
+                continue
 
-                # Log what appeared after typing
-                page.evaluate("""(name) => {
+            el.click()
+            page.wait_for_timeout(1500)
+
+            if dtype == 'name':
+                # ── Select artist name from the dropdown list ──
+                picked = page.evaluate("""(name) => {
                     const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-                    // Log ALL visible elements that contain the artist name
-                    const all = [...document.querySelectorAll('*')].filter(el =>
-                        vis(el) && el.children.length === 0 &&
-                        el.textContent.trim().toLowerCase().includes(name.toLowerCase().substring(0, 5))
-                    );
-                    console.log('AUTOCOMPLETE candidates:', all.map(el =>
-                        el.tagName + '.' + el.className.substring(0,40) + ' = "' + el.textContent.trim() + '"'
-                    ).join(' | '));
-                }""", artist)
-
-                # Click EXACT match — search ALL visible leaf elements on page
-                clicked = page.evaluate("""(name) => {
-                    const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-
-                    // Get ALL visible leaf elements (no children) that contain artist text
-                    const all = [...document.querySelectorAll('*')].filter(el =>
-                        vis(el) && el.children.length === 0 &&
-                        el.textContent.trim().length > 0 &&
-                        el.textContent.trim().length < 100
-                    );
-
-                    // EXACT match first
-                    for (const el of all) {
-                        if (el.textContent.trim() === name && el.tagName !== 'INPUT') {
-                            el.click();
-                            return { found: true, text: el.textContent.trim(),
-                                     tag: el.tagName, cls: el.className.substring(0, 50) };
-                        }
-                    }
-
-                    // Case-insensitive exact
-                    for (const el of all) {
-                        if (el.textContent.trim().toLowerCase() === name.toLowerCase() &&
-                            el.tagName !== 'INPUT') {
-                            el.click();
-                            return { found: true, text: el.textContent.trim(),
-                                     tag: el.tagName, cls: el.className.substring(0, 50) };
-                        }
-                    }
-
-                    // Contains match (e.g. "GrooveGenix" inside a longer string)
-                    for (const el of all) {
-                        const txt = el.textContent.trim();
-                        if (txt.toLowerCase().includes(name.toLowerCase()) &&
-                            txt.length < name.length + 20 &&
-                            el.tagName !== 'INPUT') {
-                            el.click();
-                            return { found: true, text: txt,
-                                     tag: el.tagName, cls: el.className.substring(0, 50) };
-                        }
-                    }
-
-                    return { found: false, total_leaves: all.length };
-                }""", artist)
-
-                if clicked.get('found'):
-                    log.info(f"  [{i}] {label}: clicked '{clicked.get('text')}' "
-                             f"({clicked.get('tag')}.{clicked.get('cls')})")
-                else:
-                    log.warning(f"  [{i}] {label}: no autocomplete match for '{artist}' "
-                                f"(scanned {clicked.get('total_leaves')} elements)")
-                    # Fallback: keyboard
-                    inp.press("ArrowDown")
-                    page.wait_for_timeout(300)
-                    inp.press("Enter")
-                    log.info(f"  [{i}] {label}: '{artist}' (keyboard fallback)")
-                page.wait_for_timeout(1000)
-        except Exception as e:
-            log.warning(f"  [{i}] {label}: input fill failed: {e}")
-
-        # ── CHOOSE dropdown — click first option from the list ──
-        try:
-            cb = page.locator(f"[data-choose-idx='{i}']").first
-            if cb.is_visible(timeout=2000):
-                cb.click()
-                page.wait_for_timeout(1500)
-
-                # Find first real option in the dropdown and click it
-                picked = page.evaluate("""() => {
-                    const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-
-                    // React Select menu options — try many selectors
                     const selectors = [
+                        '[role=option]', '[role=listbox] li',
                         '[class*=option]', '[class*=Option]',
-                        '[id*=option]', '[role=option]',
+                        '[id*=option]',
                         '[class*=menu] div', '[class*=Menu] div',
                         '[class*=listbox] div',
                     ];
@@ -709,33 +604,113 @@ def _fill_choose_sections(page, artist: str):
                     for (const sel of selectors) {
                         const found = [...document.querySelectorAll(sel)].filter(el =>
                             vis(el) && el.textContent.trim().length > 0 &&
-                            el.textContent.trim().toLowerCase() !== 'select...' &&
                             el.textContent.trim().toUpperCase() !== 'CHOOSE' &&
-                            el.children.length === 0
-                        );
+                            el.children.length === 0);
                         allOptions.push(...found);
                     }
                     allOptions = [...new Set(allOptions)];
 
+                    // Exact match
+                    for (const el of allOptions) {
+                        if (el.textContent.trim() === name) {
+                            el.click();
+                            return { picked: true, text: el.textContent.trim() };
+                        }
+                    }
+                    // Case-insensitive exact
+                    for (const el of allOptions) {
+                        if (el.textContent.trim().toLowerCase() === name.toLowerCase()) {
+                            el.click();
+                            return { picked: true, text: el.textContent.trim() };
+                        }
+                    }
+                    // Contains
+                    for (const el of allOptions) {
+                        const t = el.textContent.trim();
+                        if (t.toLowerCase().includes(name.toLowerCase()) &&
+                            t.length < name.length + 30) {
+                            el.click();
+                            return { picked: true, text: t };
+                        }
+                    }
+                    // Last resort: first option
                     if (allOptions.length > 0) {
                         allOptions[0].click();
-                        return { picked: true, text: allOptions[0].textContent.trim() };
+                        return { picked: true, text: allOptions[0].textContent.trim(),
+                                 fallback: true };
                     }
-                    return { picked: false };
-                }""")
+                    return { picked: false, total: allOptions.length };
+                }""", artist)
 
                 if picked.get('picked'):
-                    log.info(f"  [{i}] {label} Role: '{picked.get('text')}'")
+                    fb = ' (fallback)' if picked.get('fallback') else ''
+                    log.info(f"  {label}: selected '{picked.get('text')}'{fb}")
                 else:
-                    # Fallback: keyboard
+                    # Keyboard fallback
                     page.keyboard.press("ArrowDown")
                     page.wait_for_timeout(300)
                     page.keyboard.press("Enter")
-                    log.info(f"  [{i}] {label} Role: first via keyboard")
+                    log.info(f"  {label}: keyboard fallback")
 
-                page.wait_for_timeout(500)
+            else:
+                # ── Select role from the dropdown list ──
+                if 'producer' in section:
+                    preferred = ['producer', 'prod']
+                else:
+                    preferred = ['main artist', 'main', 'primary artist', 'primary']
+
+                picked = page.evaluate("""(preferred) => {
+                    const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+                    const selectors = [
+                        '[role=option]', '[role=listbox] li',
+                        '[class*=option]', '[class*=Option]',
+                        '[id*=option]',
+                        '[class*=menu] div', '[class*=Menu] div',
+                        '[class*=listbox] div',
+                    ];
+
+                    let allOptions = [];
+                    for (const sel of selectors) {
+                        const found = [...document.querySelectorAll(sel)].filter(el =>
+                            vis(el) && el.textContent.trim().length > 0 &&
+                            el.textContent.trim().toUpperCase() !== 'CHOOSE' &&
+                            el.textContent.trim().toLowerCase() !== 'select...' &&
+                            el.children.length === 0);
+                        allOptions.push(...found);
+                    }
+                    allOptions = [...new Set(allOptions)];
+
+                    // Try preferred roles first
+                    for (const pref of preferred) {
+                        for (const el of allOptions) {
+                            if (el.textContent.trim().toLowerCase().includes(pref)) {
+                                el.click();
+                                return { picked: true, text: el.textContent.trim() };
+                            }
+                        }
+                    }
+                    // Fallback: first option
+                    if (allOptions.length > 0) {
+                        allOptions[0].click();
+                        return { picked: true, text: allOptions[0].textContent.trim(),
+                                 fallback: true };
+                    }
+                    return { picked: false, total: allOptions.length };
+                }""", preferred)
+
+                if picked.get('picked'):
+                    fb = ' (fallback)' if picked.get('fallback') else ''
+                    log.info(f"  {label}: selected role '{picked.get('text')}'{fb}")
+                else:
+                    page.keyboard.press("ArrowDown")
+                    page.wait_for_timeout(300)
+                    page.keyboard.press("Enter")
+                    log.info(f"  {label}: role keyboard fallback")
+
+            page.wait_for_timeout(1000)
+
         except Exception as e:
-            log.warning(f"  [{i}] {label} Role: failed: {e}")
+            log.warning(f"  {label}: failed: {e}")
 
 
 def _upload_file(page, file_path: Path):
