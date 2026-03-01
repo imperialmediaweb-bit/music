@@ -219,97 +219,158 @@ def _find_clickable(page, selectors: list[str]):
     return None
 
 
-def _fill_combobox(page, input_selector: str, text: str, field_label: str) -> bool:
-    """Fill any TuneCore dropdown — auto-detects MUI Select vs MUI Autocomplete.
+def _smart_fill(page, field_name: str, value: str, label: str) -> bool:
+    """Intelligently fill ANY form field — auto-detects component type via DOM analysis.
 
-    MUI Select:  hidden <input> + visible sibling <div role=combobox>.
-                 Click the div, pick from the [role=listbox] popup.
-    MUI Autocomplete:  visible <input> you type into.
-                 Type text, pick from the filtered option list.
+    Uses JavaScript to inspect the element and its surrounding DOM to determine
+    the exact component type, then interacts accordingly:
+      - MUI Select (hidden input + combobox div): click combobox, pick from listbox
+      - MUI Autocomplete (visible input in Autocomplete wrapper): type to filter, pick option
+      - Native <select>: use select_option()
+      - Radio buttons: click the matching value
+      - Plain text input: fill directly
     """
+    # ── Step 1: Analyse the DOM to detect component type ──
+    info = page.evaluate("""(fieldName) => {
+        const el = document.querySelector(
+            `input[name="${fieldName}"], select[name="${fieldName}"], textarea[name="${fieldName}"]`
+        );
+        if (!el) return { found: false };
+
+        const r = {
+            found: true,
+            tag: el.tagName.toLowerCase(),
+            type: el.type || '',
+            ariaHidden: el.getAttribute('aria-hidden'),
+            tabIndex: el.tabIndex,
+            isMuiSelectNative: el.classList.contains('MuiSelect-nativeInput'),
+        };
+
+        // MUI Select: hidden native input, sibling <div role=combobox>
+        if (r.isMuiSelectNative || (r.ariaHidden === 'true' && r.tabIndex === -1)) {
+            r.kind = 'mui-select';
+            const cb = el.parentElement?.querySelector('[role="combobox"]');
+            if (cb) {
+                r.comboboxId = cb.id || '';
+            }
+            return r;
+        }
+        // Native <select>
+        if (r.tag === 'select') { r.kind = 'native-select'; return r; }
+        // Radio
+        if (r.type === 'radio') { r.kind = 'radio'; return r; }
+        // MUI Autocomplete: input inside an Autocomplete root
+        const ac = el.closest('.MuiAutocomplete-root, [class*="Autocomplete"]');
+        if (ac) { r.kind = 'mui-autocomplete'; return r; }
+        // Plain text input
+        r.kind = 'text';
+        return r;
+    }""", field_name)
+
+    if not info or not info.get("found"):
+        log.info(f"  '{label}': field '{field_name}' not found in DOM")
+        return False
+
+    kind = info.get("kind", "text")
+    log.info(f"  '{label}': detected {kind} (field={field_name})")
+
+    # ── Step 2: Interact based on component type ──
     try:
-        el = page.locator(input_selector).first
-        if el.count() == 0:
-            log.info(f"  '{field_label}': element not found — {input_selector}")
-            return False
-
-        # ── Auto-detect: MUI Select (hidden native input) vs Autocomplete ──
-        is_mui_select = False
-        try:
-            is_mui_select = el.evaluate(
-                "el => el.classList.contains('MuiSelect-nativeInput')"
-                " || el.getAttribute('aria-hidden') === 'true'"
-                " || el.tabIndex === -1"
-            )
-        except Exception:
-            pass
-
-        if is_mui_select:
-            # ── MUI Select path ──
-            # The visible control is a sibling <div role=combobox> in the same parent
-            combobox = el.locator("xpath=..").locator("[role='combobox']").first
-            if not combobox.is_visible(timeout=3000):
-                log.info(f"  '{field_label}': MUI Select combobox div not visible")
-                return False
-
-            combobox.click()
-            page.wait_for_timeout(1000)
-
-            # Pick from the popup listbox
-            option = page.locator("[role='listbox'] [role='option']").filter(has_text=text).first
-            try:
-                if option.is_visible(timeout=3000):
-                    option.click()
-                    page.wait_for_timeout(500)
-                    log.info(f"  {field_label}: {text} (MUI Select)")
-                    return True
-            except Exception:
-                pass
-
-            # Option not found — close dropdown
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(300)
-            log.warning(f"  '{field_label}': option '{text}' not in MUI Select list")
-            return False
-
-        # ── MUI Autocomplete path ──
-        if not el.is_visible(timeout=2000):
-            log.info(f"  '{field_label}': input not visible — {input_selector}")
-            return False
-
-        el.click()
-        page.wait_for_timeout(500)
-        el.fill("")
-        page.wait_for_timeout(300)
-        el.type(text, delay=80)
-        page.wait_for_timeout(1500)
-
-        # Find matching option in the popup
-        option = page.locator("[role='option']").filter(has_text=text).first
-        try:
-            if option.is_visible(timeout=2000):
-                option.click()
-                page.wait_for_timeout(500)
-                log.info(f"  {field_label}: {text} (Autocomplete)")
-                return True
-        except Exception:
-            pass
-
-        # Fallback: keyboard — select the first suggestion
-        el.press("ArrowDown")
-        page.wait_for_timeout(300)
-        el.press("Enter")
-        page.wait_for_timeout(500)
-        val = el.input_value()
-        if val.strip():
-            log.info(f"  {field_label}: {val} (keyboard fallback)")
+        if kind == "mui-select":
+            return _interact_mui_select(page, info, value, label)
+        elif kind == "mui-autocomplete":
+            return _interact_mui_autocomplete(page, field_name, value, label)
+        elif kind == "native-select":
+            sel = page.locator(f"select[name='{field_name}']").first
+            sel.select_option(label=value)
+            log.info(f"  {label}: {value} (native select)")
             return True
-
-        log.warning(f"  '{field_label}': could not select '{text}'")
-        return False
+        elif kind == "radio":
+            radio = page.locator(f"input[name='{field_name}'][value='{value}']").first
+            radio.click(force=True)
+            log.info(f"  {label}: {value} (radio)")
+            return True
+        else:
+            inp = page.locator(f"input[name='{field_name}']").first
+            inp.fill(value)
+            log.info(f"  {label}: {value} (text input)")
+            return True
     except Exception as e:
-        log.warning(f"  '{field_label}' error: {e}")
+        log.warning(f"  '{label}' interaction failed: {e}")
         return False
+
+
+def _interact_mui_select(page, info: dict, text: str, label: str) -> bool:
+    """Click the MUI Select combobox div, then pick an option from the popup."""
+    # Find the combobox div — prefer by ID, fallback to role
+    combobox_id = info.get("comboboxId", "")
+    if combobox_id:
+        combobox = page.locator(f"#{combobox_id}").first
+    else:
+        field_input = page.locator(f".MuiSelect-nativeInput").first
+        combobox = field_input.locator("xpath=..").locator("[role='combobox']").first
+
+    if not combobox.is_visible(timeout=3000):
+        log.warning(f"  '{label}': MUI Select combobox not visible")
+        return False
+
+    combobox.click()
+    page.wait_for_timeout(1000)
+
+    # Pick the matching option from the popup listbox
+    option = page.locator("[role='listbox'] [role='option']").filter(has_text=text).first
+    try:
+        if option.is_visible(timeout=3000):
+            option.click()
+            page.wait_for_timeout(500)
+            log.info(f"  {label}: {text} (MUI Select)")
+            return True
+    except Exception:
+        pass
+
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(300)
+    log.warning(f"  '{label}': option '{text}' not found in MUI Select")
+    return False
+
+
+def _interact_mui_autocomplete(page, field_name: str, text: str, label: str) -> bool:
+    """Type into MUI Autocomplete input, then pick from the filtered dropdown."""
+    el = page.locator(f"input[name='{field_name}']").first
+    if not el.is_visible(timeout=2000):
+        log.warning(f"  '{label}': Autocomplete input not visible")
+        return False
+
+    el.click()
+    page.wait_for_timeout(500)
+    el.fill("")
+    page.wait_for_timeout(300)
+    el.type(text, delay=80)
+    page.wait_for_timeout(1500)
+
+    # Pick the matching option
+    option = page.locator("[role='option']").filter(has_text=text).first
+    try:
+        if option.is_visible(timeout=2000):
+            option.click()
+            page.wait_for_timeout(500)
+            log.info(f"  {label}: {text} (Autocomplete)")
+            return True
+    except Exception:
+        pass
+
+    # Fallback: keyboard — ArrowDown + Enter to pick first suggestion
+    el.press("ArrowDown")
+    page.wait_for_timeout(300)
+    el.press("Enter")
+    page.wait_for_timeout(500)
+    val = el.input_value()
+    if val.strip():
+        log.info(f"  {label}: {val} (keyboard fallback)")
+        return True
+
+    log.warning(f"  '{label}': could not select '{text}'")
+    return False
 
 
 def _upload_file(page, file_path: Path):
@@ -570,47 +631,24 @@ def _do_upload(
                 except Exception:
                     continue
 
-            # Language = English (TuneCore uses combobox text inputs, not <select>)
-            lang_filled = False
-            for sel in [
-                "input[name='languageCode']",
-                "input[name*='language' i]",
-                "input[id*='language' i]",
-            ]:
-                if _fill_combobox(page, sel, "English", "Language"):
-                    lang_filled = True
-                    break
-            if not lang_filled:
+            # Language = English
+            if not _smart_fill(page, "languageCode", "English", "Language"):
                 log.warning("  Could not fill Language dropdown")
 
-            # Primary genre = Afro House (combobox)
+            # Primary genre = Afro house
             genre_filled = False
-            for sel in [
-                "input[name='primaryGenreId']",
-                "input[name*='primaryGenre' i]",
-                "input[name*='genre' i]",
-            ]:
-                for genre_label in ["Afro house", "Afro House", "Afro-House", "Electronic", "Dance"]:
-                    if _fill_combobox(page, sel, genre_label, "Primary genre"):
-                        genre_filled = True
-                        break
-                if genre_filled:
+            for genre_label in ["Afro house", "Afro House", "Electronic", "Dance"]:
+                if _smart_fill(page, "primaryGenreId", genre_label, "Primary genre"):
+                    genre_filled = True
                     break
             if not genre_filled:
                 log.warning("  Could not fill Primary genre dropdown")
 
-            # Secondary genre = Afro house (combobox)
+            # Secondary genre = Afro house
             sec_genre_filled = False
-            for sel in [
-                "input[name='secondaryGenreId']",
-                "input[name*='secondaryGenre' i]",
-                "input[name*='subgenre' i]",
-            ]:
-                for genre_label in ["Afro house", "Afro House", "Afro-House", "Electronic", "Dance"]:
-                    if _fill_combobox(page, sel, genre_label, "Secondary genre"):
-                        sec_genre_filled = True
-                        break
-                if sec_genre_filled:
+            for genre_label in ["Afro house", "Afro House", "Electronic", "Dance"]:
+                if _smart_fill(page, "secondaryGenreId", genre_label, "Secondary genre"):
+                    sec_genre_filled = True
                     break
             if not sec_genre_filled:
                 log.warning("  Could not fill Secondary genre dropdown")
@@ -715,39 +753,15 @@ def _do_upload(
                 except Exception:
                     continue
 
-            # Role = Main Artist (may be <select> or combobox)
+            # Role = Main Artist — _smart_fill auto-detects select vs combobox
             role_filled = False
-            # Try native <select> first
-            for sel in [
-                "select[name*='role' i]",
-                "select[id*='role' i]",
-            ]:
-                try:
-                    el = page.locator(sel).first
-                    if el.is_visible(timeout=1500):
-                        for role in ["Main Artist", "Primary Artist", "Artist"]:
-                            try:
-                                el.select_option(label=role)
-                                log.info(f"  Role: {role}")
-                                role_filled = True
-                                break
-                            except Exception:
-                                continue
+            for role_name in ["role", "creativeRole"]:
+                for role_val in ["Main Artist", "Primary Artist", "Artist"]:
+                    if _smart_fill(page, role_name, role_val, "Role"):
+                        role_filled = True
                         break
-                except Exception:
-                    continue
-            # Fallback: combobox (MUI Autocomplete)
-            if not role_filled:
-                for sel in [
-                    "input[name*='role' i]",
-                    "input[id*='role' i]",
-                ]:
-                    for role in ["Main Artist", "Primary Artist", "Artist"]:
-                        if _fill_combobox(page, sel, role, "Role"):
-                            role_filled = True
-                            break
-                    if role_filled:
-                        break
+                if role_filled:
+                    break
 
             # Copyright: Is this a cover? = No
             # Look for radio buttons or toggles near "cover" text
