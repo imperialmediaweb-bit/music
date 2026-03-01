@@ -158,6 +158,48 @@ def _dump_page_state(page, step_label: str):
     log.info(f"  ── END PAGE STATE ──")
 
 
+def continue_tunecore_draft(
+    track_name: str,
+    artist: str = DEFAULT_ARTIST,
+) -> str | None:
+    """Continue filling out an existing TuneCore draft (no WAV/cover needed).
+
+    Opens TuneCore dashboard, finds the draft by name, and fills in
+    track details (songwriter, explicit, instrumental, etc.).
+
+    Args:
+        track_name: Name of the draft release on TuneCore.
+        artist: Artist / songwriter name.
+
+    Returns:
+        URL or status string, or None on failure.
+    """
+    log.info(f"Continuing TuneCore draft: {track_name}")
+
+    if not TUNECORE_STATE_FILE.exists():
+        log.error(
+            f"TuneCore session not found: {TUNECORE_STATE_FILE}\n"
+            "Run: python main.py tunecore-login"
+        )
+        return None
+
+    # Create a minimal concept for the track details
+    concept = MusicConcept(
+        track_name=track_name,
+        genre="Afro House",
+        mood="energetic",
+        prompt="instrumental",
+        thumbnail_prompt="abstract art",
+    )
+
+    return _do_upload(
+        wav_path=Path("/dev/null"),  # not used — draft already has audio
+        cover_path=Path("/dev/null"),
+        concept=concept,
+        artist=artist,
+    )
+
+
 def upload_to_tunecore(
     wav_path: Path,
     cover_path: Path,
@@ -1294,6 +1336,16 @@ def _do_upload(
 
                 # ── UPLOAD WAV ──
                 elif state == 'upload_wav':
+                    if not wav_path.exists() or str(wav_path) == '/dev/null':
+                        log.info("  WAV upload step — no file provided, skipping (draft mode)")
+                        cont = _find_clickable(page, [
+                            "a.secondary-btn", "a:has-text('Continue')",
+                            "button:has-text('Continue')", "button:has-text('Next')",
+                        ])
+                        if cont:
+                            cont.click()
+                            page.wait_for_timeout(5000)
+                        continue
                     log.info(f"  Uploading WAV: {wav_path.name}")
                     _dump_page_state(page, "Before WAV Upload")
                     wav_ok = _upload_file(page, wav_path)
@@ -1313,6 +1365,16 @@ def _do_upload(
 
                 # ── ARTWORK ──
                 elif state == 'artwork':
+                    if not cover_path.exists() or str(cover_path) == '/dev/null':
+                        log.info("  Artwork step — no file provided, skipping (draft mode)")
+                        cont = _find_clickable(page, [
+                            "a.secondary-btn", "a:has-text('Continue')",
+                            "button:has-text('Continue')", "button:has-text('Next')",
+                        ])
+                        if cont:
+                            cont.click()
+                            page.wait_for_timeout(5000)
+                        continue
                     log.info(f"  Uploading cover art: {cover_path.name}")
                     art_btn = _find_clickable(page, [
                         "text=Add Artwork", "button:has-text('Add Artwork')",

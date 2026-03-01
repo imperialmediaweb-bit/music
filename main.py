@@ -259,6 +259,24 @@ def cmd_tunecore_login(args):
         browser.close()
 
 
+def cmd_tunecore_continue(args):
+    """Continue an existing TuneCore draft release (no WAV/cover needed).
+
+    Finds the draft by name on TuneCore dashboard and fills in track details.
+    Usage: python main.py tunecore-continue "Zyphara Nelu"
+    """
+    from modules.tunecore_uploader import continue_tunecore_draft
+
+    track_name = args.name
+    log.info(f"Continuing TuneCore draft: {track_name}")
+    result = continue_tunecore_draft(track_name)
+    if result:
+        log.info(f"Done! Result: {result}")
+    else:
+        log.error("Failed — check logs and screenshots in output/")
+        sys.exit(1)
+
+
 def cmd_suno_login(args):
     """Open browser to log into suno.com and save session state."""
     from playwright.sync_api import sync_playwright
@@ -716,6 +734,17 @@ def main():
         help="Log into TuneCore and save session for automated uploads",
     )
     tunecore_login_parser.set_defaults(func=cmd_tunecore_login)
+
+    # tunecore-continue - continue an existing TuneCore draft
+    tc_cont_parser = subparsers.add_parser(
+        "tunecore-continue",
+        help="Continue filling out an existing TuneCore draft (no WAV needed)",
+    )
+    tc_cont_parser.add_argument(
+        "name", type=str,
+        help="Track name on TuneCore (e.g. 'Zyphara Nelu')",
+    )
+    tc_cont_parser.set_defaults(func=cmd_tunecore_continue)
 
     # suno-login - save Suno session state
     suno_login_parser = subparsers.add_parser(
