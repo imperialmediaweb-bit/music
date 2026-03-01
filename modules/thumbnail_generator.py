@@ -93,7 +93,7 @@ def generate_cover_art(thumbnail_prompt: str, track_name: str) -> Path:
     # Upscale to 1600x1600 (TuneCore minimum)
     image = image.resize((1600, 1600), Image.LANCZOS)
 
-    # Overlay track name
+    # Overlay track name only (same name as on TuneCore platform)
     image = _add_track_name(image, track_name)
 
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in track_name)

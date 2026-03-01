@@ -170,14 +170,18 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         "errors": [],
     }
 
-    # Step 1: Detect audio duration
+    # Determine WAV path (audio_merger already creates it alongside MP3)
+    wav_path = mp3_path.with_suffix(".wav")
+
+    # Step 1: Detect audio duration (prefer WAV, fall back to MP3)
+    audio_path = wav_path if wav_path.exists() else mp3_path
     try:
         log.info("=" * 60)
-        log.info(f"STEP 1: Reading audio file: {mp3_path.name}")
+        log.info(f"STEP 1: Reading audio file: {audio_path.name}")
         probe = subprocess.run(
             [
                 "ffprobe", "-v", "quiet", "-print_format", "json",
-                "-show_format", str(mp3_path),
+                "-show_format", str(audio_path),
             ],
             capture_output=True, text=True,
         )
@@ -231,11 +235,12 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         result["errors"].append(f"thumbnail: {e}")
         return result
 
-    # Step 4: Create video (single 1080x1080 square — works for YouTube & TikTok)
+    # Step 4: Create video (1920x1080 — works for YouTube & TikTok)
+    # Use WAV for better audio quality (ffmpeg re-encodes to AAC anyway)
     try:
         log.info("=" * 60)
-        log.info("STEP 4: Creating video (1920x1080)...")
-        video = create_video(mp3_path, thumbnail_path, concept)
+        log.info(f"STEP 4: Creating video (1920x1080) with {audio_path.suffix} audio...")
+        video = create_video(audio_path, thumbnail_path, concept)
         result["video_path"] = str(video)
         log.info(f"Video: {video}")
     except Exception as e:
@@ -286,7 +291,6 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         result["errors"].append(f"cover_art: {e}")
 
     # Step 8: Upload to TuneCore
-    wav_path = mp3_path.with_suffix(".wav")
     if cover_path and wav_path.exists():
         try:
             log.info("=" * 60)
