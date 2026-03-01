@@ -1154,7 +1154,7 @@ def _do_upload(
                         except Exception:
                             page.wait_for_timeout(5000)
 
-                        # ── 1. Song Title — always fill ──
+                        # ── 1. Song Title — skip if already filled ──
                         for sel in [
                             "input[name*='title' i]", "input[name*='trackName' i]",
                             "input[name*='song_name' i]", "input[name*='songName' i]",
@@ -1162,13 +1162,17 @@ def _do_upload(
                             try:
                                 el = page.locator(sel).first
                                 if el.is_visible(timeout=1500):
-                                    el.fill(concept.track_name)
-                                    log.info(f"  Song Title: '{concept.track_name}'")
+                                    current = el.input_value().strip()
+                                    if current:
+                                        log.info(f"  Song Title: already '{current}', skipping")
+                                    else:
+                                        el.fill(concept.track_name)
+                                        log.info(f"  Song Title: '{concept.track_name}'")
                                     break
                             except Exception:
                                 continue
 
-                        # ── 2. Songwriter — autocomplete: type a few letters → select from dropdown ──
+                        # ── 2. Songwriter — skip if already filled ──
                         filled_writer = False
                         for sel in [
                             "input[placeholder*='Legal First' i]",
@@ -1179,8 +1183,13 @@ def _do_upload(
                             try:
                                 el = page.locator(sel).first
                                 if el.is_visible(timeout=1500):
-                                    filled_writer = _fill_autocomplete(
-                                        page, sel, artist, "Songwriter")
+                                    current = el.input_value().strip()
+                                    if current:
+                                        log.info(f"  Songwriter: already '{current}', skipping")
+                                        filled_writer = True
+                                    else:
+                                        filled_writer = _fill_autocomplete(
+                                            page, sel, artist, "Songwriter")
                                     break
                             except Exception:
                                 continue
