@@ -504,13 +504,10 @@ def _fill_autocomplete(page, input_sel: str, value: str, label: str) -> bool:
 def _click_dropdown_option(page, name: str, label: str, prefer: list = None):
     """After a dropdown is already open, find and click the right option.
 
-    Args:
-        name:    exact text to match (for artist name fields)
-        label:   logging label
-        prefer:  if set, try these keywords first (for role fields)
-    Returns True if an option was clicked.
+    Tags the option with data-pick-me, then uses Playwright .click()
+    so React events fire properly.
     """
-    picked = page.evaluate("""(args) => {
+    tagged = page.evaluate("""(args) => {
         const { name, prefer } = args;
         const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
         const selectors = [
@@ -532,13 +529,17 @@ def _click_dropdown_option(page, name: str, label: str, prefer: list = None):
         }
         opts = [...new Set(opts)];
 
+        // Remove any old tags
+        document.querySelectorAll('[data-pick-me]').forEach(el =>
+            el.removeAttribute('data-pick-me'));
+
         // If we have preferred keywords (role selection), try those first
         if (prefer && prefer.length > 0) {
             for (const pref of prefer) {
                 for (const el of opts) {
                     if (el.textContent.trim().toLowerCase().includes(pref)) {
-                        el.click();
-                        return { picked: true, text: el.textContent.trim() };
+                        el.setAttribute('data-pick-me', 'true');
+                        return { found: true, text: el.textContent.trim() };
                     }
                 }
             }
@@ -547,15 +548,15 @@ def _click_dropdown_option(page, name: str, label: str, prefer: list = None):
         // Exact match by name
         for (const el of opts) {
             if (el.textContent.trim() === name) {
-                el.click();
-                return { picked: true, text: el.textContent.trim() };
+                el.setAttribute('data-pick-me', 'true');
+                return { found: true, text: el.textContent.trim() };
             }
         }
         // Case-insensitive
         for (const el of opts) {
             if (el.textContent.trim().toLowerCase() === name.toLowerCase()) {
-                el.click();
-                return { picked: true, text: el.textContent.trim() };
+                el.setAttribute('data-pick-me', 'true');
+                return { found: true, text: el.textContent.trim() };
             }
         }
         // Contains
@@ -563,22 +564,29 @@ def _click_dropdown_option(page, name: str, label: str, prefer: list = None):
             const t = el.textContent.trim();
             if (t.toLowerCase().includes(name.toLowerCase()) &&
                 t.length < name.length + 30) {
-                el.click();
-                return { picked: true, text: t };
+                el.setAttribute('data-pick-me', 'true');
+                return { found: true, text: t };
             }
         }
         // Last resort: first option
         if (opts.length > 0) {
-            opts[0].click();
-            return { picked: true, text: opts[0].textContent.trim(), fallback: true };
+            opts[0].setAttribute('data-pick-me', 'true');
+            return { found: true, text: opts[0].textContent.trim(), fallback: true };
         }
-        return { picked: false, total: opts.length };
+        return { found: false, total: opts.length };
     }""", {"name": name, "prefer": prefer or []})
 
-    if picked.get('picked'):
-        fb = ' (fallback)' if picked.get('fallback') else ''
-        log.info(f"  {label}: selected '{picked.get('text')}'{fb}")
-        return True
+    if tagged.get('found'):
+        try:
+            pick = page.locator("[data-pick-me='true']").first
+            if pick.is_visible(timeout=2000):
+                pick.click()
+                page.wait_for_timeout(500)
+                fb = ' (fallback)' if tagged.get('fallback') else ''
+                log.info(f"  {label}: selected '{tagged.get('text')}'{fb}")
+                return True
+        except Exception as e:
+            log.warning(f"  {label}: Playwright click failed: {e}")
     # Keyboard fallback
     page.keyboard.press("ArrowDown")
     page.wait_for_timeout(300)
@@ -588,92 +596,107 @@ def _click_dropdown_option(page, name: str, label: str, prefer: list = None):
 
 
 def _fill_choose_sections(page, artist: str):
-    """Fill ALL Artist/Creative + Role sections (Song Artists, Performing, Producers).
+    """Fill ALL Artist/Creative + Role sections one at a time.
 
-    Uses _fill_autocomplete (proven working for Song Artists) for name inputs,
-    and click-select for CHOOSE role buttons.
+    CRITICAL: After each fill, React re-renders the page and destroys
+    data attributes. So we do a FRESH scan before each operation.
     """
     log.info(f"  _fill_choose_sections: artist='{artist}'")
 
-    # ── Step 1: Tag all EMPTY name inputs + CHOOSE role buttons ──
-    counts = page.evaluate("""() => {
-        const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+    # Fill up to 5 empty name inputs (Song Artists + Performing + Producers)
+    for attempt in range(5):
+        # Fresh scan: find the FIRST empty artist/creative input
+        found = page.evaluate("""() => {
+            const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+            // Remove old tags
+            document.querySelectorAll('[data-fill-name]').forEach(el =>
+                el.removeAttribute('data-fill-name'));
 
-        // ALL empty inputs with artist/creative placeholder
-        const nameInputs = [...document.querySelectorAll('input')].filter(el =>
-            vis(el) && !el.value.trim() && (
-                el.placeholder.toLowerCase().includes('artist') ||
-                el.placeholder.toLowerCase().includes('creative')
-            ));
-        for (let i = 0; i < nameInputs.length; i++)
-            nameInputs[i].setAttribute('data-artist-input-idx', i);
+            const inputs = [...document.querySelectorAll('input')].filter(el =>
+                vis(el) && !el.value.trim() && (
+                    el.placeholder.toLowerCase().includes('artist') ||
+                    el.placeholder.toLowerCase().includes('creative')
+                ));
+            if (inputs.length === 0) return null;
 
-        // ALL CHOOSE buttons
-        const chooses = [...document.querySelectorAll('*')].filter(el =>
-            vis(el) && el.textContent.trim().toUpperCase() === 'CHOOSE' &&
-            el.children.length === 0);
-        for (let i = 0; i < chooses.length; i++)
-            chooses[i].setAttribute('data-choose-idx', i);
+            // Tag the first empty one
+            inputs[0].setAttribute('data-fill-name', 'true');
 
-        return { names: nameInputs.length, chooses: chooses.length };
-    }""")
-
-    n_names = counts.get('names', 0)
-    n_roles = counts.get('chooses', 0)
-    log.info(f"  Found {n_names} empty name inputs, {n_roles} CHOOSE buttons")
-
-    # ── Step 2: Fill each name input using _fill_autocomplete (same as Song Artists) ──
-    for i in range(n_names):
-        sel = f"[data-artist-input-idx='{i}']"
-        section = page.evaluate("""(idx) => {
-            const el = document.querySelector(`[data-artist-input-idx="${idx}"]`);
-            if (!el) return '';
-            let node = el;
+            // Detect section
+            let section = '';
+            let node = inputs[0];
             for (let j = 0; j < 15; j++) {
                 node = node.parentElement;
                 if (!node) break;
                 const t = node.textContent.toLowerCase();
-                if (t.includes('performing')) return 'performing';
-                if (t.includes('producer') || t.includes('engineer')) return 'producer';
-                if (t.includes('song artists') || t.includes('creatives')) return 'song_artists';
+                if (t.includes('performing')) { section = 'performing'; break; }
+                if (t.includes('producer') || t.includes('engineer')) { section = 'producer'; break; }
+                if (t.includes('song artists') || t.includes('creatives')) { section = 'song_artists'; break; }
             }
-            return '';
-        }""", i)
-        log.info(f"  [{i}] Name ({section or 'unknown'}): filling '{artist}'...")
-        _fill_autocomplete(page, sel, artist, f"Artist ({section})")
-        page.wait_for_timeout(500)
+            return { section: section, remaining: inputs.length };
+        }""")
 
-    # ── Step 3: Fill each CHOOSE role button ──
-    for i in range(n_roles):
-        section = page.evaluate("""(idx) => {
-            const el = document.querySelector(`[data-choose-idx="${idx}"]`);
-            if (!el) return '';
-            let node = el;
+        if not found:
+            log.info(f"  No more empty name inputs (after {attempt} fills)")
+            break
+
+        section = found.get('section', '')
+        remaining = found.get('remaining', 0)
+        log.info(f"  [{attempt}] Filling name ({section or 'unknown'}), {remaining} remaining...")
+
+        # Use _fill_autocomplete with the fresh tag
+        _fill_autocomplete(page, "[data-fill-name='true']", artist, f"Artist ({section})")
+        page.wait_for_timeout(1000)
+
+    # Fill up to 5 CHOOSE role buttons, one at a time
+    for attempt in range(5):
+        # Fresh scan: find the FIRST CHOOSE button
+        found = page.evaluate("""() => {
+            const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+            // Remove old tags
+            document.querySelectorAll('[data-fill-choose]').forEach(el =>
+                el.removeAttribute('data-fill-choose'));
+
+            const chooses = [...document.querySelectorAll('*')].filter(el =>
+                vis(el) && el.textContent.trim().toUpperCase() === 'CHOOSE' &&
+                el.children.length === 0);
+            if (chooses.length === 0) return null;
+
+            chooses[0].setAttribute('data-fill-choose', 'true');
+
+            // Detect section
+            let section = '';
+            let node = chooses[0];
             for (let j = 0; j < 15; j++) {
                 node = node.parentElement;
                 if (!node) break;
                 const t = node.textContent.toLowerCase();
-                if (t.includes('performing')) return 'performing';
-                if (t.includes('producer') || t.includes('engineer')) return 'producer';
+                if (t.includes('performing')) { section = 'performing'; break; }
+                if (t.includes('producer') || t.includes('engineer')) { section = 'producer'; break; }
             }
-            return '';
-        }""", i)
+            return { section: section, remaining: chooses.length };
+        }""")
 
+        if not found:
+            log.info(f"  No more CHOOSE buttons (after {attempt} fills)")
+            break
+
+        section = found.get('section', '')
         if 'producer' in section:
             prefer = ['producer', 'prod']
         else:
             prefer = ['main artist', 'main', 'primary artist', 'primary']
 
-        log.info(f"  [{i}] Role ({section or 'unknown'}): clicking CHOOSE...")
+        log.info(f"  [{attempt}] Role ({section or 'unknown'}): clicking CHOOSE...")
         try:
-            cb = page.locator(f"[data-choose-idx='{i}']").first
+            cb = page.locator("[data-fill-choose='true']").first
             if cb.is_visible(timeout=2000):
                 cb.click()
                 page.wait_for_timeout(1500)
                 _click_dropdown_option(page, '', f"Role ({section})", prefer)
-                page.wait_for_timeout(500)
+                page.wait_for_timeout(1000)
         except Exception as e:
-            log.warning(f"  [{i}] Role CHOOSE failed: {e}")
+            log.warning(f"  [{attempt}] CHOOSE failed: {e}")
 
 
 def _upload_file(page, file_path: Path):
