@@ -1146,78 +1146,186 @@ def _do_upload(
                             except Exception:
                                 continue
 
-                        # ── 2. Songwriter — pure Playwright ──
-                        # Input has placeholder "Legal First Name and Last Name"
-                        try:
-                            sw_input = page.locator(
-                                'input[placeholder*="Legal First"],'
-                                'input[placeholder*="songwriter" i],'
-                                'input[placeholder*="writer" i]'
-                            ).first
-                            if sw_input.is_visible(timeout=2000):
-                                sw_val = sw_input.input_value().strip()
-                                if sw_val:
-                                    log.info(f"  Songwriter: already '{sw_val}', skip")
+                        # ── 2. Songwriter (React native value setter) ──
+                        sw_result = page.evaluate("""(artist) => {
+                            const inp = document.querySelector('input[placeholder*="Legal First"]');
+                            if (!inp) return 'NOT_FOUND';
+                            if (inp.value.trim()) return 'SKIP:' + inp.value;
+                            const setter = Object.getOwnPropertyDescriptor(
+                                HTMLInputElement.prototype, 'value').set;
+                            setter.call(inp, artist);
+                            inp.dispatchEvent(new Event('input', {bubbles: true}));
+                            inp.dispatchEvent(new Event('change', {bubbles: true}));
+                            return 'OK';
+                        }""", artist)
+                        log.info(f"  Songwriter: {sw_result}")
+                        page.wait_for_timeout(1000)
+
+                        # ── 3. Performing Artists — Name (JS focus + keyboard type) ──
+                        perf_focused = page.evaluate("""() => {
+                            for (const inp of document.querySelectorAll('input')) {
+                                const ph = (inp.placeholder || '').toLowerCase();
+                                if (inp.value.trim()) continue;
+                                if (!ph.includes('artist') && !ph.includes('creative')) continue;
+                                let node = inp.parentElement;
+                                for (let j = 0; j < 8 && node; j++) {
+                                    for (const child of node.children) {
+                                        if (child.textContent.trim().startsWith('Performing')) {
+                                            inp.focus();
+                                            inp.scrollIntoView({block:'center'});
+                                            return true;
+                                        }
+                                    }
+                                    node = node.parentElement;
+                                }
+                            }
+                            return false;
+                        }""")
+                        if perf_focused:
+                            page.wait_for_timeout(500)
+                            page.keyboard.type(artist, delay=80)
+                            page.wait_for_timeout(2000)
+                            try:
+                                opt = page.locator("[role='option']").filter(
+                                    has_text=artist).first
+                                if opt.is_visible(timeout=2000):
+                                    opt.click()
+                                    log.info("  Perf Name: dropdown OK")
                                 else:
-                                    log.info(f"  Songwriter: typing '{artist}'...")
-                                    sw_input.click()
-                                    page.wait_for_timeout(500)
-                                    sw_input.type(artist, delay=80)
-                                    page.wait_for_timeout(2000)
-                                    try:
-                                        opt = page.locator(
-                                            "[role='option'], [id*='option'], [class*='option']"
-                                        ).filter(has_text=artist).first
-                                        if opt.is_visible(timeout=2000):
-                                            opt.click()
-                                            log.info(f"  Songwriter: '{artist}' (dropdown)")
-                                        else:
-                                            sw_input.press("ArrowDown")
-                                            page.wait_for_timeout(300)
-                                            sw_input.press("Enter")
-                                            log.info(f"  Songwriter: '{artist}' (keyboard)")
-                                    except Exception:
-                                        sw_input.press("ArrowDown")
-                                        page.wait_for_timeout(300)
-                                        sw_input.press("Enter")
-                                        log.info(f"  Songwriter: keyboard fallback")
-                                    page.wait_for_timeout(1000)
-                        except Exception as e:
-                            log.warning(f"  Songwriter FAILED: {e}")
+                                    page.keyboard.press("ArrowDown")
+                                    page.wait_for_timeout(200)
+                                    page.keyboard.press("Enter")
+                                    log.info("  Perf Name: keyboard")
+                            except Exception:
+                                page.keyboard.press("Enter")
+                            page.wait_for_timeout(1500)
+                        else:
+                            log.warning("  Perf Name: input NOT FOUND")
 
-                        # ── 3-5. Artist names + roles ──
-                        _fill_choose_sections(page, artist)
-
-                        # ── 6. Copyright — click "No" label (pure Playwright) ──
+                        # ── 4. Performing Artists — Role (first CHOOSE → performer) ──
                         try:
-                            labels = page.locator('label')
-                            count = labels.count()
-                            for i in range(count):
+                            choose = page.get_by_text('CHOOSE', exact=True).first
+                            if choose.is_visible(timeout=2000):
+                                choose.click()
+                                page.wait_for_timeout(2000)
                                 try:
-                                    lbl = labels.nth(i)
-                                    if lbl.is_visible(timeout=300):
-                                        txt = lbl.text_content().strip()
-                                        if txt == 'No':
-                                            lbl.click()
-                                            page.wait_for_timeout(500)
-                                            log.info(f"  Copyright: clicked 'No' label")
-                                            break
+                                    opt = page.locator(
+                                        "[role='option']"
+                                    ).filter(has_text='performer').first
+                                    if opt.is_visible(timeout=2000):
+                                        opt.click()
+                                        log.info("  Perf Role: performer OK")
+                                    else:
+                                        page.keyboard.press("ArrowDown")
+                                        page.keyboard.press("Enter")
+                                        log.info("  Perf Role: keyboard")
                                 except Exception:
-                                    continue
+                                    page.keyboard.press("ArrowDown")
+                                    page.keyboard.press("Enter")
+                                page.wait_for_timeout(1500)
                         except Exception as e:
-                            log.warning(f"  Copyright FAILED: {e}")
+                            log.warning(f"  Perf Role: {e}")
 
-                        # ── 7. Instrumental — click checkbox (pure Playwright) ──
+                        # ── 5. Producers — Name (JS focus + keyboard type) ──
+                        prod_focused = page.evaluate("""() => {
+                            for (const inp of document.querySelectorAll('input')) {
+                                const ph = (inp.placeholder || '').toLowerCase();
+                                if (inp.value.trim()) continue;
+                                if (!ph.includes('artist') && !ph.includes('creative')) continue;
+                                let node = inp.parentElement;
+                                for (let j = 0; j < 8 && node; j++) {
+                                    for (const child of node.children) {
+                                        if (child.textContent.trim().startsWith('Producer')) {
+                                            inp.focus();
+                                            inp.scrollIntoView({block:'center'});
+                                            return true;
+                                        }
+                                    }
+                                    node = node.parentElement;
+                                }
+                            }
+                            return false;
+                        }""")
+                        if prod_focused:
+                            page.wait_for_timeout(500)
+                            page.keyboard.type(artist, delay=80)
+                            page.wait_for_timeout(2000)
+                            try:
+                                opt = page.locator("[role='option']").filter(
+                                    has_text=artist).first
+                                if opt.is_visible(timeout=2000):
+                                    opt.click()
+                                    log.info("  Prod Name: dropdown OK")
+                                else:
+                                    page.keyboard.press("ArrowDown")
+                                    page.wait_for_timeout(200)
+                                    page.keyboard.press("Enter")
+                                    log.info("  Prod Name: keyboard")
+                            except Exception:
+                                page.keyboard.press("Enter")
+                            page.wait_for_timeout(1500)
+                        else:
+                            log.warning("  Prod Name: input NOT FOUND")
+
+                        # ── 6. Producers — Role (second CHOOSE → producer) ──
                         try:
-                            cb = page.locator('input[type="checkbox"]').first
-                            if cb.is_visible(timeout=2000):
-                                cb.click(force=True)
-                                page.wait_for_timeout(500)
-                                log.info("  Instrumental: checked")
+                            choose = page.get_by_text('CHOOSE', exact=True).first
+                            if choose.is_visible(timeout=2000):
+                                choose.click()
+                                page.wait_for_timeout(2000)
+                                try:
+                                    opt = page.locator(
+                                        "[role='option']"
+                                    ).filter(has_text='producer').first
+                                    if opt.is_visible(timeout=2000):
+                                        opt.click()
+                                        log.info("  Prod Role: producer OK")
+                                    else:
+                                        page.keyboard.press("ArrowDown")
+                                        page.keyboard.press("Enter")
+                                        log.info("  Prod Role: keyboard")
+                                except Exception:
+                                    page.keyboard.press("ArrowDown")
+                                    page.keyboard.press("Enter")
+                                page.wait_for_timeout(1500)
                         except Exception as e:
-                            log.warning(f"  Instrumental FAILED: {e}")
+                            log.warning(f"  Prod Role: {e}")
 
-                        # ── 8. Explicit — skip (TuneCore hides when Instrumental checked) ──
+                        # ── 7. Copyright → No (JS click on radio) ──
+                        cr = page.evaluate("""() => {
+                            for (const r of document.querySelectorAll('input[type=radio]')) {
+                                const lbl = r.closest('label') || r.parentElement;
+                                if (!lbl || lbl.textContent.trim() !== 'No') continue;
+                                let node = r;
+                                for (let i = 0; i < 10; i++) {
+                                    node = node.parentElement;
+                                    if (!node) break;
+                                    if (node.textContent.toLowerCase().includes('cover')) {
+                                        r.click();
+                                        return 'OK';
+                                    }
+                                }
+                            }
+                            return 'NOT_FOUND';
+                        }""")
+                        log.info(f"  Copyright No: {cr}")
+                        page.wait_for_timeout(500)
+
+                        # ── 8. Instrumental checkbox (JS click) ──
+                        instr = page.evaluate("""() => {
+                            for (const cb of document.querySelectorAll('input[type=checkbox]')) {
+                                const lbl = cb.closest('label') || cb.parentElement;
+                                if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
+                                    if (!cb.checked) { cb.click(); return 'CHECKED'; }
+                                    return 'ALREADY';
+                                }
+                            }
+                            return 'NOT_FOUND';
+                        }""")
+                        log.info(f"  Instrumental: {instr}")
+                        page.wait_for_timeout(500)
+
+                        # ── Explicit — skip when Instrumental is checked ──
                         log.info("  Explicit: skipped (Instrumental checked)")
 
                         page.wait_for_timeout(2000)
