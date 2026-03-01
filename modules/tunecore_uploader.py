@@ -596,40 +596,38 @@ def _do_upload(
                 page.screenshot(path="output/tunecore_02_add_release.png")
                 _dump_page_state(page, "Step 1b — After Add Release")
 
-            # ── STEP 2–3: Choose "Single" and "Start" (skip if resumed draft) ──
-            if not draft_link:
-                log.info("Step 2: Selecting 'Single'...")
-                single_btn = _find_clickable(page, [
-                    "text=Single",
-                    "button:has-text('Single')",
-                    "[data-type='single']",
-                    "label:has-text('Single')",
-                ])
-                if single_btn:
-                    single_btn.click()
-                    page.wait_for_timeout(2000)
-                else:
-                    log.warning("  'Single' option not found — may already be selected")
-
-                page.screenshot(path="output/tunecore_03_single.png")
-
-                log.info("Step 3: Clicking 'Start'...")
-                start_btn = _find_clickable(page, [
-                    "button:has-text('Start')",
-                    "a:has-text('Start')",
-                    "button:has-text('Begin')",
-                    "button:has-text('Continue')",
-                ])
-                if start_btn:
-                    start_btn.click()
-                    page.wait_for_timeout(3000)
-                else:
-                    log.warning("  'Start' button not found — continuing...")
-
-                page.screenshot(path="output/tunecore_04_start.png")
-                _dump_page_state(page, "Step 3 — After Start")
+            # ── STEP 2: Choose "Single" ──
+            log.info("Step 2: Selecting 'Single'...")
+            single_btn = _find_clickable(page, [
+                "text=Single",
+                "button:has-text('Single')",
+                "[data-type='single']",
+                "label:has-text('Single')",
+            ])
+            if single_btn:
+                single_btn.click()
+                page.wait_for_timeout(2000)
             else:
-                log.info("Steps 2–3: Skipped (resuming draft)")
+                log.warning("  'Single' option not found — may already be selected")
+
+            page.screenshot(path="output/tunecore_03_single.png")
+
+            # ── STEP 3: Click "Start" ──
+            log.info("Step 3: Clicking 'Start'...")
+            start_btn = _find_clickable(page, [
+                "button:has-text('Start')",
+                "a:has-text('Start')",
+                "button:has-text('Begin')",
+                "button:has-text('Continue')",
+            ])
+            if start_btn:
+                start_btn.click()
+                page.wait_for_timeout(3000)
+            else:
+                log.warning("  'Start' button not found — continuing...")
+
+            page.screenshot(path="output/tunecore_04_start.png")
+            _dump_page_state(page, "Step 3 — After Start")
 
             # ── STEP 4: Release details ──
             log.info("Step 4: Filling release details...")
