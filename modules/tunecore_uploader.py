@@ -943,547 +943,567 @@ def _do_upload(
             # ── Adaptive loop: detect → act → repeat ──
             while step < MAX_STEPS:
                 step += 1
-                page.screenshot(path=f"output/tunecore_{step:02d}.png")
+                try:
+                    page.screenshot(path=f"output/tunecore_{step:02d}.png")
+                except Exception:
+                    pass
                 state = _detect_page(page)
                 log.info(f"{'='*50}")
                 log.info(f"[{step}] Page state: {state}")
                 log.info(f"{'='*50}")
-
-                # ── DASHBOARD ──
-                if state == 'dashboard':
-                    draft = None
-                    try:
-                        draft = page.locator(f"a:has-text('{concept.track_name}')").first
-                        if not draft.is_visible(timeout=2000):
-                            draft = None
-                    except Exception:
+                try:
+                    # ── DASHBOARD ──
+                    if state == 'dashboard':
                         draft = None
+                        try:
+                            draft = page.locator(f"a:has-text('{concept.track_name}')").first
+                            if not draft.is_visible(timeout=2000):
+                                draft = None
+                        except Exception:
+                            draft = None
 
-                    if draft:
-                        log.info(f"  Found draft '{concept.track_name}' — clicking...")
-                        draft.click()
-                        page.wait_for_timeout(5000)
-                    else:
-                        log.info("  No draft found — creating new release...")
+                        if draft:
+                            log.info(f"  Found draft '{concept.track_name}' — clicking...")
+                            draft.click()
+                            page.wait_for_timeout(5000)
+                        else:
+                            log.info("  No draft found — creating new release...")
+                            btn = _find_clickable(page, [
+                                "text=Add Release", "button:has-text('Add Release')",
+                                "a:has-text('Add Release')", "text=Create New",
+                            ])
+                            if btn:
+                                btn.click()
+                                page.wait_for_timeout(3000)
+                            else:
+                                page.goto(f"{TUNECORE_BASE}/releases/new",
+                                          wait_until="domcontentloaded", timeout=30_000)
+                                page.wait_for_timeout(3000)
+
+                    # ── CHOOSE TYPE (Single) ──
+                    elif state == 'choose_type':
                         btn = _find_clickable(page, [
-                            "text=Add Release", "button:has-text('Add Release')",
-                            "a:has-text('Add Release')", "text=Create New",
+                            "text=Single", "button:has-text('Single')",
+                            "[data-type='single']", "label:has-text('Single')",
                         ])
                         if btn:
                             btn.click()
-                            page.wait_for_timeout(3000)
-                        else:
-                            page.goto(f"{TUNECORE_BASE}/releases/new",
-                                      wait_until="domcontentloaded", timeout=30_000)
-                            page.wait_for_timeout(3000)
-
-                # ── CHOOSE TYPE (Single) ──
-                elif state == 'choose_type':
-                    btn = _find_clickable(page, [
-                        "text=Single", "button:has-text('Single')",
-                        "[data-type='single']", "label:has-text('Single')",
-                    ])
-                    if btn:
-                        btn.click()
-                        log.info("  Selected: Single")
-                        page.wait_for_timeout(2000)
-
-                # ── START ──
-                elif state == 'start':
-                    btn = _find_clickable(page, [
-                        "button:has-text('Start')", "a:has-text('Start')",
-                        "button:has-text('Begin')", "button:has-text('Continue')",
-                    ])
-                    if btn:
-                        btn.click()
-                        log.info("  Clicked Start")
-                        page.wait_for_timeout(3000)
-
-                # ── RELEASE DETAILS (title, language, genre) ──
-                elif state == 'release_details':
-                    log.info("  Filling release details...")
-                    for sel in ["input[name*='title' i]", "input[name*='name' i]"]:
-                        try:
-                            el = page.locator(sel).first
-                            if el.is_visible(timeout=1500):
-                                el.fill(concept.track_name)
-                                log.info(f"  Title: {concept.track_name}")
-                                break
-                        except Exception:
-                            continue
-
-                    _smart_fill(page, "languageCode", "English", "Language")
-                    for g in ["Afro house", "Afro House", "Electronic", "Dance"]:
-                        if _smart_fill(page, "primaryGenreId", g, "Primary genre"):
-                            break
-                    for g in ["Afro house", "Afro House", "Electronic", "Dance"]:
-                        if _smart_fill(page, "secondaryGenreId", g, "Secondary genre"):
-                            break
-
-                    no_btn = _find_clickable(page, [
-                        "label:has-text('No')", "input[type='radio'][value='no']",
-                        "input[type='radio'][value='false']",
-                    ])
-                    if no_btn:
-                        no_btn.click()
-                        log.info("  Previously Released: No")
-
-                    save = _find_clickable(page, [
-                        "button:has-text('Save')", "button[type='submit']",
-                    ])
-                    if save:
-                        save.click()
-                        log.info("  Saved — waiting for next page (~2 min)...")
-                        for i in range(24):
-                            page.wait_for_timeout(5000)
-                            ns = _detect_page(page)
-                            if ns != 'release_details':
-                                log.info(f"  Page changed → '{ns}' after ~{(i+1)*5}s")
-                                break
-                            if i % 4 == 3:
-                                log.info(f"  Still loading... ({(i+1)*5}s)")
-
-                # ── ADD TRACK ──
-                elif state == 'add_track':
-                    _dump_page_state(page, "Add Track — before")
-
-                    # If no WAV file, skip and try to continue
-                    if not wav_path.exists() or str(wav_path) == '/dev/null':
-                        log.info("  Add Track step — no WAV file, skipping...")
-                        cont = _find_clickable(page, [
-                            "a.secondary-btn", "a:has-text('Continue')",
-                            "button:has-text('Continue')",
-                        ])
-                        if cont:
-                            cont.click()
-                            page.wait_for_timeout(5000)
-                        continue
-
-                    log.info(f"  Uploading WAV via Add Track: {wav_path.name}")
-                    btn = _find_clickable(page, [
-                        "text=Add Track", "button:has-text('Add Track')",
-                        "a:has-text('Add Track')", "text=Add track",
-                        "text=ADD TRACK",
-                    ])
-                    if btn:
-                        uploaded = False
-                        try:
-                            with page.expect_file_chooser(timeout=10_000) as fc_info:
-                                btn.click()
-                            file_chooser = fc_info.value
-                            file_chooser.set_files(str(wav_path))
-                            uploaded = True
-                            log.info(f"  WAV selected via file chooser: {wav_path.name}")
-                        except Exception as e:
-                            log.info(f"  File chooser not triggered ({e}), trying input[type=file]...")
-                            btn.click()
+                            log.info("  Selected: Single")
                             page.wait_for_timeout(2000)
-                            uploaded = _upload_file(page, wav_path)
 
-                        if not uploaded:
-                            log.warning("  WAV upload failed — skipping, continuing...")
-                        else:
-                            log.info("  WAV uploading — waiting 1 min for processing...")
-                            page.wait_for_timeout(60_000)
-                            _dump_page_state(page, "Add Track — after 1 min wait")
+                    # ── START ──
+                    elif state == 'start':
+                        btn = _find_clickable(page, [
+                            "button:has-text('Start')", "a:has-text('Start')",
+                            "button:has-text('Begin')", "button:has-text('Continue')",
+                        ])
+                        if btn:
+                            btn.click()
+                            log.info("  Clicked Start")
+                            page.wait_for_timeout(3000)
 
-                # ── TRACK DETAILS (smart fill) ──
-                # TuneCore React app #songs_app on /singles/{id}/tracks
-                # Real DOM (from HTML source): jQuery + React, NOT Material UI.
-                # data-songs JSON has current state: explicit, instrumental, etc.
-                # Sections: Song Title, Songwriter*, Song Artists & Creatives,
-                #   Performing Artists*, Producers & Engineers*, Copyright Ownership*,
-                #   Instrumental, Explicit, ISRC, Language, Lyrics, TikTok
-                # Smart: reads data-songs + DOM to detect what's filled.
-                elif state == 'track_details':
-                    log.info("  Filling track details (smart mode)...")
-                    _dump_page_state(page, "Track Details — before fill")
-
-                    # Wait for React #songs_app to render
-                    try:
-                        page.wait_for_selector('#songs_app', timeout=15_000)
-                        page.wait_for_timeout(3000)
-                    except Exception:
-                        page.wait_for_timeout(5000)
-
-                    # ── Read song data from React app's data attributes ──
-                    song_data = page.evaluate("""() => {
-                        const app = document.querySelector('#songs_app');
-                        if (!app) return null;
-                        try {
-                            const songs = JSON.parse(app.getAttribute('data-songs') || '[]');
-                            const d = songs[0]?.data || {};
-                            return {
-                                name: d.name || '',
-                                explicit: d.explicit,
-                                instrumental: d.instrumental,
-                                cover_song: d.cover_song,
-                                copyrights: d.copyrights,
-                                lyrics: d.lyrics,
-                                artistCount: (d.artists || []).length,
-                            };
-                        } catch(e) { return null; }
-                    }""")
-                    if song_data:
-                        log.info(f"  Song data: name='{song_data.get('name')}' "
-                                 f"explicit={song_data.get('explicit')} "
-                                 f"instrumental={song_data.get('instrumental')} "
-                                 f"cover={song_data.get('cover_song')} "
-                                 f"artists={song_data.get('artistCount')}")
-
-                    # ── Smart scan: detect what's rendered in the DOM ──
-                    scan = page.evaluate("""() => {
-                        const body = document.body.innerText.toLowerCase();
-                        const vis = sel => [...document.querySelectorAll(sel)]
-                            .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
-                        const textInputs = vis('input').filter(el =>
-                            !['hidden','file','checkbox','radio'].includes(el.type));
-
-                        return {
-                            titleFilled: textInputs.some(el =>
-                                (el.name.toLowerCase().includes('title') ||
-                                 el.name.toLowerCase().includes('trackname') ||
-                                 el.name.toLowerCase().includes('songname') ||
-                                 el.name.toLowerCase().includes('song_name')) && el.value.trim()),
-                            writerFilled: textInputs.some(el =>
-                                (el.placeholder.toLowerCase().includes('legal first') ||
-                                 el.name.toLowerCase().includes('writer') ||
-                                 el.name.toLowerCase().includes('songwriter')) && el.value.trim()),
-                            hasMainArtist: body.includes('main artist') || body.includes('primary_artist'),
-                            // TuneCore uses custom React dropdowns showing "CHOOSE"
-                            chooseCount: vis('button, span, div, select').filter(el =>
-                                el.textContent.trim().toUpperCase() === 'CHOOSE').length,
-                            instrumentalChecked: (() => {
-                                for (const cb of vis('input[type=checkbox]')) {
-                                    const lbl = cb.closest('label') || cb.parentElement;
-                                    if (lbl && lbl.textContent.toLowerCase().includes('instrumental'))
-                                        return cb.checked;
-                                }
-                                return null;
-                            })(),
-                            explicitAnswered: (() => {
-                                // TuneCore uses button pairs (Yes/No) near "explicit"
-                                const btns = vis('button, [role=button], input[type=radio]');
-                                for (const btn of btns) {
-                                    const txt = btn.textContent.trim().toLowerCase();
-                                    if ((txt === 'yes' || txt === 'no') &&
-                                        (btn.classList.contains('selected') ||
-                                         btn.classList.contains('active') ||
-                                         btn.getAttribute('aria-pressed') === 'true' ||
-                                         btn.getAttribute('aria-checked') === 'true' ||
-                                         (btn.type === 'radio' && btn.checked))) {
-                                        // Check if near "explicit" context
-                                        let node = btn;
-                                        for (let i = 0; i < 6; i++) {
-                                            node = node.parentElement;
-                                            if (!node) break;
-                                            if (node.textContent.toLowerCase().includes('explicit'))
-                                                return true;
-                                        }
-                                    }
-                                }
-                                return false;
-                            })(),
-                            inputNames: textInputs.map(el =>
-                                `${el.name}[${el.placeholder.substring(0,30)}]=${el.value.substring(0,20)}`
-                            ),
-                            bodyClass: document.body.className,
-                        };
-                    }""")
-
-                    log.info(f"  Scan: title={'Y' if scan['titleFilled'] else 'N'} "
-                             f"writer={'Y' if scan['writerFilled'] else 'N'} "
-                             f"mainArtist={'Y' if scan['hasMainArtist'] else 'N'} "
-                             f"choose={scan['chooseCount']} "
-                             f"instrumental={scan['instrumentalChecked']} "
-                             f"explicit={'Y' if scan['explicitAnswered'] else 'N'}")
-                    log.info(f"  Inputs: {scan.get('inputNames', [])}")
-
-                    # ── 1. Song Title ──
-                    if not scan.get('titleFilled'):
-                        for sel in [
-                            "input[name*='title' i]", "input[name*='trackName' i]",
-                            "input[name*='song_name' i]", "input[name*='songName' i]",
-                        ]:
+                    # ── RELEASE DETAILS (title, language, genre) ──
+                    elif state == 'release_details':
+                        log.info("  Filling release details...")
+                        for sel in ["input[name*='title' i]", "input[name*='name' i]"]:
                             try:
                                 el = page.locator(sel).first
                                 if el.is_visible(timeout=1500):
                                     el.fill(concept.track_name)
-                                    log.info(f"  Song Title: '{concept.track_name}'")
+                                    log.info(f"  Title: {concept.track_name}")
                                     break
                             except Exception:
                                 continue
-                    else:
-                        log.info("  Song Title: already filled")
 
-                    # ── 2. Songwriter (placeholder "Legal First Name and Last Name") ──
-                    # data-songwriter-names="Groove Genix, GrooveGenix" → autocomplete
-                    if not scan.get('writerFilled'):
-                        filled_writer = False
-                        for sel in [
-                            "input[placeholder*='Legal First' i]",
-                            "input[placeholder*='songwriter' i]",
-                            "input[name*='songwriter' i]",
-                            "input[name*='writer' i]",
-                        ]:
-                            try:
-                                if _fill_autocomplete(page, sel, artist, "Songwriter"):
-                                    filled_writer = True
+                        _smart_fill(page, "languageCode", "English", "Language")
+                        for g in ["Afro house", "Afro House", "Electronic", "Dance"]:
+                            if _smart_fill(page, "primaryGenreId", g, "Primary genre"):
+                                break
+                        for g in ["Afro house", "Afro House", "Electronic", "Dance"]:
+                            if _smart_fill(page, "secondaryGenreId", g, "Secondary genre"):
+                                break
+
+                        no_btn = _find_clickable(page, [
+                            "label:has-text('No')", "input[type='radio'][value='no']",
+                            "input[type='radio'][value='false']",
+                        ])
+                        if no_btn:
+                            no_btn.click()
+                            log.info("  Previously Released: No")
+
+                        save = _find_clickable(page, [
+                            "button:has-text('Save')", "button[type='submit']",
+                        ])
+                        if save:
+                            save.click()
+                            log.info("  Saved — waiting for next page (~2 min)...")
+                            for i in range(24):
+                                page.wait_for_timeout(5000)
+                                ns = _detect_page(page)
+                                if ns != 'release_details':
+                                    log.info(f"  Page changed → '{ns}' after ~{(i+1)*5}s")
                                     break
-                            except Exception:
+                                if i % 4 == 3:
+                                    log.info(f"  Still loading... ({(i+1)*5}s)")
+
+                    # ── ADD TRACK ──
+                    elif state == 'add_track':
+                        try:
+                            _dump_page_state(page, "Add Track — before")
+
+                            # If no WAV file, skip and try to continue
+                            if not wav_path.exists() or str(wav_path) == '/dev/null':
+                                log.info("  Add Track step — no WAV file, skipping...")
+                                cont = _find_clickable(page, [
+                                    "a.secondary-btn", "a:has-text('Continue')",
+                                    "button:has-text('Continue')",
+                                ])
+                                if cont:
+                                    cont.click()
+                                    page.wait_for_timeout(5000)
                                 continue
-                        if not filled_writer:
-                            log.warning("  Songwriter: could not find/fill!")
-                    else:
-                        log.info("  Songwriter: already filled")
 
-                    # ── 3. Song Artists & Creatives (primary_artist from album) ──
-                    if not scan.get('hasMainArtist'):
-                        for sel in [
-                            "input[name*='artist' i][name*='name' i]",
-                            "input[name*='creative' i]",
-                            "input[placeholder*='Artist' i]",
-                        ]:
-                            try:
-                                el = page.locator(sel).first
-                                if el.is_visible(timeout=1500):
-                                    _fill_autocomplete(page, sel, artist, "Song Artist")
-                                    break
-                            except Exception:
-                                continue
-                    else:
-                        log.info("  Song Artists: already has main artist")
+                            log.info(f"  Uploading WAV via Add Track: {wav_path.name}")
+                            btn = _find_clickable(page, [
+                                "text=Add Track", "button:has-text('Add Track')",
+                                "a:has-text('Add Track')", "text=Add track",
+                                "text=ADD TRACK",
+                            ])
+                            if btn:
+                                uploaded = False
+                                try:
+                                    with page.expect_file_chooser(timeout=10_000) as fc_info:
+                                        btn.click()
+                                    file_chooser = fc_info.value
+                                    file_chooser.set_files(str(wav_path))
+                                    uploaded = True
+                                    log.info(f"  WAV selected via file chooser: {wav_path.name}")
+                                except Exception as e:
+                                    log.info(f"  File chooser not triggered ({e}), trying input[type=file]...")
+                                    try:
+                                        btn.click()
+                                        page.wait_for_timeout(2000)
+                                        uploaded = _upload_file(page, wav_path)
+                                    except Exception:
+                                        pass
 
-                    # ── 4 & 5. Performing Artists + Producers (CHOOSE dropdowns) ──
-                    if scan.get('chooseCount', 0) > 0:
-                        log.info(f"  Found {scan['chooseCount']} CHOOSE dropdown(s) to fill...")
-                        _fill_choose_sections(page, artist)
-                    else:
-                        log.info("  All role dropdowns already filled")
+                                if not uploaded:
+                                    log.warning("  WAV upload failed — skipping...")
+                                else:
+                                    log.info("  WAV uploading — waiting 1 min for processing...")
+                                    page.wait_for_timeout(60_000)
+                                    _dump_page_state(page, "Add Track — after 1 min wait")
+                        except Exception as e:
+                            log.warning(f"  Add Track step failed: {e} — skipping...")
 
-                    # ── 6. Copyright Ownership: "Is this a cover?" = original ──
-                    # TuneCore: radio/button "I wrote this song" vs "cover song"
-                    page.evaluate("""() => {
-                        // Click "I wrote this song" or "No" near cover context
-                        const els = [...document.querySelectorAll(
-                            'button, [role=button], label, input[type=radio], span'
-                        )].filter(el => el.offsetWidth > 0);
+                    # ── TRACK DETAILS (smart fill) ──
+                    # TuneCore React app #songs_app on /singles/{id}/tracks
+                    # Real DOM (from HTML source): jQuery + React, NOT Material UI.
+                    # data-songs JSON has current state: explicit, instrumental, etc.
+                    # Sections: Song Title, Songwriter*, Song Artists & Creatives,
+                    #   Performing Artists*, Producers & Engineers*, Copyright Ownership*,
+                    #   Instrumental, Explicit, ISRC, Language, Lyrics, TikTok
+                    # Smart: reads data-songs + DOM to detect what's filled.
+                    elif state == 'track_details':
+                        log.info("  Filling track details (smart mode)...")
+                        _dump_page_state(page, "Track Details — before fill")
 
-                        // Strategy 1: find radio/button with "original" or "I wrote"
-                        for (const el of els) {
-                            const txt = el.textContent.trim().toLowerCase();
-                            if (txt.includes('i wrote') || txt.includes('original')) {
-                                el.click();
-                                return 'clicked_original';
-                            }
-                        }
-                        // Strategy 2: find "No" button near "cover" context
-                        const noBtns = els.filter(el =>
-                            el.textContent.trim().toLowerCase() === 'no');
-                        for (const btn of noBtns) {
-                            let node = btn;
-                            for (let i = 0; i < 8; i++) {
-                                node = node.parentElement;
-                                if (!node) break;
-                                if (node.textContent.toLowerCase().includes('cover')) {
-                                    btn.click();
-                                    return 'clicked_no_cover';
-                                }
-                            }
-                        }
-                        return 'not_found';
-                    }""")
-                    log.info("  Copyright: original (not a cover)")
+                        # Wait for React #songs_app to render
+                        try:
+                            page.wait_for_selector('#songs_app', timeout=15_000)
+                            page.wait_for_timeout(3000)
+                        except Exception:
+                            page.wait_for_timeout(5000)
 
-                    # ── 7. Instrumental checkbox ──
-                    if scan.get('instrumentalChecked') is not True:
-                        result = page.evaluate("""() => {
-                            // Find checkbox with "Instrumental" or "no lyrics" label
-                            const cbs = [...document.querySelectorAll('input[type=checkbox]')];
-                            for (const cb of cbs) {
-                                const lbl = cb.closest('label') || cb.parentElement;
-                                if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
-                                    if (!cb.checked) {
-                                        // Try clicking the label (React needs synthetic events)
-                                        lbl.click();
-                                        return 'clicked_label';
-                                    }
-                                    return 'already_checked';
-                                }
-                            }
-                            // Fallback: find the label/span text and click it
-                            const labels = [...document.querySelectorAll('label, span')]
-                                .filter(el => el.offsetWidth > 0);
-                            for (const lbl of labels) {
-                                if (lbl.textContent.toLowerCase().includes('instrumental') &&
-                                    lbl.textContent.toLowerCase().includes('no lyrics')) {
-                                    lbl.click();
-                                    return 'clicked_text';
-                                }
-                            }
-                            return 'not_found';
+                        # ── Read song data from React app's data attributes ──
+                        song_data = page.evaluate("""() => {
+                            const app = document.querySelector('#songs_app');
+                            if (!app) return null;
+                            try {
+                                const songs = JSON.parse(app.getAttribute('data-songs') || '[]');
+                                const d = songs[0]?.data || {};
+                                return {
+                                    name: d.name || '',
+                                    explicit: d.explicit,
+                                    instrumental: d.instrumental,
+                                    cover_song: d.cover_song,
+                                    copyrights: d.copyrights,
+                                    lyrics: d.lyrics,
+                                    artistCount: (d.artists || []).length,
+                                };
+                            } catch(e) { return null; }
                         }""")
-                        log.info(f"  Instrumental: {result}")
-                    else:
-                        log.info("  Instrumental: already checked")
+                        if song_data:
+                            log.info(f"  Song data: name='{song_data.get('name')}' "
+                                     f"explicit={song_data.get('explicit')} "
+                                     f"instrumental={song_data.get('instrumental')} "
+                                     f"cover={song_data.get('cover_song')} "
+                                     f"artists={song_data.get('artistCount')}")
 
-                    # ── 8. Explicit lyrics = No ──
-                    if not scan.get('explicitAnswered'):
+                        # ── Smart scan: detect what's rendered in the DOM ──
+                        scan = page.evaluate("""() => {
+                            const body = document.body.innerText.toLowerCase();
+                            const vis = sel => [...document.querySelectorAll(sel)]
+                                .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+                            const textInputs = vis('input').filter(el =>
+                                !['hidden','file','checkbox','radio'].includes(el.type));
+
+                            return {
+                                titleFilled: textInputs.some(el =>
+                                    (el.name.toLowerCase().includes('title') ||
+                                     el.name.toLowerCase().includes('trackname') ||
+                                     el.name.toLowerCase().includes('songname') ||
+                                     el.name.toLowerCase().includes('song_name')) && el.value.trim()),
+                                writerFilled: textInputs.some(el =>
+                                    (el.placeholder.toLowerCase().includes('legal first') ||
+                                     el.name.toLowerCase().includes('writer') ||
+                                     el.name.toLowerCase().includes('songwriter')) && el.value.trim()),
+                                hasMainArtist: body.includes('main artist') || body.includes('primary_artist'),
+                                // TuneCore uses custom React dropdowns showing "CHOOSE"
+                                chooseCount: vis('button, span, div, select').filter(el =>
+                                    el.textContent.trim().toUpperCase() === 'CHOOSE').length,
+                                instrumentalChecked: (() => {
+                                    for (const cb of vis('input[type=checkbox]')) {
+                                        const lbl = cb.closest('label') || cb.parentElement;
+                                        if (lbl && lbl.textContent.toLowerCase().includes('instrumental'))
+                                            return cb.checked;
+                                    }
+                                    return null;
+                                })(),
+                                explicitAnswered: (() => {
+                                    // TuneCore uses button pairs (Yes/No) near "explicit"
+                                    const btns = vis('button, [role=button], input[type=radio]');
+                                    for (const btn of btns) {
+                                        const txt = btn.textContent.trim().toLowerCase();
+                                        if ((txt === 'yes' || txt === 'no') &&
+                                            (btn.classList.contains('selected') ||
+                                             btn.classList.contains('active') ||
+                                             btn.getAttribute('aria-pressed') === 'true' ||
+                                             btn.getAttribute('aria-checked') === 'true' ||
+                                             (btn.type === 'radio' && btn.checked))) {
+                                            // Check if near "explicit" context
+                                            let node = btn;
+                                            for (let i = 0; i < 6; i++) {
+                                                node = node.parentElement;
+                                                if (!node) break;
+                                                if (node.textContent.toLowerCase().includes('explicit'))
+                                                    return true;
+                                            }
+                                        }
+                                    }
+                                    return false;
+                                })(),
+                                inputNames: textInputs.map(el =>
+                                    `${el.name}[${el.placeholder.substring(0,30)}]=${el.value.substring(0,20)}`
+                                ),
+                                bodyClass: document.body.className,
+                            };
+                        }""")
+
+                        log.info(f"  Scan: title={'Y' if scan['titleFilled'] else 'N'} "
+                                 f"writer={'Y' if scan['writerFilled'] else 'N'} "
+                                 f"mainArtist={'Y' if scan['hasMainArtist'] else 'N'} "
+                                 f"choose={scan['chooseCount']} "
+                                 f"instrumental={scan['instrumentalChecked']} "
+                                 f"explicit={'Y' if scan['explicitAnswered'] else 'N'}")
+                        log.info(f"  Inputs: {scan.get('inputNames', [])}")
+
+                        # ── 1. Song Title ──
+                        if not scan.get('titleFilled'):
+                            for sel in [
+                                "input[name*='title' i]", "input[name*='trackName' i]",
+                                "input[name*='song_name' i]", "input[name*='songName' i]",
+                            ]:
+                                try:
+                                    el = page.locator(sel).first
+                                    if el.is_visible(timeout=1500):
+                                        el.fill(concept.track_name)
+                                        log.info(f"  Song Title: '{concept.track_name}'")
+                                        break
+                                except Exception:
+                                    continue
+                        else:
+                            log.info("  Song Title: already filled")
+
+                        # ── 2. Songwriter (placeholder "Legal First Name and Last Name") ──
+                        # data-songwriter-names="Groove Genix, GrooveGenix" → autocomplete
+                        if not scan.get('writerFilled'):
+                            filled_writer = False
+                            for sel in [
+                                "input[placeholder*='Legal First' i]",
+                                "input[placeholder*='songwriter' i]",
+                                "input[name*='songwriter' i]",
+                                "input[name*='writer' i]",
+                            ]:
+                                try:
+                                    if _fill_autocomplete(page, sel, artist, "Songwriter"):
+                                        filled_writer = True
+                                        break
+                                except Exception:
+                                    continue
+                            if not filled_writer:
+                                log.warning("  Songwriter: could not find/fill!")
+                        else:
+                            log.info("  Songwriter: already filled")
+
+                        # ── 3. Song Artists & Creatives (primary_artist from album) ──
+                        if not scan.get('hasMainArtist'):
+                            for sel in [
+                                "input[name*='artist' i][name*='name' i]",
+                                "input[name*='creative' i]",
+                                "input[placeholder*='Artist' i]",
+                            ]:
+                                try:
+                                    el = page.locator(sel).first
+                                    if el.is_visible(timeout=1500):
+                                        _fill_autocomplete(page, sel, artist, "Song Artist")
+                                        break
+                                except Exception:
+                                    continue
+                        else:
+                            log.info("  Song Artists: already has main artist")
+
+                        # ── 4 & 5. Performing Artists + Producers (CHOOSE dropdowns) ──
+                        if scan.get('chooseCount', 0) > 0:
+                            log.info(f"  Found {scan['chooseCount']} CHOOSE dropdown(s) to fill...")
+                            _fill_choose_sections(page, artist)
+                        else:
+                            log.info("  All role dropdowns already filled")
+
+                        # ── 6. Copyright Ownership: "Is this a cover?" = original ──
+                        # TuneCore: radio/button "I wrote this song" vs "cover song"
                         page.evaluate("""() => {
-                            // TuneCore: Yes/No buttons near "explicit lyrics" text
-                            const btns = [...document.querySelectorAll(
-                                'button, [role=button], input[type=radio]'
-                            )].filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
-                            const noBtns = btns.filter(el =>
+                            // Click "I wrote this song" or "No" near cover context
+                            const els = [...document.querySelectorAll(
+                                'button, [role=button], label, input[type=radio], span'
+                            )].filter(el => el.offsetWidth > 0);
+
+                            // Strategy 1: find radio/button with "original" or "I wrote"
+                            for (const el of els) {
+                                const txt = el.textContent.trim().toLowerCase();
+                                if (txt.includes('i wrote') || txt.includes('original')) {
+                                    el.click();
+                                    return 'clicked_original';
+                                }
+                            }
+                            // Strategy 2: find "No" button near "cover" context
+                            const noBtns = els.filter(el =>
                                 el.textContent.trim().toLowerCase() === 'no');
-                            // Find "No" near "explicit" context
                             for (const btn of noBtns) {
                                 let node = btn;
                                 for (let i = 0; i < 8; i++) {
                                     node = node.parentElement;
                                     if (!node) break;
-                                    if (node.textContent.toLowerCase().includes('explicit')) {
+                                    if (node.textContent.toLowerCase().includes('cover')) {
                                         btn.click();
-                                        return true;
+                                        return 'clicked_no_cover';
                                     }
                                 }
                             }
-                            // Fallback: click last "No" button (explicit is near bottom)
-                            if (noBtns.length > 0) {
-                                noBtns[noBtns.length - 1].click();
-                                return true;
-                            }
-                            return false;
+                            return 'not_found';
                         }""")
-                        log.info("  Explicit lyrics: No")
+                        log.info("  Copyright: original (not a cover)")
+
+                        # ── 7. Instrumental checkbox ──
+                        if scan.get('instrumentalChecked') is not True:
+                            result = page.evaluate("""() => {
+                                // Find checkbox with "Instrumental" or "no lyrics" label
+                                const cbs = [...document.querySelectorAll('input[type=checkbox]')];
+                                for (const cb of cbs) {
+                                    const lbl = cb.closest('label') || cb.parentElement;
+                                    if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
+                                        if (!cb.checked) {
+                                            // Try clicking the label (React needs synthetic events)
+                                            lbl.click();
+                                            return 'clicked_label';
+                                        }
+                                        return 'already_checked';
+                                    }
+                                }
+                                // Fallback: find the label/span text and click it
+                                const labels = [...document.querySelectorAll('label, span')]
+                                    .filter(el => el.offsetWidth > 0);
+                                for (const lbl of labels) {
+                                    if (lbl.textContent.toLowerCase().includes('instrumental') &&
+                                        lbl.textContent.toLowerCase().includes('no lyrics')) {
+                                        lbl.click();
+                                        return 'clicked_text';
+                                    }
+                                }
+                                return 'not_found';
+                            }""")
+                            log.info(f"  Instrumental: {result}")
+                        else:
+                            log.info("  Instrumental: already checked")
+
+                        # ── 8. Explicit lyrics = No ──
+                        if not scan.get('explicitAnswered'):
+                            page.evaluate("""() => {
+                                // TuneCore: Yes/No buttons near "explicit lyrics" text
+                                const btns = [...document.querySelectorAll(
+                                    'button, [role=button], input[type=radio]'
+                                )].filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+                                const noBtns = btns.filter(el =>
+                                    el.textContent.trim().toLowerCase() === 'no');
+                                // Find "No" near "explicit" context
+                                for (const btn of noBtns) {
+                                    let node = btn;
+                                    for (let i = 0; i < 8; i++) {
+                                        node = node.parentElement;
+                                        if (!node) break;
+                                        if (node.textContent.toLowerCase().includes('explicit')) {
+                                            btn.click();
+                                            return true;
+                                        }
+                                    }
+                                }
+                                // Fallback: click last "No" button (explicit is near bottom)
+                                if (noBtns.length > 0) {
+                                    noBtns[noBtns.length - 1].click();
+                                    return true;
+                                }
+                                return false;
+                            }""")
+                            log.info("  Explicit lyrics: No")
+                        else:
+                            log.info("  Explicit lyrics: already answered")
+
+                        page.wait_for_timeout(2000)
+                        _dump_page_state(page, "Track Details — after fill")
+
+                        # ── SAVE (within the React form) ──
+                        save = _find_clickable(page, [
+                            "button:has-text('Save')", "button[type='submit']:has-text('Save')",
+                            "#songs_app button:has-text('Save')",
+                        ])
+                        if save:
+                            save.click()
+                            log.info("  Saved track details — waiting 10s...")
+                            page.wait_for_timeout(10_000)
+
+                        # ── CONTINUE (a.secondary-btn link at bottom of page) ──
+                        cont = _find_clickable(page, [
+                            "a.secondary-btn",
+                            "a:has-text('Continue')",
+                            "button:has-text('Continue')",
+                        ])
+                        if cont:
+                            cont.click()
+                            log.info("  Clicked Continue after track details")
+                            page.wait_for_timeout(5000)
+
+                    # ── UPLOAD WAV ──
+                    elif state == 'upload_wav':
+                        try:
+                            if not wav_path.exists() or str(wav_path) == '/dev/null':
+                                log.info("  WAV upload step — no file provided, skipping (draft mode)")
+                                cont = _find_clickable(page, [
+                                    "a.secondary-btn", "a:has-text('Continue')",
+                                    "button:has-text('Continue')", "button:has-text('Next')",
+                                ])
+                                if cont:
+                                    cont.click()
+                                    page.wait_for_timeout(5000)
+                                continue
+                            log.info(f"  Uploading WAV: {wav_path.name}")
+                            _dump_page_state(page, "Before WAV Upload")
+                            wav_ok = _upload_file(page, wav_path)
+                            if not wav_ok:
+                                log.warning(f"  WAV upload failed for '{wav_path.name}' — skipping...")
+                                continue
+                            log.info("  Waiting for WAV upload (~5 min)...")
+                            _wait_for_upload(page, timeout=360, file_was_set=wav_ok)
+
+                            cont = _find_clickable(page, [
+                                "button:has-text('Continue')", "button:has-text('Next')",
+                                "a:has-text('Continue')",
+                            ])
+                            if cont:
+                                cont.click()
+                                page.wait_for_timeout(5000)
+                                log.info("  Clicked Continue after WAV")
+                        except Exception as e:
+                            log.warning(f"  Upload WAV step failed: {e} — skipping...")
+
+                    # ── ARTWORK ──
+                    elif state == 'artwork':
+                        try:
+                            if not cover_path.exists() or str(cover_path) == '/dev/null':
+                                log.info("  Artwork step — no file provided, skipping (draft mode)")
+                                cont = _find_clickable(page, [
+                                    "a.secondary-btn", "a:has-text('Continue')",
+                                    "button:has-text('Continue')", "button:has-text('Next')",
+                                ])
+                                if cont:
+                                    cont.click()
+                                    page.wait_for_timeout(5000)
+                                continue
+                            log.info(f"  Uploading cover art: {cover_path.name}")
+                            art_btn = _find_clickable(page, [
+                                "text=Add Artwork", "button:has-text('Add Artwork')",
+                                "text=Upload Artwork", "text=Add Cover Art", "text=Add Image",
+                            ])
+                            if art_btn:
+                                art_btn.click()
+                                page.wait_for_timeout(3000)
+
+                            cover_ok = _upload_file(page, cover_path)
+                            if not cover_ok:
+                                log.warning(f"  Cover upload failed for '{cover_path.name}' — skipping...")
+                                continue
+                            log.info("  Waiting for artwork upload (~1 min)...")
+                            _wait_for_upload(page, timeout=120, file_was_set=cover_ok)
+
+                            sc = _find_clickable(page, [
+                                "button:has-text('Save and Continue')",
+                                "button:has-text('Save & Continue')",
+                                "button:has-text('Continue')", "button:has-text('Save')",
+                            ])
+                            if sc:
+                                sc.click()
+                                page.wait_for_timeout(5000)
+                                log.info("  Clicked Save & Continue after artwork")
+                        except Exception as e:
+                            log.warning(f"  Artwork step failed: {e} — skipping...")
+
+                    # ── REVIEW ──
+                    elif state == 'review':
+                        btn = _find_clickable(page, [
+                            "button:has-text('Continue and Review')",
+                            "button:has-text('Continue & Review')",
+                            "button:has-text('Review')", "button:has-text('Continue')",
+                        ])
+                        if btn:
+                            btn.click()
+                            page.wait_for_timeout(5000)
+                            log.info("  Clicked Continue and Review")
+
+                    # ── RELEASE ──
+                    elif state == 'release':
+                        btn = _find_clickable(page, [
+                            "button:has-text('Release Music')", "button:has-text('Release')",
+                            "button:has-text('Submit')", "button:has-text('Distribute')",
+                        ])
+                        if btn:
+                            btn.click()
+                            page.wait_for_timeout(5000)
+                            log.info("  Clicked Release Music")
+
+                    # ── DONE ──
+                    elif state == 'done':
+                        log.info("  Release confirmed!")
+                        break
+
+                    # ── UNKNOWN ──
                     else:
-                        log.info("  Explicit lyrics: already answered")
-
-                    page.wait_for_timeout(2000)
-                    _dump_page_state(page, "Track Details — after fill")
-
-                    # ── SAVE (within the React form) ──
-                    save = _find_clickable(page, [
-                        "button:has-text('Save')", "button[type='submit']:has-text('Save')",
-                        "#songs_app button:has-text('Save')",
-                    ])
-                    if save:
-                        save.click()
-                        log.info("  Saved track details — waiting 10s...")
+                        _dump_page_state(page, f"Unknown page (step {step})")
+                        log.warning("  Unknown page — waiting 10s and retrying...")
                         page.wait_for_timeout(10_000)
 
-                    # ── CONTINUE (a.secondary-btn link at bottom of page) ──
-                    cont = _find_clickable(page, [
-                        "a.secondary-btn",
-                        "a:has-text('Continue')",
-                        "button:has-text('Continue')",
-                    ])
-                    if cont:
-                        cont.click()
-                        log.info("  Clicked Continue after track details")
-                        page.wait_for_timeout(5000)
-
-                # ── UPLOAD WAV ──
-                elif state == 'upload_wav':
-                    if not wav_path.exists() or str(wav_path) == '/dev/null':
-                        log.info("  WAV upload step — no file provided, skipping (draft mode)")
-                        cont = _find_clickable(page, [
-                            "a.secondary-btn", "a:has-text('Continue')",
-                            "button:has-text('Continue')", "button:has-text('Next')",
-                        ])
-                        if cont:
-                            cont.click()
-                            page.wait_for_timeout(5000)
-                        continue
-                    log.info(f"  Uploading WAV: {wav_path.name}")
-                    _dump_page_state(page, "Before WAV Upload")
-                    wav_ok = _upload_file(page, wav_path)
-                    if not wav_ok:
-                        log.warning(f"  WAV upload failed for '{wav_path.name}' — skipping...")
-                        continue
-                    log.info("  Waiting for WAV upload (~5 min)...")
-                    _wait_for_upload(page, timeout=360, file_was_set=wav_ok)
-
-                    cont = _find_clickable(page, [
-                        "button:has-text('Continue')", "button:has-text('Next')",
-                        "a:has-text('Continue')",
-                    ])
-                    if cont:
-                        cont.click()
-                        page.wait_for_timeout(5000)
-                        log.info("  Clicked Continue after WAV")
-
-                # ── ARTWORK ──
-                elif state == 'artwork':
-                    if not cover_path.exists() or str(cover_path) == '/dev/null':
-                        log.info("  Artwork step — no file provided, skipping (draft mode)")
-                        cont = _find_clickable(page, [
-                            "a.secondary-btn", "a:has-text('Continue')",
-                            "button:has-text('Continue')", "button:has-text('Next')",
-                        ])
-                        if cont:
-                            cont.click()
-                            page.wait_for_timeout(5000)
-                        continue
-                    log.info(f"  Uploading cover art: {cover_path.name}")
-                    art_btn = _find_clickable(page, [
-                        "text=Add Artwork", "button:has-text('Add Artwork')",
-                        "text=Upload Artwork", "text=Add Cover Art", "text=Add Image",
-                    ])
-                    if art_btn:
-                        art_btn.click()
-                        page.wait_for_timeout(3000)
-
-                    cover_ok = _upload_file(page, cover_path)
-                    if not cover_ok:
-                        log.warning(f"  Cover upload failed for '{cover_path.name}' — skipping...")
-                        continue
-                    log.info("  Waiting for artwork upload (~1 min)...")
-                    _wait_for_upload(page, timeout=120, file_was_set=cover_ok)
-
-                    sc = _find_clickable(page, [
-                        "button:has-text('Save and Continue')",
-                        "button:has-text('Save & Continue')",
-                        "button:has-text('Continue')", "button:has-text('Save')",
-                    ])
-                    if sc:
-                        sc.click()
-                        page.wait_for_timeout(5000)
-                        log.info("  Clicked Save & Continue after artwork")
-
-                # ── REVIEW ──
-                elif state == 'review':
-                    btn = _find_clickable(page, [
-                        "button:has-text('Continue and Review')",
-                        "button:has-text('Continue & Review')",
-                        "button:has-text('Review')", "button:has-text('Continue')",
-                    ])
-                    if btn:
-                        btn.click()
-                        page.wait_for_timeout(5000)
-                        log.info("  Clicked Continue and Review")
-
-                # ── RELEASE ──
-                elif state == 'release':
-                    btn = _find_clickable(page, [
-                        "button:has-text('Release Music')", "button:has-text('Release')",
-                        "button:has-text('Submit')", "button:has-text('Distribute')",
-                    ])
-                    if btn:
-                        btn.click()
-                        page.wait_for_timeout(5000)
-                        log.info("  Clicked Release Music")
-
-                # ── DONE ──
-                elif state == 'done':
-                    log.info("  Release confirmed!")
-                    break
-
-                # ── UNKNOWN ──
-                else:
-                    _dump_page_state(page, f"Unknown page (step {step})")
-                    log.warning("  Unknown page — waiting 10s and retrying...")
-                    page.wait_for_timeout(10_000)
+                except Exception as _step_err:
+                    log.warning(f"  Step {step} ({state}) failed: {_step_err}")
+                    log.warning("  Skipping this step, moving on...")
+                    page.wait_for_timeout(3000)
 
             # ── Wrap up ──
             page.screenshot(path="output/tunecore_final.png")
