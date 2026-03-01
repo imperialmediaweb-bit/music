@@ -415,6 +415,175 @@ def _fill_autocomplete(page, input_sel: str, value: str, label: str) -> bool:
         return False
 
 
+def _fill_choose_sections(page, artist: str):
+    """Find sections with 'CHOOSE' role dropdowns and fill artist name + select role.
+
+    TuneCore track details has multiple sections (Performing Artists, Producers &
+    Engineers) each with an artist-name autocomplete + a role dropdown showing
+    'CHOOSE'. This function finds each such section by walking the DOM upward from
+    the CHOOSE combobox to the section heading, determines the correct role, fills
+    the artist name, and selects the role.
+    """
+    # ── Find all CHOOSE comboboxes and their section context ──
+    sections = page.evaluate("""(artistName) => {
+        const result = [];
+        // Find all visible combobox-like elements showing "CHOOSE"
+        const allEls = [...document.querySelectorAll('[role=combobox], [role=button], [class*=Select] div')];
+        const chooseEls = allEls.filter(el =>
+            el.offsetWidth > 0 && el.offsetHeight > 0 &&
+            el.textContent.trim().toLowerCase() === 'choose'
+        );
+
+        for (let idx = 0; idx < chooseEls.length; idx++) {
+            const cb = chooseEls[idx];
+            // Walk up to find the section heading
+            let sectionName = '';
+            let sectionEl = cb;
+            for (let i = 0; i < 12; i++) {
+                sectionEl = sectionEl.parentElement;
+                if (!sectionEl) break;
+                const heading = sectionEl.querySelector('h1,h2,h3,h4,h5,h6,legend');
+                if (heading && heading.textContent.trim().length > 2) {
+                    sectionName = heading.textContent.trim();
+                    break;
+                }
+                // Also check bold/strong text as section label
+                const bold = sectionEl.querySelector('b, strong, p');
+                if (bold && bold.textContent.trim().length > 3 &&
+                    bold.textContent.trim().length < 60 &&
+                    bold !== cb) {
+                    sectionName = bold.textContent.trim();
+                    break;
+                }
+            }
+
+            // Find the artist-name autocomplete input in the same section
+            const container = sectionEl || cb.parentElement;
+            const inputs = container ? [...container.querySelectorAll('input')]
+                .filter(el => el.offsetWidth > 0 && el.type !== 'hidden' &&
+                    el.type !== 'file' && el.type !== 'checkbox' && el.type !== 'radio')
+                : [];
+
+            // Tag the CHOOSE combobox with a temp ID so Playwright can find it
+            const tempId = '_choose_' + idx + '_' + Date.now();
+            cb.id = tempId;
+
+            result.push({
+                sectionName,
+                tempId,
+                hasEmptyInput: inputs.some(el => !el.value.trim()),
+                inputPlaceholder: inputs.find(el => !el.value.trim())?.placeholder || '',
+                inputName: inputs.find(el => !el.value.trim())?.name || '',
+            });
+        }
+        return result;
+    }""", artist)
+
+    for sec in sections:
+        name = sec.get('sectionName', '').lower()
+        # Determine the role based on section heading
+        if 'performing' in name or 'perform' in name:
+            role = 'Performer'
+            label = 'Performing Artist'
+        elif 'producer' in name or 'engineer' in name:
+            role = 'Producer'
+            label = 'Producer'
+        elif 'artist' in name or 'creative' in name:
+            role = 'Main Artist'
+            label = 'Song Artist'
+        else:
+            role = 'Performer'
+            label = f'Section({sec["sectionName"]})'
+
+        log.info(f"  {label}: filling '{artist}' / '{role}' "
+                 f"(section='{sec['sectionName']}', input='{sec.get('inputName')}')")
+
+        # ── Fill the artist name autocomplete ──
+        if sec.get('hasEmptyInput'):
+            inp_name = sec.get('inputName', '')
+            inp_placeholder = sec.get('inputPlaceholder', '')
+            # Try to find the input by name or placeholder
+            filled = False
+            for sel in [
+                f"input[name='{inp_name}']" if inp_name else None,
+                f"input[placeholder='{inp_placeholder}']" if inp_placeholder else None,
+            ]:
+                if not sel:
+                    continue
+                try:
+                    if _fill_autocomplete(page, sel, artist, label):
+                        filled = True
+                        break
+                except Exception:
+                    continue
+
+            if not filled:
+                # Fallback: use JS to focus the input, then type
+                page.evaluate("""(args) => {
+                    const el = document.querySelector(`input[name="${args.name}"]`) ||
+                               document.querySelector(`input[placeholder="${args.placeholder}"]`);
+                    if (el) { el.focus(); el.click(); }
+                }""", {"name": inp_name, "placeholder": inp_placeholder})
+                page.wait_for_timeout(300)
+                try:
+                    focused = page.locator(':focus').first
+                    if focused.is_visible(timeout=1000):
+                        focused.fill("")
+                        focused.type(artist, delay=60)
+                        page.wait_for_timeout(1500)
+                        option = page.locator("[role='option']").filter(has_text=artist).first
+                        try:
+                            if option.is_visible(timeout=2000):
+                                option.click()
+                                page.wait_for_timeout(500)
+                                log.info(f"  {label}: '{artist}' (focused fallback)")
+                                filled = True
+                        except Exception:
+                            focused.press("ArrowDown")
+                            page.wait_for_timeout(300)
+                            focused.press("Enter")
+                            page.wait_for_timeout(500)
+                            filled = True
+                except Exception as e:
+                    log.warning(f"  {label}: fallback fill failed: {e}")
+
+        # ── Select the role from the CHOOSE dropdown ──
+        temp_id = sec.get('tempId', '')
+        if temp_id:
+            try:
+                cb = page.locator(f"#{temp_id}").first
+                if cb.is_visible(timeout=2000):
+                    cb.click()
+                    page.wait_for_timeout(1000)
+                    # Try to find the role option in the popup
+                    picked = False
+                    for role_text in [role, role.lower(), role.title()]:
+                        option = page.locator("[role='listbox'] [role='option']").filter(
+                            has_text=role_text).first
+                        try:
+                            if option.is_visible(timeout=2000):
+                                option.click()
+                                page.wait_for_timeout(500)
+                                log.info(f"  {label} Role: '{role_text}'")
+                                picked = True
+                                break
+                        except Exception:
+                            continue
+                    if not picked:
+                        # Fallback: pick first non-choose option
+                        first_opt = page.locator("[role='listbox'] [role='option']").first
+                        try:
+                            if first_opt.is_visible(timeout=1000):
+                                first_opt.click()
+                                page.wait_for_timeout(500)
+                                log.info(f"  {label} Role: picked first available option")
+                        except Exception:
+                            page.keyboard.press("Escape")
+                            log.warning(f"  {label} Role: no options found")
+            except Exception as e:
+                log.warning(f"  {label} Role: dropdown interaction failed: {e}")
+
+
 def _upload_file(page, file_path: Path):
     """Upload a file via input[type=file] or file chooser dialog."""
     log.info(f"  _upload_file: looking for file input for {file_path.name}...")
@@ -818,129 +987,252 @@ def _do_upload(
                         page.wait_for_timeout(60_000)
                         _dump_page_state(page, "Add Track — after 1 min wait")
 
-                # ── TRACK DETAILS ──
-                # Sections on TuneCore track page (from screenshots):
-                #   1. Song Title (text input)
-                #   2. Songwriter (autocomplete → "GrooveGenix")
-                #   3. Song Artists & Creatives (autocomplete name + role dropdown)
-                #   4. Performing Artists (autocomplete name)
-                #   5. Producers & Engineers (autocomplete name + role = "producer")
-                #   6. Copyright Ownership: Is this a cover? = No
-                #   7. Instrumental checkbox
+                # ── TRACK DETAILS (smart fill) ──
+                # TuneCore track page (step 2/4) sections:
+                #   1. Song Title           2. Songwriter (autocomplete)
+                #   3. Song Artists          4. Performing Artists (name+role)
+                #   5. Producers/Engineers   6. Copyright Ownership
+                #   7. Instrumental checkbox 8. Explicit Lyrics (Yes/No)
+                #   9. ISRC (auto)          10. Language 11. Lyrics 12. TikTok
+                # Smart: scans what's filled, only fills empty fields.
                 elif state == 'track_details':
-                    log.info("  Filling track details...")
+                    log.info("  Filling track details (smart mode)...")
                     _dump_page_state(page, "Track Details — before fill")
 
-                    # 1. Song Title
-                    for sel in [
-                        "input[name*='track' i][name*='name' i]",
-                        "input[name*='song' i][name*='title' i]",
-                        "input[name*='title' i]",
-                    ]:
-                        try:
-                            el = page.locator(sel).first
-                            if el.is_visible(timeout=1500):
-                                if not el.input_value().strip():
+                    # ── Smart scan: detect what's already filled ──
+                    scan = page.evaluate("""() => {
+                        const body = document.body.innerText.toLowerCase();
+                        const vis = sel => [...document.querySelectorAll(sel)]
+                            .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+                        const textInputs = vis('input').filter(el =>
+                            !['hidden','file','checkbox','radio'].includes(el.type));
+
+                        return {
+                            titleFilled: textInputs.some(el =>
+                                (el.name.toLowerCase().includes('title') ||
+                                 el.name.toLowerCase().includes('trackname') ||
+                                 el.name.toLowerCase().includes('songname')) && el.value.trim()),
+                            writerFilled: textInputs.some(el =>
+                                (el.placeholder.toLowerCase().includes('legal first') ||
+                                 el.name.toLowerCase().includes('writer') ||
+                                 el.name.toLowerCase().includes('songwriter')) && el.value.trim()),
+                            hasMainArtist: body.includes('main artist'),
+                            chooseCount: vis('[role=combobox], [role=button], [class*=Select] div')
+                                .filter(el => el.textContent.trim().toLowerCase() === 'choose').length,
+                            instrumentalChecked: (() => {
+                                for (const cb of vis('input[type=checkbox]')) {
+                                    const lbl = cb.closest('label') || cb.parentElement;
+                                    if (lbl && lbl.textContent.toLowerCase().includes('instrumental'))
+                                        return cb.checked;
+                                }
+                                return null;
+                            })(),
+                            explicitAnswered: (() => {
+                                // Check if Yes or No button near "explicit" is selected
+                                const btns = vis('button, [role=button]');
+                                for (const btn of btns) {
+                                    const txt = btn.textContent.trim().toLowerCase();
+                                    if ((txt === 'yes' || txt === 'no') &&
+                                        (btn.classList.contains('Mui-selected') ||
+                                         btn.getAttribute('aria-pressed') === 'true' ||
+                                         btn.classList.contains('selected') ||
+                                         btn.classList.contains('active'))) {
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            })(),
+                            coverAnswered: body.includes('copyright ownership'),
+                            inputNames: textInputs.map(el => el.name).filter(Boolean),
+                        };
+                    }""")
+
+                    log.info(f"  Scan: title={'Y' if scan['titleFilled'] else 'N'} "
+                             f"writer={'Y' if scan['writerFilled'] else 'N'} "
+                             f"mainArtist={'Y' if scan['hasMainArtist'] else 'N'} "
+                             f"choose={scan['chooseCount']} "
+                             f"instrumental={scan['instrumentalChecked']} "
+                             f"explicit={'Y' if scan['explicitAnswered'] else 'N'}")
+                    log.info(f"  Input names: {scan.get('inputNames', [])}")
+
+                    # ── 1. Song Title ──
+                    if not scan.get('titleFilled'):
+                        for sel in [
+                            "input[name*='title' i]", "input[name*='trackName' i]",
+                            "input[name*='songName' i]", "input[name*='name' i]",
+                        ]:
+                            try:
+                                el = page.locator(sel).first
+                                if el.is_visible(timeout=1500):
                                     el.fill(concept.track_name)
-                                log.info(f"  Song Title: {concept.track_name}")
+                                    log.info(f"  Song Title: '{concept.track_name}'")
+                                    break
+                            except Exception:
+                                continue
+                    else:
+                        log.info("  Song Title: already filled")
+
+                    # ── 2. Songwriter (autocomplete "Legal First Name...") ──
+                    if not scan.get('writerFilled'):
+                        filled_writer = False
+                        for sel in [
+                            "input[placeholder*='Legal First' i]",
+                            "input[placeholder*='songwriter' i]",
+                            "input[name*='songwriter' i]",
+                            "input[name*='writer' i]",
+                        ]:
+                            try:
+                                if _fill_autocomplete(page, sel, artist, "Songwriter"):
+                                    filled_writer = True
+                                    break
+                            except Exception:
+                                continue
+                        if not filled_writer:
+                            log.warning("  Songwriter: could not find/fill input!")
+                    else:
+                        log.info("  Songwriter: already filled")
+
+                    # ── 3. Song Artists & Creatives ──
+                    if not scan.get('hasMainArtist'):
+                        for sel in [
+                            "input[name*='artist' i][name*='name' i]",
+                            "input[name*='creative' i][name*='name' i]",
+                            "input[placeholder*='Artist' i]",
+                        ]:
+                            try:
+                                el = page.locator(sel).first
+                                if el.is_visible(timeout=1500):
+                                    _fill_autocomplete(page, sel, artist, "Song Artist")
+                                    break
+                            except Exception:
+                                continue
+                        for rn in ["role", "creativeRole"]:
+                            ok = False
+                            for rv in ["Main Artist", "main artist", "Primary Artist"]:
+                                if _smart_fill(page, rn, rv, "Song Artist Role"):
+                                    ok = True
+                                    break
+                            if ok:
                                 break
-                        except Exception:
-                            continue
+                    else:
+                        log.info("  Song Artists: already has main artist")
 
-                    # 2. Songwriter (autocomplete — type + pick from dropdown)
-                    _fill_autocomplete(
-                        page,
-                        "input[name*='songwriter' i], input[name*='writer' i], "
-                        "input[placeholder*='Legal First Name' i], input[placeholder*='songwriter' i]",
-                        artist, "Songwriter",
-                    )
+                    # ── 4 & 5. Performing Artists + Producers (CHOOSE dropdowns) ──
+                    if scan.get('chooseCount', 0) > 0:
+                        log.info(f"  Found {scan['chooseCount']} CHOOSE dropdown(s) to fill...")
+                        _fill_choose_sections(page, artist)
+                    else:
+                        log.info("  All role dropdowns already filled")
 
-                    # 3. Song Artists & Creatives — name (autocomplete) + role (dropdown)
-                    # The "Artist/Creative Name" field in this section
-                    for sel in [
-                        "input[name*='artist' i][name*='name' i]",
-                        "input[name*='creative' i][name*='name' i]",
-                        "input[placeholder*='Artist' i]",
-                    ]:
-                        try:
-                            el = page.locator(sel).first
-                            if el.is_visible(timeout=1500):
-                                _fill_autocomplete(page, sel, artist, "Song Artist Name")
-                                break
-                        except Exception:
-                            continue
+                    # ── 6. Copyright: Is this a cover? = No ──
+                    # Use JS to click "No" near "cover" context
+                    page.evaluate("""() => {
+                        const btns = [...document.querySelectorAll('button, [role=button], label, input[type=radio]')];
+                        const noBtns = btns.filter(el =>
+                            el.offsetWidth > 0 && el.textContent.trim().toLowerCase() === 'no');
+                        for (const btn of noBtns) {
+                            let node = btn;
+                            for (let i = 0; i < 8; i++) {
+                                node = node.parentElement;
+                                if (!node) break;
+                                if (node.textContent.toLowerCase().includes('cover')) {
+                                    btn.click();
+                                    return true;
+                                }
+                            }
+                        }
+                        return false;
+                    }""")
+                    log.info("  Copyright: No (cover)")
 
-                    # Role = Main Artist (dropdown/select)
-                    for rn in ["role", "creativeRole"]:
-                        ok = False
-                        for rv in ["Main Artist", "main artist", "Primary Artist"]:
-                            if _smart_fill(page, rn, rv, "Song Artist Role"):
-                                ok = True
-                                break
-                        if ok:
-                            break
+                    # ── 7. Instrumental checkbox ──
+                    if scan.get('instrumentalChecked') is False:
+                        checked = page.evaluate("""() => {
+                            // Try clicking the checkbox directly
+                            const cbs = [...document.querySelectorAll('input[type=checkbox]')];
+                            for (const cb of cbs) {
+                                const lbl = cb.closest('label') || cb.parentElement;
+                                if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
+                                    if (!cb.checked) { cb.click(); return 'clicked_cb'; }
+                                    return 'already_checked';
+                                }
+                            }
+                            // Try clicking the label
+                            const labels = [...document.querySelectorAll('label, span, div')]
+                                .filter(el => el.offsetWidth > 0);
+                            for (const lbl of labels) {
+                                const txt = lbl.textContent.toLowerCase();
+                                if (txt.includes('instrumental') && txt.includes('no lyrics')) {
+                                    lbl.click();
+                                    return 'clicked_label';
+                                }
+                            }
+                            return 'not_found';
+                        }""")
+                        log.info(f"  Instrumental: {checked}")
+                    elif scan.get('instrumentalChecked') is True:
+                        log.info("  Instrumental: already checked")
+                    else:
+                        # Checkbox not found in scan — try clicking by label text
+                        instr = _find_clickable(page, [
+                            "label:has-text('Instrumental')",
+                            "text=Instrumental",
+                            "label:has-text('no lyrics')",
+                        ])
+                        if instr:
+                            instr.click()
+                            log.info("  Instrumental: clicked via fallback")
 
-                    # 4. Performing Artists (autocomplete name)
-                    for sel in [
-                        "input[name*='performing' i]",
-                        "input[placeholder*='performing' i]",
-                    ]:
-                        try:
-                            el = page.locator(sel).first
-                            if el.is_visible(timeout=1500):
-                                _fill_autocomplete(page, sel, artist, "Performing Artist")
-                                break
-                        except Exception:
-                            continue
+                    # ── 8. Explicit lyrics = No ──
+                    if not scan.get('explicitAnswered'):
+                        page.evaluate("""() => {
+                            const btns = [...document.querySelectorAll('button, [role=button]')]
+                                .filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
+                            const noBtns = btns.filter(el =>
+                                el.textContent.trim().toLowerCase() === 'no');
+                            for (const btn of noBtns) {
+                                let node = btn;
+                                for (let i = 0; i < 8; i++) {
+                                    node = node.parentElement;
+                                    if (!node) break;
+                                    if (node.textContent.toLowerCase().includes('explicit')) {
+                                        btn.click();
+                                        return true;
+                                    }
+                                }
+                            }
+                            // Fallback: click last "No" button on page
+                            if (noBtns.length > 0) {
+                                noBtns[noBtns.length - 1].click();
+                                return true;
+                            }
+                            return false;
+                        }""")
+                        log.info("  Explicit lyrics: No")
+                    else:
+                        log.info("  Explicit lyrics: already answered")
 
-                    # 5. Producers & Engineers — name (autocomplete) + role = producer
-                    for sel in [
-                        "input[name*='producer' i]",
-                        "input[name*='engineer' i]",
-                    ]:
-                        try:
-                            el = page.locator(sel).first
-                            if el.is_visible(timeout=1500):
-                                _fill_autocomplete(page, sel, artist, "Producer Name")
-                                break
-                        except Exception:
-                            continue
-
-                    # Producer role dropdown
-                    for rn in ["producerRole", "engineerRole", "role"]:
-                        for rv in ["Producer", "producer"]:
-                            if _smart_fill(page, rn, rv, "Producer Role"):
-                                break
-
-                    # 6. Copyright: Is this a cover? = No
-                    cover_no = _find_clickable(page, [
-                        "input[name*='cover' i][value='no']",
-                        "input[name*='cover' i][value='false']",
-                        "label:has-text('No')",
-                    ])
-                    if cover_no:
-                        cover_no.click()
-                        log.info("  Is this a cover: No")
-
-                    # 7. Instrumental checkbox
-                    instr = _find_clickable(page, [
-                        "label:has-text('Instrumental')", "input[name*='instrumental' i]",
-                        "label:has-text('no lyrics')",
-                    ])
-                    if instr:
-                        instr.click()
-                        log.info("  Instrumental: checked")
-
+                    page.wait_for_timeout(1000)
                     _dump_page_state(page, "Track Details — after fill")
 
-                    # Save
+                    # ── SAVE ──
                     save = _find_clickable(page, [
-                        "button:has-text('Save')", "button[type='submit']",
+                        "button:has-text('Save')", "button[type='submit']:has-text('Save')",
                     ])
                     if save:
                         save.click()
-                        log.info("  Saved track — waiting 1 min...")
-                        page.wait_for_timeout(60_000)
+                        log.info("  Saved track details — waiting 10s...")
+                        page.wait_for_timeout(10_000)
+
+                    # ── CONTINUE ──
+                    cont = _find_clickable(page, [
+                        "button:has-text('Continue')", "a:has-text('Continue')",
+                        "button:has-text('Next')",
+                    ])
+                    if cont:
+                        cont.click()
+                        log.info("  Clicked Continue after track details")
+                        page.wait_for_timeout(5000)
 
                 # ── UPLOAD WAV ──
                 elif state == 'upload_wav':
