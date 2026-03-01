@@ -1163,51 +1163,77 @@ def _do_upload(
 
                         # ── 3. Performing Artists — Name (JS focus + keyboard type) ──
                         log.info("  --- Step 3: Performing Artists Name ---")
-                        perf_focused = page.evaluate("""() => {
-                            for (const inp of document.querySelectorAll('input')) {
-                                const ph = (inp.placeholder || '').toLowerCase();
-                                if (inp.value.trim()) continue;
-                                if (!ph.includes('artist') && !ph.includes('creative')) continue;
-                                let node = inp.parentElement;
-                                for (let j = 0; j < 8 && node; j++) {
-                                    for (const child of node.children) {
-                                        if (child.textContent.trim().startsWith('Performing')) {
-                                            inp.focus();
-                                            inp.scrollIntoView({block:'center'});
-                                            return true;
-                                        }
-                                    }
-                                    node = node.parentElement;
+                        # First check if performing artist is already added (chip/tag)
+                        perf_already = page.evaluate("""(artist) => {
+                            // Look for existing artist chips/tags in the Performing section
+                            const sections = document.querySelectorAll('*');
+                            for (const sec of sections) {
+                                if (sec.children.length === 0) continue;
+                                const txt = sec.textContent || '';
+                                if (!txt.includes('Performing')) continue;
+                                // Check for chips, tags, or badges with the artist name
+                                const chips = sec.querySelectorAll(
+                                    '[class*="chip" i], [class*="tag" i], [class*="badge" i], ' +
+                                    '[class*="pill" i], [class*="selected" i], [class*="item" i]');
+                                for (const chip of chips) {
+                                    if (chip.textContent.trim().includes(artist)) return true;
+                                }
+                                // Also check if artist name appears as plain text near the input
+                                const spans = sec.querySelectorAll('span, div');
+                                for (const sp of spans) {
+                                    const t = sp.textContent.trim();
+                                    if (t === artist && sp.children.length <= 1) return true;
                                 }
                             }
                             return false;
-                        }""")
-                        log.info(f"  Perf Name focused: {perf_focused}")
-                        if perf_focused:
-                            page.wait_for_timeout(500)
-                            page.keyboard.type(artist, delay=80)
-                            log.info(f"  Perf Name: typed '{artist}'")
-                            page.wait_for_timeout(2000)
-                            # DEBUG: check what autocomplete options appeared
-                            ac_count = page.locator("[role='option']").count()
-                            log.info(f"  Perf Name: {ac_count} autocomplete options visible")
-                            try:
-                                opt = page.locator("[role='option']").filter(
-                                    has_text=artist).first
-                                if opt.is_visible(timeout=2000):
-                                    opt.click()
-                                    log.info("  Perf Name: dropdown OK")
-                                else:
-                                    page.keyboard.press("ArrowDown")
-                                    page.wait_for_timeout(200)
-                                    page.keyboard.press("Enter")
-                                    log.info("  Perf Name: keyboard fallback")
-                            except Exception as e:
-                                log.warning(f"  Perf Name autocomplete error: {e}")
-                                page.keyboard.press("Enter")
-                            page.wait_for_timeout(1500)
+                        }""", artist)
+                        if perf_already:
+                            log.info(f"  Perf Name: already has '{artist}', skipping")
                         else:
-                            log.warning("  Perf Name: input NOT FOUND")
+                            perf_focused = page.evaluate("""() => {
+                                for (const inp of document.querySelectorAll('input')) {
+                                    const ph = (inp.placeholder || '').toLowerCase();
+                                    if (inp.value.trim()) continue;
+                                    if (!ph.includes('artist') && !ph.includes('creative')) continue;
+                                    let node = inp.parentElement;
+                                    for (let j = 0; j < 8 && node; j++) {
+                                        for (const child of node.children) {
+                                            if (child.textContent.trim().startsWith('Performing')) {
+                                                inp.focus();
+                                                inp.scrollIntoView({block:'center'});
+                                                return true;
+                                            }
+                                        }
+                                        node = node.parentElement;
+                                    }
+                                }
+                                return false;
+                            }""")
+                            log.info(f"  Perf Name focused: {perf_focused}")
+                            if perf_focused:
+                                page.wait_for_timeout(500)
+                                page.keyboard.type(artist, delay=80)
+                                log.info(f"  Perf Name: typed '{artist}'")
+                                page.wait_for_timeout(2000)
+                                ac_count = page.locator("[role='option']").count()
+                                log.info(f"  Perf Name: {ac_count} autocomplete options visible")
+                                try:
+                                    opt = page.locator("[role='option']").filter(
+                                        has_text=artist).first
+                                    if opt.is_visible(timeout=2000):
+                                        opt.click()
+                                        log.info("  Perf Name: dropdown OK")
+                                    else:
+                                        page.keyboard.press("ArrowDown")
+                                        page.wait_for_timeout(200)
+                                        page.keyboard.press("Enter")
+                                        log.info("  Perf Name: keyboard fallback")
+                                except Exception as e:
+                                    log.warning(f"  Perf Name autocomplete error: {e}")
+                                    page.keyboard.press("Enter")
+                                page.wait_for_timeout(1500)
+                            else:
+                                log.warning("  Perf Name: input NOT FOUND")
 
                         # ── 4. Performing Artists — Role (first CHOOSE → performer) ──
                         # CLICK ONLY — no typing! Open dropdown, click option.
@@ -1299,50 +1325,74 @@ def _do_upload(
 
                         # ── 5. Producers — Name (JS focus + keyboard type) ──
                         log.info("  --- Step 5: Producers Name ---")
-                        prod_focused = page.evaluate("""() => {
-                            for (const inp of document.querySelectorAll('input')) {
-                                const ph = (inp.placeholder || '').toLowerCase();
-                                if (inp.value.trim()) continue;
-                                if (!ph.includes('artist') && !ph.includes('creative')) continue;
-                                let node = inp.parentElement;
-                                for (let j = 0; j < 8 && node; j++) {
-                                    for (const child of node.children) {
-                                        if (child.textContent.trim().startsWith('Producer')) {
-                                            inp.focus();
-                                            inp.scrollIntoView({block:'center'});
-                                            return true;
-                                        }
-                                    }
-                                    node = node.parentElement;
+                        # First check if producer is already added (chip/tag)
+                        prod_already = page.evaluate("""(artist) => {
+                            const sections = document.querySelectorAll('*');
+                            for (const sec of sections) {
+                                if (sec.children.length === 0) continue;
+                                const txt = sec.textContent || '';
+                                if (!txt.includes('Producer')) continue;
+                                const chips = sec.querySelectorAll(
+                                    '[class*="chip" i], [class*="tag" i], [class*="badge" i], ' +
+                                    '[class*="pill" i], [class*="selected" i], [class*="item" i]');
+                                for (const chip of chips) {
+                                    if (chip.textContent.trim().includes(artist)) return true;
+                                }
+                                const spans = sec.querySelectorAll('span, div');
+                                for (const sp of spans) {
+                                    const t = sp.textContent.trim();
+                                    if (t === artist && sp.children.length <= 1) return true;
                                 }
                             }
                             return false;
-                        }""")
-                        log.info(f"  Prod Name focused: {prod_focused}")
-                        if prod_focused:
-                            page.wait_for_timeout(500)
-                            page.keyboard.type(artist, delay=80)
-                            log.info(f"  Prod Name: typed '{artist}'")
-                            page.wait_for_timeout(2000)
-                            ac_count = page.locator("[role='option']").count()
-                            log.info(f"  Prod Name: {ac_count} autocomplete options")
-                            try:
-                                opt = page.locator("[role='option']").filter(
-                                    has_text=artist).first
-                                if opt.is_visible(timeout=2000):
-                                    opt.click()
-                                    log.info("  Prod Name: dropdown OK")
-                                else:
-                                    page.keyboard.press("ArrowDown")
-                                    page.wait_for_timeout(200)
-                                    page.keyboard.press("Enter")
-                                    log.info("  Prod Name: keyboard fallback")
-                            except Exception as e:
-                                log.warning(f"  Prod Name autocomplete error: {e}")
-                                page.keyboard.press("Enter")
-                            page.wait_for_timeout(1500)
+                        }""", artist)
+                        if prod_already:
+                            log.info(f"  Prod Name: already has '{artist}', skipping")
                         else:
-                            log.warning("  Prod Name: input NOT FOUND")
+                            prod_focused = page.evaluate("""() => {
+                                for (const inp of document.querySelectorAll('input')) {
+                                    const ph = (inp.placeholder || '').toLowerCase();
+                                    if (inp.value.trim()) continue;
+                                    if (!ph.includes('artist') && !ph.includes('creative')) continue;
+                                    let node = inp.parentElement;
+                                    for (let j = 0; j < 8 && node; j++) {
+                                        for (const child of node.children) {
+                                            if (child.textContent.trim().startsWith('Producer')) {
+                                                inp.focus();
+                                                inp.scrollIntoView({block:'center'});
+                                                return true;
+                                            }
+                                        }
+                                        node = node.parentElement;
+                                    }
+                                }
+                                return false;
+                            }""")
+                            log.info(f"  Prod Name focused: {prod_focused}")
+                            if prod_focused:
+                                page.wait_for_timeout(500)
+                                page.keyboard.type(artist, delay=80)
+                                log.info(f"  Prod Name: typed '{artist}'")
+                                page.wait_for_timeout(2000)
+                                ac_count = page.locator("[role='option']").count()
+                                log.info(f"  Prod Name: {ac_count} autocomplete options")
+                                try:
+                                    opt = page.locator("[role='option']").filter(
+                                        has_text=artist).first
+                                    if opt.is_visible(timeout=2000):
+                                        opt.click()
+                                        log.info("  Prod Name: dropdown OK")
+                                    else:
+                                        page.keyboard.press("ArrowDown")
+                                        page.wait_for_timeout(200)
+                                        page.keyboard.press("Enter")
+                                        log.info("  Prod Name: keyboard fallback")
+                                except Exception as e:
+                                    log.warning(f"  Prod Name autocomplete error: {e}")
+                                    page.keyboard.press("Enter")
+                                page.wait_for_timeout(1500)
+                            else:
+                                log.warning("  Prod Name: input NOT FOUND")
 
                         # ── 6. Producers — Role (second CHOOSE → producer) ──
                         # CLICK ONLY — no typing!
@@ -1421,25 +1471,86 @@ def _do_upload(
                         except Exception as e:
                             log.warning(f"  Prod Role EXCEPTION: {e}")
 
-                        # ── 7. Copyright → No (JS click on radio) ──
+                        # ── 7. Copyright → No (not a cover song) ──
+                        # Strategy 1: Scroll to the Copyright section first
+                        page.evaluate("""() => {
+                            const els = document.querySelectorAll('*');
+                            for (const el of els) {
+                                const t = el.textContent || '';
+                                if (t.includes('cover') && t.includes('song') &&
+                                    el.children.length > 0 && t.length < 200) {
+                                    el.scrollIntoView({block: 'center'});
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }""")
+                        page.wait_for_timeout(1000)
+
+                        # Strategy 2: JS click — find "No" radio near "cover" text
                         cr = page.evaluate("""() => {
+                            // Try radio buttons
                             for (const r of document.querySelectorAll('input[type=radio]')) {
                                 const lbl = r.closest('label') || r.parentElement;
-                                if (!lbl || lbl.textContent.trim() !== 'No') continue;
+                                if (!lbl) continue;
+                                const lblText = lbl.textContent.trim();
+                                if (lblText !== 'No' && !lblText.endsWith('No')) continue;
+                                // Walk up to find "cover" context
                                 let node = r;
-                                for (let i = 0; i < 10; i++) {
+                                for (let i = 0; i < 15; i++) {
                                     node = node.parentElement;
                                     if (!node) break;
-                                    if (node.textContent.toLowerCase().includes('cover')) {
+                                    const txt = node.textContent.toLowerCase();
+                                    if (txt.includes('cover') || txt.includes('copyright ownership')) {
+                                        r.scrollIntoView({block: 'center'});
                                         r.click();
-                                        return 'OK';
+                                        // Also click the label in case radio needs it
+                                        lbl.click();
+                                        return 'OK_RADIO';
+                                    }
+                                }
+                            }
+                            // Fallback: find any clickable "No" label/span near cover text
+                            for (const el of document.querySelectorAll('label, span, div')) {
+                                const t = el.textContent.trim();
+                                if (t !== 'No') continue;
+                                let node = el;
+                                for (let i = 0; i < 15; i++) {
+                                    node = node.parentElement;
+                                    if (!node) break;
+                                    const txt = node.textContent.toLowerCase();
+                                    if (txt.includes('cover') || txt.includes('copyright ownership')) {
+                                        el.scrollIntoView({block: 'center'});
+                                        el.click();
+                                        return 'OK_LABEL';
                                     }
                                 }
                             }
                             return 'NOT_FOUND';
                         }""")
                         log.info(f"  Copyright No: {cr}")
-                        page.wait_for_timeout(500)
+
+                        # Strategy 3: If JS didn't work, try Playwright click
+                        if cr == 'NOT_FOUND':
+                            log.info("  Copyright No: trying Playwright selectors...")
+                            for sel in [
+                                "label:has-text('No') >> nth=0",
+                                "text=No >> nth=0",
+                                "input[type='radio'][value='no' i]",
+                                "input[type='radio'][value='false' i]",
+                                "input[type='radio'][value='0']",
+                            ]:
+                                try:
+                                    el = page.locator(sel).first
+                                    if el.is_visible(timeout=1500):
+                                        el.click()
+                                        log.info(f"  Copyright No: clicked via '{sel}'")
+                                        cr = 'OK_PW'
+                                        break
+                                except Exception:
+                                    continue
+
+                        page.wait_for_timeout(1000)
 
                         # ── 8. Instrumental checkbox (JS click) ──
                         instr = page.evaluate("""() => {
@@ -1465,22 +1576,67 @@ def _do_upload(
                         save = _find_clickable(page, [
                             "button:has-text('Save')", "button[type='submit']:has-text('Save')",
                             "#songs_app button:has-text('Save')",
+                            "input[type='submit'][value*='Save' i]",
                         ])
                         if save:
+                            save.scroll_into_view_if_needed()
+                            page.wait_for_timeout(500)
                             save.click()
                             log.info("  Saved track details — waiting 10s...")
                             page.wait_for_timeout(10_000)
+                        else:
+                            # JS fallback: find any save button
+                            saved_js = page.evaluate("""() => {
+                                const btns = [...document.querySelectorAll(
+                                    'button, input[type="submit"], a')];
+                                for (const btn of btns) {
+                                    const t = (btn.textContent || btn.value || '').trim();
+                                    if (t.toLowerCase().includes('save') &&
+                                        btn.offsetWidth > 0 && btn.offsetHeight > 0) {
+                                        btn.scrollIntoView({block: 'center'});
+                                        btn.click();
+                                        return 'OK:' + t;
+                                    }
+                                }
+                                return 'NOT_FOUND';
+                            }""")
+                            log.info(f"  Save JS fallback: {saved_js}")
+                            if saved_js.startswith('OK'):
+                                page.wait_for_timeout(10_000)
 
                         # ── CONTINUE (a.secondary-btn link at bottom of page) ──
                         cont = _find_clickable(page, [
                             "a.secondary-btn",
                             "a:has-text('Continue')",
                             "button:has-text('Continue')",
+                            "a:has-text('Save & Continue')",
+                            "button:has-text('Save & Continue')",
+                            "a:has-text('Save and Continue')",
                         ])
                         if cont:
+                            cont.scroll_into_view_if_needed()
+                            page.wait_for_timeout(500)
                             cont.click()
                             log.info("  Clicked Continue after track details")
                             page.wait_for_timeout(5000)
+                        else:
+                            # JS fallback for Continue
+                            cont_js = page.evaluate("""() => {
+                                const els = [...document.querySelectorAll('a, button')];
+                                for (const el of els) {
+                                    const t = (el.textContent || '').trim().toLowerCase();
+                                    if (t.includes('continue') &&
+                                        el.offsetWidth > 0 && el.offsetHeight > 0) {
+                                        el.scrollIntoView({block: 'center'});
+                                        el.click();
+                                        return 'OK:' + t;
+                                    }
+                                }
+                                return 'NOT_FOUND';
+                            }""")
+                            log.info(f"  Continue JS fallback: {cont_js}")
+                            if cont_js.startswith('OK'):
+                                page.wait_for_timeout(5000)
 
                     # ── UPLOAD WAV ──
                     elif state == 'upload_wav':
@@ -1591,20 +1747,44 @@ def _do_upload(
                         page.wait_for_timeout(10_000)
 
                 except Exception as _step_err:
-                    log.warning(f"  Step {step} ({state}) failed: {_step_err}")
+                    err_msg = str(_step_err)
+                    log.warning(f"  Step {step} ({state}) failed: {err_msg}")
+                    # If browser/page was closed, stop the loop
+                    if 'closed' in err_msg.lower() or 'disposed' in err_msg.lower():
+                        log.error("  Browser or page was closed — stopping automation.")
+                        break
                     log.warning("  Skipping this step, moving on...")
-                    page.wait_for_timeout(3000)
+                    try:
+                        page.wait_for_timeout(3000)
+                    except Exception:
+                        log.error("  Page no longer accessible — stopping.")
+                        break
 
             # ── Wrap up ──
-            page.screenshot(path="output/tunecore_final.png")
-            context.storage_state(path=str(TUNECORE_STATE_FILE))
-            final_url = page.url
+            try:
+                page.screenshot(path="output/tunecore_final.png")
+            except Exception:
+                log.warning("  Could not take final screenshot (browser may be closed)")
+            try:
+                context.storage_state(path=str(TUNECORE_STATE_FILE))
+            except Exception:
+                log.warning("  Could not save storage state")
+            try:
+                final_url = page.url
+            except Exception:
+                final_url = "unknown (browser closed)"
             log.info(f"TuneCore upload completed: {final_url}")
             return final_url
 
         except Exception as e:
-            page.screenshot(path="output/tunecore_error.png")
+            try:
+                page.screenshot(path="output/tunecore_error.png")
+            except Exception:
+                log.warning("  Could not take error screenshot (browser may be closed)")
             log.error(f"TuneCore upload error: {e}")
             raise
         finally:
-            browser.close()
+            try:
+                browser.close()
+            except Exception:
+                pass
