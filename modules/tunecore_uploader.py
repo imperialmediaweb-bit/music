@@ -36,6 +36,128 @@ MAX_RETRIES = 2
 DEFAULT_ARTIST = "GrooveGenix"
 
 
+def _dump_page_state(page, step_label: str):
+    """Log all visible interactive elements on the page for debugging.
+
+    Dumps buttons, links, inputs, file inputs, and upload-related elements
+    so we can see exactly what TuneCore is showing at each step.
+    """
+    log.info(f"  ── PAGE STATE at {step_label} ──")
+    log.info(f"  URL: {page.url}")
+
+    try:
+        state = page.evaluate("""() => {
+            const result = { buttons: [], links: [], inputs: [], fileInputs: [], uploadZones: [], headings: [] };
+
+            // Visible buttons
+            document.querySelectorAll('button, [role="button"], input[type="submit"], input[type="button"]').forEach(el => {
+                const rect = el.getBoundingClientRect();
+                const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(el).display !== 'none';
+                const text = (el.textContent || el.value || '').trim().substring(0, 80);
+                if (text) result.buttons.push({ text, visible, tag: el.tagName, disabled: el.disabled || false });
+            });
+
+            // Links
+            document.querySelectorAll('a[href]').forEach(el => {
+                const rect = el.getBoundingClientRect();
+                const visible = rect.width > 0 && rect.height > 0;
+                const text = (el.textContent || '').trim().substring(0, 80);
+                if (text && visible) result.links.push({ text, href: el.href.substring(0, 120) });
+            });
+
+            // All inputs (visible and hidden)
+            document.querySelectorAll('input, select, textarea').forEach(el => {
+                const rect = el.getBoundingClientRect();
+                const visible = rect.width > 0 && rect.height > 0 && getComputedStyle(el).display !== 'none';
+                result.inputs.push({
+                    tag: el.tagName, type: el.type || '', name: el.name || '',
+                    id: el.id || '', placeholder: (el.placeholder || '').substring(0, 50),
+                    visible, value: (el.value || '').substring(0, 50)
+                });
+            });
+
+            // File inputs specifically (including hidden)
+            document.querySelectorAll('input[type="file"]').forEach(el => {
+                const rect = el.getBoundingClientRect();
+                const visible = rect.width > 0 && rect.height > 0;
+                const styles = getComputedStyle(el);
+                result.fileInputs.push({
+                    name: el.name || '', id: el.id || '', accept: el.accept || '',
+                    visible, display: styles.display, opacity: styles.opacity,
+                    parent: el.parentElement ? el.parentElement.className.substring(0, 60) : ''
+                });
+            });
+
+            // Upload-related elements (divs, spans with upload/drop/drag in class or text)
+            document.querySelectorAll('[class*="upload" i], [class*="drop" i], [class*="drag" i], [class*="file" i], [data-testid*="upload" i]').forEach(el => {
+                const rect = el.getBoundingClientRect();
+                const visible = rect.width > 0 && rect.height > 0;
+                const text = (el.textContent || '').trim().substring(0, 80);
+                if (visible) result.uploadZones.push({
+                    tag: el.tagName, class: el.className.substring(0, 80), text
+                });
+            });
+
+            // Headings for page context
+            document.querySelectorAll('h1, h2, h3').forEach(el => {
+                const text = (el.textContent || '').trim().substring(0, 100);
+                if (text) result.headings.push({ tag: el.tagName, text });
+            });
+
+            return result;
+        }""")
+
+        # Log headings (page context)
+        if state.get("headings"):
+            log.info(f"  HEADINGS:")
+            for h in state["headings"][:10]:
+                log.info(f"    <{h['tag']}> {h['text']}")
+
+        # Log buttons
+        if state.get("buttons"):
+            log.info(f"  BUTTONS ({len(state['buttons'])}):")
+            for b in state["buttons"][:20]:
+                vis = "VISIBLE" if b["visible"] else "hidden"
+                dis = " DISABLED" if b.get("disabled") else ""
+                log.info(f"    [{vis}{dis}] <{b['tag']}> \"{b['text']}\"")
+
+        # Log links
+        if state.get("links"):
+            log.info(f"  LINKS ({len(state['links'])}):")
+            for lnk in state["links"][:15]:
+                log.info(f"    \"{lnk['text']}\" -> {lnk['href']}")
+
+        # Log inputs
+        if state.get("inputs"):
+            visible_inputs = [i for i in state["inputs"] if i["visible"]]
+            hidden_inputs = [i for i in state["inputs"] if not i["visible"]]
+            log.info(f"  INPUTS ({len(visible_inputs)} visible, {len(hidden_inputs)} hidden):")
+            for inp in visible_inputs[:20]:
+                log.info(f"    [VISIBLE] <{inp['tag']}> type={inp['type']} name=\"{inp['name']}\" id=\"{inp['id']}\" placeholder=\"{inp['placeholder']}\" value=\"{inp['value']}\"")
+            for inp in hidden_inputs[:10]:
+                log.info(f"    [hidden] <{inp['tag']}> type={inp['type']} name=\"{inp['name']}\" id=\"{inp['id']}\"")
+
+        # Log file inputs (critical for upload debugging)
+        if state.get("fileInputs"):
+            log.info(f"  FILE INPUTS ({len(state['fileInputs'])}):")
+            for fi in state["fileInputs"]:
+                vis = "VISIBLE" if fi["visible"] else "HIDDEN"
+                log.info(f"    [{vis}] name=\"{fi['name']}\" id=\"{fi['id']}\" accept=\"{fi['accept']}\" display={fi['display']} opacity={fi['opacity']} parent_class=\"{fi['parent']}\"")
+        else:
+            log.info("  FILE INPUTS: *** NONE FOUND ***")
+
+        # Log upload zones
+        if state.get("uploadZones"):
+            log.info(f"  UPLOAD ZONES ({len(state['uploadZones'])}):")
+            for uz in state["uploadZones"][:10]:
+                log.info(f"    <{uz['tag']}> class=\"{uz['class']}\" text=\"{uz['text'][:60]}\"")
+
+    except Exception as e:
+        log.warning(f"  Could not dump page state: {e}")
+
+    log.info(f"  ── END PAGE STATE ──")
+
+
 def upload_to_tunecore(
     wav_path: Path,
     cover_path: Path,
@@ -99,30 +221,70 @@ def _find_clickable(page, selectors: list[str]):
 
 def _upload_file(page, file_path: Path):
     """Upload a file via input[type=file] or file chooser dialog."""
-    # Try direct file input first
+    log.info(f"  _upload_file: looking for file input for {file_path.name}...")
+
+    # Strategy 1: Find ALL file inputs via JS (catches hidden ones too)
     try:
+        file_input_count = page.evaluate("document.querySelectorAll('input[type=file]').length")
+        log.info(f"  Strategy 1: Found {file_input_count} input[type=file] elements via JS")
+        if file_input_count > 0:
+            for i in range(file_input_count):
+                try:
+                    el = page.locator("input[type='file']").nth(i)
+                    el.set_input_files(str(file_path), timeout=5000)
+                    log.info(f"  File selected via input[type=file] (index {i})")
+                    return True
+                except Exception as exc:
+                    log.info(f"  input[type=file] index {i} failed: {exc}")
+                    continue
+    except Exception as exc:
+        log.info(f"  Strategy 1 failed: {exc}")
+
+    # Strategy 2: Make hidden file inputs visible, then try again
+    try:
+        page.evaluate("""
+            document.querySelectorAll('input[type=file]').forEach(el => {
+                el.style.display = 'block';
+                el.style.visibility = 'visible';
+                el.style.opacity = '1';
+                el.style.width = '200px';
+                el.style.height = '50px';
+                el.style.position = 'relative';
+                el.style.zIndex = '99999';
+            });
+        """)
+        page.wait_for_timeout(500)
         inputs = page.locator("input[type='file']")
         count = inputs.count()
+        log.info(f"  Strategy 2: After unhiding, found {count} file inputs")
         for i in range(count):
-            el = inputs.nth(i)
             try:
-                el.set_input_files(str(file_path))
-                log.info(f"  File selected via input[type=file] (index {i})")
+                el = inputs.nth(i)
+                el.set_input_files(str(file_path), timeout=5000)
+                log.info(f"  File selected via unhidden input[type=file] (index {i})")
                 return True
-            except Exception:
+            except Exception as exc:
+                log.info(f"  Unhidden input index {i} failed: {exc}")
                 continue
-    except Exception:
-        pass
+    except Exception as exc:
+        log.info(f"  Strategy 2 failed: {exc}")
 
-    # Fallback: click upload zone and use file chooser
+    # Strategy 3: Click upload area to trigger a file chooser dialog
+    log.info("  Strategy 3: Trying file chooser via click...")
     for selector in [
-        "[class*='upload']", "[class*='drop']", "[class*='dropzone']",
+        "[class*='upload' i]", "[class*='drop' i]", "[class*='dropzone' i]",
+        "[class*='drag' i]", "[data-testid*='upload' i]",
         "text=Upload", "text=Choose File", "text=Browse",
+        "text=Drag", "text=Drop files", "text=Click to upload",
+        "text=click to upload", "text=Choose a file",
+        "button:has-text('Upload')", "div[class*='Upload']",
+        "text=Add Audio", "text=Add File", "text=Select File",
     ]:
         try:
             el = page.locator(selector).first
             if el.is_visible(timeout=1000):
-                with page.expect_file_chooser(timeout=5000) as fc_info:
+                log.info(f"  Trying file chooser via: {selector}")
+                with page.expect_file_chooser(timeout=10000) as fc_info:
                     el.click()
                 file_chooser = fc_info.value
                 file_chooser.set_files(str(file_path))
@@ -131,28 +293,50 @@ def _upload_file(page, file_path: Path):
         except Exception:
             continue
 
+    # Failed — dump page state to understand what's on screen
     log.warning(f"Could not find file input for {file_path.name}")
+    _dump_page_state(page, f"UPLOAD FAILED for {file_path.name}")
     return False
 
 
-def _wait_for_upload(page, timeout: int = 300):
-    """Wait for file upload to complete."""
+def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
+    """Wait for file upload to complete.
+
+    Args:
+        page: Playwright page.
+        timeout: Max seconds to wait.
+        file_was_set: If False, skip waiting (upload never started).
+    """
+    if not file_was_set:
+        log.warning("  Skipping upload wait — file was never set")
+        return
+
     start = time.time()
+    seen_progress = False
+
+    # Give TuneCore a moment to start processing the file
+    page.wait_for_timeout(3000)
+
     while time.time() - start < timeout:
         # Check for success indicators
-        for text in ["Upload complete", "Uploaded", "Success", "100%"]:
+        for text in ["Upload complete", "Uploaded", "Success", "100%",
+                      "Complete", "Done", "Ready"]:
             try:
                 if page.locator(f"text={text}").first.is_visible(timeout=500):
-                    log.info(f"  Upload complete: {text}")
+                    log.info(f"  Upload complete: found '{text}'")
                     return
             except Exception:
                 continue
 
-        # Check if progress bar disappeared
+        # Check progress bar — only trust "gone" if we saw it appear first
         try:
             progress = page.locator("[class*='progress']").first
-            if not progress.is_visible(timeout=1000):
-                log.info("  Upload progress gone — assuming complete")
+            if progress.is_visible(timeout=1000):
+                seen_progress = True
+                log.info("  Upload progress bar visible...")
+            elif seen_progress:
+                # Was visible before, now gone => upload finished
+                log.info("  Upload progress bar gone — upload complete")
                 return
         except Exception:
             pass
@@ -220,6 +404,7 @@ def _do_upload(
 
             log.info(f"  Logged in: {page.url}")
             page.screenshot(path="output/tunecore_01_dashboard.png")
+            _dump_page_state(page, "Step 1 — Dashboard")
 
             # ── STEP 1b: Click "Add Release" in header ──
             log.info("Step 1b: Clicking 'Add Release'...")
@@ -239,6 +424,7 @@ def _do_upload(
                 page.wait_for_timeout(3000)
 
             page.screenshot(path="output/tunecore_02_add_release.png")
+            _dump_page_state(page, "Step 1b — After Add Release")
 
             # ── STEP 2: Choose "Single" ──
             log.info("Step 2: Selecting 'Single'...")
@@ -271,6 +457,7 @@ def _do_upload(
                 log.warning("  'Start' button not found — continuing...")
 
             page.screenshot(path="output/tunecore_04_start.png")
+            _dump_page_state(page, "Step 3 — After Start")
 
             # ── STEP 4: Release details ──
             log.info("Step 4: Filling release details...")
@@ -372,6 +559,7 @@ def _do_upload(
                 log.warning("  'Save' button not found")
 
             page.screenshot(path="output/tunecore_06_saved.png")
+            _dump_page_state(page, "Step 4 — After Save Release Details")
 
             # ── STEP 5: Tracks -> Add Track ──
             log.info("Step 5: Adding track...")
@@ -388,6 +576,7 @@ def _do_upload(
                 log.warning("  'Add Track' button not found — may auto-navigate")
 
             page.screenshot(path="output/tunecore_07_add_track.png")
+            _dump_page_state(page, "Step 5 — After Add Track")
 
             # ── STEP 6: Track details ──
             log.info("Step 6: Filling track details...")
@@ -508,15 +697,25 @@ def _do_upload(
                 page.wait_for_timeout(5000)
 
             page.screenshot(path="output/tunecore_09_track_saved.png")
+            _dump_page_state(page, "Step 6 — After Save Track Details")
 
             # ── STEP 7: Upload WAV ──
             log.info(f"Step 7: Uploading WAV: {wav_path.name}")
-            _upload_file(page, wav_path)
+            _dump_page_state(page, "Step 7 — Before WAV Upload")
+            wav_uploaded = _upload_file(page, wav_path)
+
+            if not wav_uploaded:
+                page.screenshot(path="output/tunecore_error_wav_upload.png")
+                raise RuntimeError(
+                    f"CRITICAL: Failed to upload WAV file '{wav_path.name}'. "
+                    "Check the page state dump above and screenshots in output/ folder."
+                )
 
             # WAV files are large — wait up to 5 minutes
             log.info("  Waiting for WAV upload (~5 min)...")
-            _wait_for_upload(page, timeout=360)
+            _wait_for_upload(page, timeout=360, file_was_set=wav_uploaded)
             page.screenshot(path="output/tunecore_10_wav_uploaded.png")
+            _dump_page_state(page, "Step 7 — After WAV Upload")
 
             # Click Continue after WAV upload
             continue_btn = _find_clickable(page, [
@@ -533,6 +732,7 @@ def _do_upload(
 
             # ── STEP 8: Upload Artwork ──
             log.info(f"Step 8: Uploading cover art: {cover_path.name}")
+            _dump_page_state(page, "Step 8 — Before Cover Art Upload")
 
             # Look for "Add Artwork" button
             artwork_btn = _find_clickable(page, [
@@ -541,16 +741,27 @@ def _do_upload(
                 "a:has-text('Add Artwork')",
                 "text=Upload Artwork",
                 "button:has-text('Upload Artwork')",
+                "text=Add Cover Art",
+                "text=Upload Cover",
+                "text=Add Image",
             ])
             if artwork_btn:
                 artwork_btn.click()
                 page.wait_for_timeout(3000)
+                _dump_page_state(page, "Step 8 — After clicking Add Artwork")
 
-            _upload_file(page, cover_path)
+            cover_uploaded = _upload_file(page, cover_path)
+
+            if not cover_uploaded:
+                page.screenshot(path="output/tunecore_error_cover_upload.png")
+                raise RuntimeError(
+                    f"CRITICAL: Failed to upload cover art '{cover_path.name}'. "
+                    "Check the page state dump above and screenshots in output/ folder."
+                )
 
             # Wait for artwork upload (~1 min)
             log.info("  Waiting for artwork upload (~1 min)...")
-            _wait_for_upload(page, timeout=120)
+            _wait_for_upload(page, timeout=120, file_was_set=cover_uploaded)
             page.screenshot(path="output/tunecore_12_artwork_uploaded.png")
 
             # Save and Continue
@@ -569,6 +780,7 @@ def _do_upload(
 
             # ── STEP 9: Continue and Review ──
             log.info("Step 9: Continue and Review...")
+            _dump_page_state(page, "Step 9 — Before Review")
             review_btn = _find_clickable(page, [
                 "button:has-text('Continue and Review')",
                 "button:has-text('Continue & Review')",
@@ -586,6 +798,7 @@ def _do_upload(
 
             # ── STEP 10: Release Music ──
             log.info("Step 10: Release Music...")
+            _dump_page_state(page, "Step 10 — Before Release Music")
             release_btn = _find_clickable(page, [
                 "button:has-text('Release Music')",
                 "button:has-text('Release')",
