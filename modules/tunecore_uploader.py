@@ -373,6 +373,48 @@ def _interact_mui_autocomplete(page, field_name: str, text: str, label: str) -> 
     return False
 
 
+def _fill_autocomplete(page, input_sel: str, value: str, label: str) -> bool:
+    """Type into a TuneCore autocomplete field and pick the matching option.
+
+    TuneCore autocompletes: type text → dropdown appears → click matching option.
+    If no dropdown, falls back to typing + Enter.
+    """
+    try:
+        el = page.locator(input_sel).first
+        if not el.is_visible(timeout=2000):
+            log.info(f"  {label}: input not visible ({input_sel})")
+            return False
+
+        el.click()
+        page.wait_for_timeout(300)
+        el.fill("")
+        page.wait_for_timeout(200)
+        el.type(value, delay=60)
+        page.wait_for_timeout(1500)
+
+        # Try to pick from dropdown
+        option = page.locator("[role='option'], [role='listbox'] li, .MuiAutocomplete-option").filter(has_text=value).first
+        try:
+            if option.is_visible(timeout=2000):
+                option.click()
+                page.wait_for_timeout(500)
+                log.info(f"  {label}: '{value}' (autocomplete dropdown)")
+                return True
+        except Exception:
+            pass
+
+        # Fallback: ArrowDown + Enter
+        el.press("ArrowDown")
+        page.wait_for_timeout(300)
+        el.press("Enter")
+        page.wait_for_timeout(500)
+        log.info(f"  {label}: '{value}' (keyboard fallback)")
+        return True
+    except Exception as e:
+        log.warning(f"  {label}: autocomplete failed: {e}")
+        return False
+
+
 def _upload_file(page, file_path: Path):
     """Upload a file via input[type=file] or file chooser dialog."""
     log.info(f"  _upload_file: looking for file input for {file_path.name}...")
@@ -740,9 +782,20 @@ def _do_upload(
                         log.info("  Clicked Add Track — waiting 1 min...")
                         page.wait_for_timeout(60_000)
 
-                # ── TRACK DETAILS (songwriter, artist, role) ──
+                # ── TRACK DETAILS ──
+                # Sections on TuneCore track page (from screenshots):
+                #   1. Song Title (text input)
+                #   2. Songwriter (autocomplete → "GrooveGenix")
+                #   3. Song Artists & Creatives (autocomplete name + role dropdown)
+                #   4. Performing Artists (autocomplete name)
+                #   5. Producers & Engineers (autocomplete name + role = "producer")
+                #   6. Copyright Ownership: Is this a cover? = No
+                #   7. Instrumental checkbox
                 elif state == 'track_details':
                     log.info("  Filling track details...")
+                    _dump_page_state(page, "Track Details — before fill")
+
+                    # 1. Song Title
                     for sel in [
                         "input[name*='track' i][name*='name' i]",
                         "input[name*='song' i][name*='title' i]",
@@ -753,51 +806,87 @@ def _do_upload(
                             if el.is_visible(timeout=1500):
                                 if not el.input_value().strip():
                                     el.fill(concept.track_name)
-                                log.info(f"  Track name: {concept.track_name}")
+                                log.info(f"  Song Title: {concept.track_name}")
                                 break
                         except Exception:
                             continue
 
-                    for sel in ["input[name*='songwriter' i]", "input[name*='writer' i]"]:
-                        try:
-                            el = page.locator(sel).first
-                            if el.is_visible(timeout=1500):
-                                el.fill(artist)
-                                log.info(f"  Songwriter: {artist}")
-                                break
-                        except Exception:
-                            continue
+                    # 2. Songwriter (autocomplete — type + pick from dropdown)
+                    _fill_autocomplete(
+                        page,
+                        "input[name*='songwriter' i], input[name*='writer' i], "
+                        "input[placeholder*='Legal First Name' i], input[placeholder*='songwriter' i]",
+                        artist, "Songwriter",
+                    )
 
+                    # 3. Song Artists & Creatives — name (autocomplete) + role (dropdown)
+                    # The "Artist/Creative Name" field in this section
                     for sel in [
                         "input[name*='artist' i][name*='name' i]",
-                        "input[name*='performing' i]", "input[name*='creative' i]",
+                        "input[name*='creative' i][name*='name' i]",
+                        "input[placeholder*='Artist' i]",
                     ]:
                         try:
                             el = page.locator(sel).first
                             if el.is_visible(timeout=1500):
-                                el.fill(artist)
-                                log.info(f"  Performing Artist: {artist}")
+                                _fill_autocomplete(page, sel, artist, "Song Artist Name")
                                 break
                         except Exception:
                             continue
 
+                    # Role = Main Artist (dropdown/select)
                     for rn in ["role", "creativeRole"]:
                         ok = False
-                        for rv in ["Main Artist", "Primary Artist", "Artist"]:
-                            if _smart_fill(page, rn, rv, "Role"):
+                        for rv in ["Main Artist", "main artist", "Primary Artist"]:
+                            if _smart_fill(page, rn, rv, "Song Artist Role"):
                                 ok = True
                                 break
                         if ok:
                             break
 
+                    # 4. Performing Artists (autocomplete name)
+                    for sel in [
+                        "input[name*='performing' i]",
+                        "input[placeholder*='performing' i]",
+                    ]:
+                        try:
+                            el = page.locator(sel).first
+                            if el.is_visible(timeout=1500):
+                                _fill_autocomplete(page, sel, artist, "Performing Artist")
+                                break
+                        except Exception:
+                            continue
+
+                    # 5. Producers & Engineers — name (autocomplete) + role = producer
+                    for sel in [
+                        "input[name*='producer' i]",
+                        "input[name*='engineer' i]",
+                    ]:
+                        try:
+                            el = page.locator(sel).first
+                            if el.is_visible(timeout=1500):
+                                _fill_autocomplete(page, sel, artist, "Producer Name")
+                                break
+                        except Exception:
+                            continue
+
+                    # Producer role dropdown
+                    for rn in ["producerRole", "engineerRole", "role"]:
+                        for rv in ["Producer", "producer"]:
+                            if _smart_fill(page, rn, rv, "Producer Role"):
+                                break
+
+                    # 6. Copyright: Is this a cover? = No
                     cover_no = _find_clickable(page, [
                         "input[name*='cover' i][value='no']",
                         "input[name*='cover' i][value='false']",
+                        "label:has-text('No')",
                     ])
                     if cover_no:
                         cover_no.click()
                         log.info("  Is this a cover: No")
 
+                    # 7. Instrumental checkbox
                     instr = _find_clickable(page, [
                         "label:has-text('Instrumental')", "input[name*='instrumental' i]",
                         "label:has-text('no lyrics')",
@@ -806,6 +895,9 @@ def _do_upload(
                         instr.click()
                         log.info("  Instrumental: checked")
 
+                    _dump_page_state(page, "Track Details — after fill")
+
+                    # Save
                     save = _find_clickable(page, [
                         "button:has-text('Save')", "button[type='submit']",
                     ])
