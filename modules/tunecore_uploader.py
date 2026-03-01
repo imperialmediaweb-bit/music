@@ -611,121 +611,142 @@ def _fill_choose_sections(page, artist: str):
                 inp.fill("")
                 page.wait_for_timeout(200)
                 inp.type(artist, delay=60)
-                page.wait_for_timeout(2500)
+                page.wait_for_timeout(3000)
 
-                # Try autocomplete dropdown — click EXACT match for artist name
-                # Use JS to find the option with exact text (not partial match)
+                # Log what appeared after typing
+                page.evaluate("""(name) => {
+                    const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+                    // Log ALL visible elements that contain the artist name
+                    const all = [...document.querySelectorAll('*')].filter(el =>
+                        vis(el) && el.children.length === 0 &&
+                        el.textContent.trim().toLowerCase().includes(name.toLowerCase().substring(0, 5))
+                    );
+                    console.log('AUTOCOMPLETE candidates:', all.map(el =>
+                        el.tagName + '.' + el.className.substring(0,40) + ' = "' + el.textContent.trim() + '"'
+                    ).join(' | '));
+                }""", artist)
+
+                # Click EXACT match — search ALL visible leaf elements on page
                 clicked = page.evaluate("""(name) => {
                     const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-                    // Look in all possible autocomplete containers
-                    const opts = [...document.querySelectorAll(
-                        '[role=option], [role=listbox] li, .ui-menu-item, ' +
-                        '[class*=option], [class*=Option], [class*=suggestion], ' +
-                        '[class*=Suggestion], [class*=dropdown] div, [class*=autocomplete] div, ' +
-                        'ul li, .results div, .result div'
-                    )].filter(vis);
 
-                    // First try EXACT match
-                    for (const opt of opts) {
-                        const txt = opt.textContent.trim();
-                        if (txt === name) {
-                            opt.click();
-                            return { found: true, text: txt, exact: true };
+                    // Get ALL visible leaf elements (no children) that contain artist text
+                    const all = [...document.querySelectorAll('*')].filter(el =>
+                        vis(el) && el.children.length === 0 &&
+                        el.textContent.trim().length > 0 &&
+                        el.textContent.trim().length < 100
+                    );
+
+                    // EXACT match first
+                    for (const el of all) {
+                        if (el.textContent.trim() === name && el.tagName !== 'INPUT') {
+                            el.click();
+                            return { found: true, text: el.textContent.trim(),
+                                     tag: el.tagName, cls: el.className.substring(0, 50) };
                         }
                     }
-                    // Then try case-insensitive exact match
-                    for (const opt of opts) {
-                        const txt = opt.textContent.trim();
-                        if (txt.toLowerCase() === name.toLowerCase()) {
-                            opt.click();
-                            return { found: true, text: txt, exact: true };
+
+                    // Case-insensitive exact
+                    for (const el of all) {
+                        if (el.textContent.trim().toLowerCase() === name.toLowerCase() &&
+                            el.tagName !== 'INPUT') {
+                            el.click();
+                            return { found: true, text: el.textContent.trim(),
+                                     tag: el.tagName, cls: el.className.substring(0, 50) };
+                        }
+                    }
+
+                    // Contains match (e.g. "GrooveGenix" inside a longer string)
+                    for (const el of all) {
+                        const txt = el.textContent.trim();
+                        if (txt.toLowerCase().includes(name.toLowerCase()) &&
+                            txt.length < name.length + 20 &&
+                            el.tagName !== 'INPUT') {
+                            el.click();
+                            return { found: true, text: txt,
+                                     tag: el.tagName, cls: el.className.substring(0, 50) };
+                        }
+                    }
+
+                    return { found: false, total_leaves: all.length };
+                }""", artist)
+
+                if clicked.get('found'):
+                    log.info(f"  [{i}] {label}: clicked '{clicked.get('text')}' "
+                             f"({clicked.get('tag')}.{clicked.get('cls')})")
+                else:
+                    log.warning(f"  [{i}] {label}: no autocomplete match for '{artist}' "
+                                f"(scanned {clicked.get('total_leaves')} elements)")
+                    # Fallback: keyboard
+                    inp.press("ArrowDown")
+                    page.wait_for_timeout(300)
+                    inp.press("Enter")
+                    log.info(f"  [{i}] {label}: '{artist}' (keyboard fallback)")
+                page.wait_for_timeout(1000)
+        except Exception as e:
+            log.warning(f"  [{i}] {label}: input fill failed: {e}")
+
+        # ── CHOOSE field — type artist name (it's a React Select / searchable input) ──
+        # CHOOSE is NOT a role picker — it's another artist name field.
+        # Click CHOOSE → it becomes a text input → type artist name → pick from autocomplete.
+        try:
+            cb = page.locator(f"[data-choose-idx='{i}']").first
+            if cb.is_visible(timeout=2000):
+                cb.click()
+                page.wait_for_timeout(1000)
+
+                # After clicking CHOOSE, React Select shows an input — type artist name
+                page.keyboard.type(artist, delay=60)
+                page.wait_for_timeout(3000)
+
+                # Click exact match from autocomplete (same logic as artist input)
+                clicked = page.evaluate("""(name) => {
+                    const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+                    const all = [...document.querySelectorAll('*')].filter(el =>
+                        vis(el) && el.children.length === 0 &&
+                        el.textContent.trim().length > 0 &&
+                        el.textContent.trim().length < 100 &&
+                        el.tagName !== 'INPUT'
+                    );
+
+                    // EXACT match
+                    for (const el of all) {
+                        if (el.textContent.trim() === name) {
+                            el.click();
+                            return { found: true, text: el.textContent.trim() };
+                        }
+                    }
+                    // Case-insensitive exact
+                    for (const el of all) {
+                        if (el.textContent.trim().toLowerCase() === name.toLowerCase()) {
+                            el.click();
+                            return { found: true, text: el.textContent.trim() };
+                        }
+                    }
+                    // Contains
+                    for (const el of all) {
+                        const txt = el.textContent.trim();
+                        if (txt.toLowerCase().includes(name.toLowerCase()) &&
+                            txt.length < name.length + 20) {
+                            el.click();
+                            return { found: true, text: txt };
                         }
                     }
                     return { found: false };
                 }""", artist)
 
                 if clicked.get('found'):
-                    log.info(f"  [{i}] {label}: '{clicked.get('text')}' (autocomplete exact)")
+                    log.info(f"  [{i}] {label} CHOOSE: '{clicked.get('text')}'")
                 else:
                     # Fallback: keyboard
-                    inp.press("ArrowDown")
-                    page.wait_for_timeout(300)
-                    inp.press("Enter")
-                    log.info(f"  [{i}] {label}: '{artist}' (keyboard fallback)")
-                page.wait_for_timeout(500)
-        except Exception as e:
-            log.warning(f"  [{i}] {label}: input fill failed: {e}")
-
-        # ── Select role from CHOOSE dropdown (React Select component) ──
-        try:
-            cb = page.locator(f"[data-choose-idx='{i}']").first
-            if cb.is_visible(timeout=2000):
-                # Click the CHOOSE element — may need to click parent for React Select
-                cb.click()
-                page.wait_for_timeout(1500)
-
-                # React Select opens a menu with div options — detect them via JS
-                picked = page.evaluate("""(args) => {
-                    const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-                    const role = args.role;
-
-                    // React Select menu items have class containing "option"
-                    // Also try any visible div/li that appeared in a dropdown/menu
-                    const selectors = [
-                        '[class*=option]',
-                        '[class*=Option]',
-                        '[id*=option]',
-                        '[role=option]',
-                        '[class*=menu] div',
-                        '[class*=Menu] div',
-                        '.css-1n7v3ny-option',  // React Select default class
-                        '[class*=listbox] div',
-                    ];
-
-                    let allOptions = [];
-                    for (const sel of selectors) {
-                        const found = [...document.querySelectorAll(sel)].filter(el =>
-                            vis(el) && el.textContent.trim().length > 0 &&
-                            el.textContent.trim().toLowerCase() !== 'select...' &&
-                            el.textContent.trim().toUpperCase() !== 'CHOOSE' &&
-                            el.children.length === 0
-                        );
-                        allOptions.push(...found);
-                    }
-
-                    // Deduplicate
-                    allOptions = [...new Set(allOptions)];
-
-                    if (allOptions.length === 0) return { picked: false, reason: 'no_options' };
-
-                    // Try to find our desired role
-                    const desired = role.toLowerCase();
-                    for (const opt of allOptions) {
-                        if (opt.textContent.trim().toLowerCase() === desired) {
-                            opt.click();
-                            return { picked: true, text: opt.textContent.trim() };
-                        }
-                    }
-
-                    // Fallback: click first real option
-                    allOptions[0].click();
-                    return { picked: true, text: allOptions[0].textContent.trim(), fallback: true };
-                }""", {"role": role})
-
-                if picked.get('picked'):
-                    fb = " (fallback)" if picked.get('fallback') else ""
-                    log.info(f"  [{i}] {label} Role: '{picked.get('text')}'{fb}")
-                else:
-                    # Last resort: keyboard navigation
                     page.keyboard.press("ArrowDown")
                     page.wait_for_timeout(300)
                     page.keyboard.press("Enter")
-                    page.wait_for_timeout(500)
-                    log.info(f"  [{i}] {label} Role: keyboard ArrowDown+Enter")
+                    log.info(f"  [{i}] {label} CHOOSE: '{artist}' (keyboard)")
 
                 page.wait_for_timeout(500)
         except Exception as e:
-            log.warning(f"  [{i}] {label} Role: failed: {e}")
+            log.warning(f"  [{i}] {label} CHOOSE: failed: {e}")
 
 
 def _upload_file(page, file_path: Path):
