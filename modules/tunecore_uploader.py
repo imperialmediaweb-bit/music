@@ -588,61 +588,65 @@ def _click_dropdown_option(page, name: str, label: str, prefer: list = None):
 
 
 def _fill_choose_sections(page, artist: str):
-    """Fill Performing Artists + Producers sections on TuneCore track details.
+    """Fill ALL Artist/Creative + Role sections (Song Artists, Performing, Producers).
 
-    Each section row has:
-      - An input with placeholder "Add Artist/Creative" — click it, type artist
-        name to trigger autocomplete dropdown, then select from list.
-      - A CHOOSE button for role — click it, dropdown appears, select role.
+    Uses _fill_autocomplete (proven working for Song Artists) for name inputs,
+    and click-select for CHOOSE role buttons.
     """
     log.info(f"  _fill_choose_sections: artist='{artist}'")
 
-    # ── Step 1: Find EMPTY artist-name inputs + CHOOSE buttons, tag them ──
+    # ── Step 1: Tag all EMPTY name inputs + CHOOSE role buttons ──
     counts = page.evaluate("""() => {
         const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
 
-        // Artist/Creative name inputs — EMPTY ones only (skip already filled)
-        // Use broad 'input' selector, then filter by type in JS
+        // ALL empty inputs with artist/creative placeholder
         const nameInputs = [...document.querySelectorAll('input')].filter(el =>
-            vis(el) && el.type === 'text' && !el.value.trim() && (
+            vis(el) && !el.value.trim() && (
                 el.placeholder.toLowerCase().includes('artist') ||
-                el.placeholder.toLowerCase().includes('creative') ||
-                el.placeholder.toLowerCase().includes('add artist')
+                el.placeholder.toLowerCase().includes('creative')
             ));
         for (let i = 0; i < nameInputs.length; i++)
             nameInputs[i].setAttribute('data-artist-input-idx', i);
 
-        // CHOOSE buttons — for role selection
+        // ALL CHOOSE buttons
         const chooses = [...document.querySelectorAll('*')].filter(el =>
             vis(el) && el.textContent.trim().toUpperCase() === 'CHOOSE' &&
             el.children.length === 0);
         for (let i = 0; i < chooses.length; i++)
             chooses[i].setAttribute('data-choose-idx', i);
 
-        return {
-            nameInputs: nameInputs.length,
-            chooses: chooses.length,
-            placeholders: nameInputs.map(el => el.placeholder),
-            inputTypes: nameInputs.map(el => el.type)
-        };
+        return { names: nameInputs.length, chooses: chooses.length };
     }""")
 
-    n_names = counts.get('nameInputs', 0)
+    n_names = counts.get('names', 0)
     n_roles = counts.get('chooses', 0)
-    log.info(f"  Found {n_names} empty name inputs "
-             f"(placeholders: {counts.get('placeholders')}, types: {counts.get('inputTypes')}), "
-             f"{n_roles} CHOOSE role buttons")
+    log.info(f"  Found {n_names} empty name inputs, {n_roles} CHOOSE buttons")
 
-    pairs = min(n_names, n_roles)
-    if pairs == 0:
-        log.warning("  No name+role pairs found, nothing to fill")
-        return
-
-    # ── Step 2: For each pair, determine section and fill ──
-    for i in range(pairs):
-        # Determine section (performing / producer)
+    # ── Step 2: Fill each name input using _fill_autocomplete (same as Song Artists) ──
+    for i in range(n_names):
+        sel = f"[data-artist-input-idx='{i}']"
         section = page.evaluate("""(idx) => {
             const el = document.querySelector(`[data-artist-input-idx="${idx}"]`);
+            if (!el) return '';
+            let node = el;
+            for (let j = 0; j < 15; j++) {
+                node = node.parentElement;
+                if (!node) break;
+                const t = node.textContent.toLowerCase();
+                if (t.includes('performing')) return 'performing';
+                if (t.includes('producer') || t.includes('engineer')) return 'producer';
+                if (t.includes('song artists') || t.includes('creatives')) return 'song_artists';
+            }
+            return '';
+        }""", i)
+        log.info(f"  [{i}] Name ({section or 'unknown'}): filling '{artist}'...")
+        _fill_autocomplete(page, sel, artist, f"Artist ({section})")
+        page.wait_for_timeout(500)
+
+    # ── Step 3: Fill each CHOOSE role button ──
+    for i in range(n_roles):
+        section = page.evaluate("""(idx) => {
+            const el = document.querySelector(`[data-choose-idx="${idx}"]`);
             if (!el) return '';
             let node = el;
             for (let j = 0; j < 15; j++) {
@@ -655,42 +659,21 @@ def _fill_choose_sections(page, artist: str):
             return '';
         }""", i)
 
-        sect_label = section or 'unknown'
-        log.info(f"  [{i}] Section: {sect_label}")
+        if 'producer' in section:
+            prefer = ['producer', 'prod']
+        else:
+            prefer = ['main artist', 'main', 'primary artist', 'primary']
 
-        # ── 2a. Name: click input, type artist name, select from dropdown ──
-        try:
-            inp = page.locator(f"[data-artist-input-idx='{i}']").first
-            if inp.is_visible(timeout=2000):
-                inp.click()
-                page.wait_for_timeout(300)
-                inp.fill("")
-                page.wait_for_timeout(200)
-                inp.type(artist, delay=60)
-                page.wait_for_timeout(2000)
-                log.info(f"  [{i}] Typed '{artist}', selecting from dropdown...")
-                _click_dropdown_option(page, artist, f"[{i}] NAME ({sect_label})")
-                page.wait_for_timeout(1000)
-        except Exception as e:
-            log.warning(f"  [{i}] Name input failed: {e}")
-
-        # ── 2b. Role: click CHOOSE → dropdown appears → select role ──
+        log.info(f"  [{i}] Role ({section or 'unknown'}): clicking CHOOSE...")
         try:
             cb = page.locator(f"[data-choose-idx='{i}']").first
             if cb.is_visible(timeout=2000):
                 cb.click()
                 page.wait_for_timeout(1500)
-
-                if 'producer' in section:
-                    prefer = ['producer', 'prod']
-                else:
-                    prefer = ['main artist', 'main', 'primary artist', 'primary']
-
-                log.info(f"  [{i}] Clicked CHOOSE, selecting role (prefer: {prefer})...")
-                _click_dropdown_option(page, '', f"[{i}] ROLE ({sect_label})", prefer)
-                page.wait_for_timeout(1000)
+                _click_dropdown_option(page, '', f"Role ({section})", prefer)
+                page.wait_for_timeout(500)
         except Exception as e:
-            log.warning(f"  [{i}] Role CHOOSE click failed: {e}")
+            log.warning(f"  [{i}] Role CHOOSE failed: {e}")
 
 
 def _upload_file(page, file_path: Path):
@@ -1175,166 +1158,95 @@ def _do_upload(
                         #    All handled by _fill_choose_sections (click → dropdown → select)
                         _fill_choose_sections(page, artist)
 
-                        # ── 6. Copyright Ownership: NOT a cover ──
-                        # TuneCore uses radio buttons Yes/No near "cover" text
-                        cover_result = page.evaluate("""() => {
+                        # ── 6. Copyright Ownership: "No" (not a cover) ──
+                        # Tag the "No" label/radio near "cover", then Playwright clicks it
+                        page.evaluate("""() => {
                             const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-
-                            // Strategy 1: find radio inputs near "cover" text
-                            const radios = [...document.querySelectorAll('input[type=radio]')]
-                                .filter(vis);
-                            for (const r of radios) {
-                                const lbl = r.closest('label') || r.parentElement;
-                                const txt = lbl ? lbl.textContent.trim().toLowerCase() : '';
-                                if (txt === 'no') {
-                                    // Check if this "No" is in a "cover" context
-                                    let node = r;
-                                    for (let i = 0; i < 10; i++) {
-                                        node = node.parentElement;
-                                        if (!node) break;
-                                        if (node.textContent.toLowerCase().includes('cover')) {
-                                            r.click();
-                                            if (lbl) lbl.click();
-                                            return 'clicked_no_radio';
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Strategy 2: click "No" label/button near "cover"
-                            const allEls = [...document.querySelectorAll(
-                                'button, [role=button], label, span'
-                            )].filter(vis);
-                            const noBtns = allEls.filter(el =>
-                                el.textContent.trim().toLowerCase() === 'no');
-                            for (const btn of noBtns) {
-                                let node = btn;
+                            // Find all labels (radio labels are typically <label> wrapping text)
+                            const labels = [...document.querySelectorAll('label, span')]
+                                .filter(el => vis(el) && el.textContent.trim().toLowerCase() === 'no');
+                            for (const lbl of labels) {
+                                let node = lbl;
                                 for (let i = 0; i < 10; i++) {
                                     node = node.parentElement;
                                     if (!node) break;
                                     if (node.textContent.toLowerCase().includes('cover')) {
-                                        btn.click();
-                                        return 'clicked_no_btn';
+                                        lbl.setAttribute('data-copyright-no', 'true');
+                                        return;
                                     }
                                 }
                             }
-
-                            // Strategy 3: "I wrote" or "original"
-                            for (const el of allEls) {
-                                const txt = el.textContent.trim().toLowerCase();
-                                if (txt.includes('i wrote') || txt === 'original') {
-                                    el.click();
-                                    return 'clicked_original';
-                                }
-                            }
-                            return 'not_found';
                         }""")
-                        log.info(f"  Copyright: {cover_result}")
+                        try:
+                            no_el = page.locator("[data-copyright-no='true']").first
+                            if no_el.is_visible(timeout=2000):
+                                no_el.click()
+                                page.wait_for_timeout(500)
+                                log.info("  Copyright: No (not a cover)")
+                            else:
+                                log.warning("  Copyright: 'No' label not visible")
+                        except Exception as e:
+                            log.warning(f"  Copyright: failed: {e}")
 
-                        # ── 7. Instrumental — ALWAYS check ──
-                        # Tag the checkbox/label with JS, then Playwright clicks it
-                        instr_tag = page.evaluate("""() => {
+                        # ── 7. Instrumental — check the checkbox ──
+                        page.evaluate("""() => {
                             const cbs = [...document.querySelectorAll('input[type=checkbox]')];
                             for (const cb of cbs) {
                                 const lbl = cb.closest('label') || cb.parentElement;
                                 if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
                                     if (!cb.checked) {
                                         lbl.setAttribute('data-instrumental', 'true');
-                                        cb.setAttribute('data-instrumental-cb', 'true');
-                                        return 'tagged';
                                     }
-                                    return 'already_checked';
+                                    return;
                                 }
                             }
-                            // Fallback: find label/span with "instrumental"
-                            const labels = [...document.querySelectorAll('label, span, div')]
+                            // Fallback: any element with "instrumental" text
+                            const els = [...document.querySelectorAll('label, span, div')]
                                 .filter(el => el.offsetWidth > 0);
-                            for (const lbl of labels) {
-                                if (lbl.textContent.toLowerCase().includes('instrumental')) {
-                                    lbl.setAttribute('data-instrumental', 'true');
-                                    return 'tagged_text';
+                            for (const el of els) {
+                                if (el.textContent.toLowerCase().includes('instrumental') &&
+                                    el.textContent.length < 80) {
+                                    el.setAttribute('data-instrumental', 'true');
+                                    return;
                                 }
                             }
-                            return 'not_found';
                         }""")
-                        log.info(f"  Instrumental tag: {instr_tag}")
-
-                        if instr_tag in ('tagged', 'tagged_text'):
-                            try:
-                                # Try clicking the checkbox directly first
-                                cb_el = page.locator("[data-instrumental-cb='true']").first
-                                try:
-                                    if cb_el.is_visible(timeout=1000):
-                                        cb_el.click(force=True)
-                                        log.info("  Instrumental: checked (checkbox click)")
-                                    else:
-                                        raise Exception("not visible")
-                                except Exception:
-                                    # Click the label instead
-                                    lbl_el = page.locator("[data-instrumental='true']").first
-                                    if lbl_el.is_visible(timeout=2000):
-                                        lbl_el.click()
-                                        log.info("  Instrumental: checked (label click)")
+                        try:
+                            instr_el = page.locator("[data-instrumental='true']").first
+                            if instr_el.is_visible(timeout=2000):
+                                instr_el.click()
                                 page.wait_for_timeout(500)
-                            except Exception as e:
-                                log.warning(f"  Instrumental: Playwright click failed: {e}")
+                                log.info("  Instrumental: checked")
+                        except Exception as e:
+                            log.warning(f"  Instrumental: failed: {e}")
 
                         # ── 8. Explicit lyrics = No ──
-                        # When Instrumental is checked, TuneCore hides Explicit — skip it.
-                        is_instrumental = page.evaluate("""() => {
-                            const cbs = [...document.querySelectorAll('input[type=checkbox]')];
-                            for (const cb of cbs) {
-                                const lbl = cb.closest('label') || cb.parentElement;
-                                if (lbl && lbl.textContent.toLowerCase().includes('instrumental')) {
-                                    return cb.checked;
-                                }
-                            }
-                            return false;
-                        }""")
-
-                        if is_instrumental:
-                            log.info("  Explicit: skipped (Instrumental is checked)")
-                        else:
-                            # TuneCore styled Yes/No toggle buttons near "explicit" text.
-                            explicit_tag = page.evaluate("""() => {
-                                const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
-                                const allEls = [...document.querySelectorAll(
-                                    'button, [role=button], input[type=radio], label, div, span, a'
-                                )].filter(vis);
-
-                                const noCandidates = allEls.filter(el =>
-                                    el.textContent.trim().toLowerCase() === 'no');
-
-                                for (const el of noCandidates) {
-                                    let node = el;
-                                    for (let i = 0; i < 10; i++) {
-                                        node = node.parentElement;
-                                        if (!node) break;
-                                        if (node.textContent.toLowerCase().includes('explicit')) {
-                                            el.setAttribute('data-explicit-no', 'true');
-                                            return 'tagged';
-                                        }
+                        page.evaluate("""() => {
+                            const vis = el => el.offsetWidth > 0 && el.offsetHeight > 0;
+                            const candidates = [...document.querySelectorAll(
+                                'button, [role=button], label, span, div, a'
+                            )].filter(el =>
+                                vis(el) && el.textContent.trim().toLowerCase() === 'no');
+                            for (const el of candidates) {
+                                let node = el;
+                                for (let i = 0; i < 10; i++) {
+                                    node = node.parentElement;
+                                    if (!node) break;
+                                    if (node.textContent.toLowerCase().includes('explicit')) {
+                                        el.setAttribute('data-explicit-no', 'true');
+                                        return;
                                     }
                                 }
-                                if (noCandidates.length > 0) {
-                                    noCandidates[noCandidates.length - 1]
-                                        .setAttribute('data-explicit-no', 'true');
-                                    return 'tagged_last';
-                                }
-                                return 'not_found';
-                            }""")
-                            log.info(f"  Explicit tag: {explicit_tag}")
-
-                            try:
-                                no_btn = page.locator("[data-explicit-no='true']").first
-                                if no_btn.is_visible(timeout=2000):
-                                    no_btn.click()
-                                    page.wait_for_timeout(500)
-                                    log.info("  Explicit lyrics: No (Playwright click)")
-                                else:
-                                    log.warning("  Explicit lyrics: tagged but not visible")
-                            except Exception as e:
-                                log.warning(f"  Explicit lyrics: click failed: {e}")
+                            }
+                        }""")
+                        try:
+                            no_btn = page.locator("[data-explicit-no='true']").first
+                            if no_btn.is_visible(timeout=2000):
+                                no_btn.click()
+                                page.wait_for_timeout(500)
+                                log.info("  Explicit: No")
+                        except Exception as e:
+                            log.warning(f"  Explicit: failed: {e}")
 
                         page.wait_for_timeout(2000)
                         _dump_page_state(page, "Track Details — after fill")
