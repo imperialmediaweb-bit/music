@@ -770,30 +770,64 @@ def _fill_choose_sections(page, artist: str):
             log.info(f"  No more empty name inputs (after {attempt})")
             break
 
-    # ── Phase 2: Click CHOOSE boxes and select role ──
-    for attempt in range(5):
+    # ── Phase 2: Click Role dropdowns and select from dropdown list ──
+    # Find all react-select containers that show CHOOSE or are empty
+    for attempt in range(8):
         try:
             choose = page.get_by_text('CHOOSE', exact=True).first
             if not choose.is_visible(timeout=1500):
                 log.info(f"  No more CHOOSE (after {attempt})")
                 break
-            log.info(f"  [{attempt}] Clicking CHOOSE...")
-            choose.click()
-            page.wait_for_timeout(2000)
-            # Select from dropdown options ONLY (not chips/tags on page)
+
+            # Determine context: walk up DOM to find section heading
+            choose_box = choose.locator("xpath=ancestor::*[contains(@class, 'container') or contains(@class, 'select') or contains(@class, 'css-')]").first
+            try:
+                section_text = choose_box.locator("xpath=ancestor::fieldset | ancestor::*[contains(@class, 'section')]").first.inner_text(timeout=1000)
+            except Exception:
+                section_text = ""
+
+            if "producer" in section_text.lower():
+                target_role = "producer"
+            else:
+                target_role = "main artist"
+
+            log.info(f"  [{attempt}] Clicking Role dropdown (target: '{target_role}')...")
+
+            # Click control to open dropdown
+            try:
+                ctrl = choose.locator("xpath=ancestor::*[contains(@class, 'control')]").first
+                ctrl.scroll_into_view_if_needed(timeout=2000)
+                ctrl.click(timeout=2000)
+            except Exception:
+                choose.scroll_into_view_if_needed(timeout=2000)
+                choose.click()
+            page.wait_for_timeout(1500)
+
+            # Click matching option from the dropdown list (NO typing)
             clicked = False
-            for role in ['performer', 'producer']:
+            try:
+                opt = page.locator(
+                    "[role='option'], [id*='option'], [class*='option']"
+                ).filter(has_text=re.compile(f"^{re.escape(target_role)}$", re.IGNORECASE)).first
+                if opt.is_visible(timeout=3000):
+                    opt.click()
+                    log.info(f"  [{attempt}] Role: '{target_role}' selected from dropdown")
+                    clicked = True
+            except Exception:
+                pass
+
+            if not clicked:
                 try:
                     opt = page.locator(
                         "[role='option'], [id*='option'], [class*='option']"
-                    ).filter(has_text=role).first
-                    if opt.is_visible(timeout=1500):
+                    ).filter(has_text=re.compile(target_role, re.IGNORECASE)).first
+                    if opt.is_visible(timeout=2000):
                         opt.click()
-                        log.info(f"  [{attempt}] Role: '{role}'")
+                        log.info(f"  [{attempt}] Role: '{target_role}' selected (broad match)")
                         clicked = True
-                        break
                 except Exception:
-                    continue
+                    pass
+
             if not clicked:
                 page.keyboard.press("ArrowDown")
                 page.wait_for_timeout(300)
@@ -1466,6 +1500,9 @@ def _do_upload(
                                 has_value = page.evaluate("""(args) => {
                                     const el = document.querySelectorAll(args.sel)[args.idx];
                                     if (!el) return false;
+                                    // Multi-select: check for chips (multiValue elements = role selected)
+                                    const mv = el.querySelector('[class*="multiValue"], [class*="multi-value"]');
+                                    if (mv) return mv.textContent.trim() || 'selected';
                                     const ph = el.querySelector('[class*="placeholder"]');
                                     if (ph && /choose/i.test(ph.textContent)) return false;
                                     const sv = el.querySelector('[class*="singleValue"], [class*="single-value"]');
@@ -1567,30 +1604,50 @@ def _do_upload(
                                 if fiber_ok.get("available"):
                                     log.info(f"  Role[{i}]: available: {fiber_ok['available']}")
 
-                                # Strategy 2: DOM click fallback
+                                # Strategy 2: DOM click fallback — click to open dropdown, then click option
                                 rs = page.locator(rs_sel).nth(i)
                                 try:
                                     ctrl = rs.locator("[class*='control']").first
+                                    ctrl.scroll_into_view_if_needed(timeout=2000)
                                     ctrl.click(timeout=2000)
                                 except Exception:
+                                    rs.scroll_into_view_if_needed(timeout=2000)
                                     rs.click(timeout=2000)
-                                log.info(f"  Role[{i}]: clicked to open (fallback)")
-                                page.wait_for_timeout(800)
-                                page.keyboard.type(role_value, delay=50)
-                                page.wait_for_timeout(800)
+                                log.info(f"  Role[{i}]: clicked to open dropdown (fallback)")
+                                page.wait_for_timeout(1500)
+
+                                # Click the matching option from the dropdown list (NO typing)
+                                role_clicked = False
                                 try:
                                     opt = page.locator(
                                         "[class*='option'], [role='option'], [id*='option']"
-                                    ).filter(has_text=re.compile(role_value, re.IGNORECASE)).first
-                                    if opt.is_visible(timeout=2000):
+                                    ).filter(has_text=re.compile(f"^{re.escape(role_value)}$", re.IGNORECASE)).first
+                                    if opt.is_visible(timeout=3000):
                                         opt.click()
-                                        log.info(f"  Role[{i}]: clicked '{role_value}' (DOM)")
-                                    else:
-                                        page.keyboard.press("Enter")
-                                        log.info(f"  Role[{i}]: Enter to select (DOM)")
+                                        log.info(f"  Role[{i}]: clicked '{role_value}' from dropdown")
+                                        role_clicked = True
                                 except Exception:
+                                    pass
+
+                                # Broader match if exact didn't work
+                                if not role_clicked:
+                                    try:
+                                        opt = page.locator(
+                                            "[class*='option'], [role='option'], [id*='option']"
+                                        ).filter(has_text=re.compile(role_value, re.IGNORECASE)).first
+                                        if opt.is_visible(timeout=2000):
+                                            opt.click()
+                                            log.info(f"  Role[{i}]: clicked '{role_value}' from dropdown (broad)")
+                                            role_clicked = True
+                                    except Exception:
+                                        pass
+
+                                if not role_clicked:
+                                    # Last resort: arrow down through options
+                                    log.info(f"  Role[{i}]: option not found, using keyboard navigation")
+                                    page.keyboard.press("ArrowDown")
+                                    page.wait_for_timeout(300)
                                     page.keyboard.press("Enter")
-                                    log.info(f"  Role[{i}]: Enter fallback")
                                 page.wait_for_timeout(800)
 
                         except Exception as e:
@@ -1766,6 +1823,9 @@ def _do_upload(
                                 for (const r of document.querySelectorAll(sel)) {
                                     if (checkedRoles.has(r)) continue;
                                     checkedRoles.add(r);
+                                    // Multi-select: check for chips (multiValue) — if present, role is filled
+                                    const mv = r.querySelector('[class*="multiValue"], [class*="multi-value"]');
+                                    if (mv) continue;  // has selected chip(s), not empty
                                     const ph = r.querySelector('[class*="placeholder"]');
                                     const sv = r.querySelector('[class*="singleValue"], [class*="single-value"]');
                                     const text = (sv ? sv.textContent : r.textContent).trim();
@@ -1909,23 +1969,42 @@ def _do_upload(
                                                     return 'unknown';
                                                 }""", {"sel": retry_rs_sel, "idx": i})
                                                 retry_role = "producer" if "producer" in retry_context else "main artist"
-                                                rs.click(timeout=2000)
-                                                page.wait_for_timeout(800)
-                                                page.keyboard.type(retry_role, delay=50)
-                                                page.wait_for_timeout(800)
-                                                # Try to click matching option
+                                                # Click to open dropdown, then click option (NO typing)
+                                                try:
+                                                    ctrl = rs.locator("[class*='control']").first
+                                                    ctrl.scroll_into_view_if_needed(timeout=2000)
+                                                    ctrl.click(timeout=2000)
+                                                except Exception:
+                                                    rs.scroll_into_view_if_needed(timeout=2000)
+                                                    rs.click(timeout=2000)
+                                                page.wait_for_timeout(1500)
+                                                # Click matching option from dropdown
+                                                retry_clicked = False
                                                 try:
                                                     opt = page.locator(
                                                         "[class*='option'], [role='option']"
-                                                    ).filter(has_text=re.compile(retry_role, re.IGNORECASE)).first
-                                                    if opt.is_visible(timeout=2000):
+                                                    ).filter(has_text=re.compile(f"^{re.escape(retry_role)}$", re.IGNORECASE)).first
+                                                    if opt.is_visible(timeout=3000):
                                                         opt.click()
-                                                    else:
-                                                        page.keyboard.press("Enter")
+                                                        retry_clicked = True
                                                 except Exception:
+                                                    pass
+                                                if not retry_clicked:
+                                                    try:
+                                                        opt = page.locator(
+                                                            "[class*='option'], [role='option']"
+                                                        ).filter(has_text=re.compile(retry_role, re.IGNORECASE)).first
+                                                        if opt.is_visible(timeout=2000):
+                                                            opt.click()
+                                                            retry_clicked = True
+                                                    except Exception:
+                                                        pass
+                                                if not retry_clicked:
+                                                    page.keyboard.press("ArrowDown")
+                                                    page.wait_for_timeout(300)
                                                     page.keyboard.press("Enter")
                                                 page.wait_for_timeout(800)
-                                                log.info(f"  Role[{i}]: retry context='{retry_context}', typed '{retry_role}'")
+                                                log.info(f"  Role[{i}]: retry context='{retry_context}', selected '{retry_role}'")
                                     else:
                                         log.warning("  Role retry: no selectable role dropdowns found on page")
                                 except Exception as e:
@@ -1960,6 +2039,9 @@ def _do_upload(
                                     for (const r of document.querySelectorAll(sel)) {
                                         if (checkedRoles.has(r)) continue;
                                         checkedRoles.add(r);
+                                        // Multi-select: check for chips (multiValue) — if present, role is filled
+                                        const mv = r.querySelector('[class*="multiValue"], [class*="multi-value"]');
+                                        if (mv) continue;
                                         const ph = r.querySelector('[class*="placeholder"]');
                                         const sv = r.querySelector('[class*="singleValue"], [class*="single-value"]');
                                         const text = (sv ? sv.textContent : r.textContent).trim();
