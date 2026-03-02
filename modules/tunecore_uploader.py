@@ -833,7 +833,10 @@ def _fill_choose_sections(page, artist: str):
                 page.wait_for_timeout(300)
                 page.keyboard.press("Enter")
                 log.info(f"  [{attempt}] Role: keyboard fallback")
-            page.wait_for_timeout(1500)
+            # Close dropdown if still lingering
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(300)
+            page.wait_for_timeout(1200)
         except Exception as e:
             log.warning(f"  [{attempt}] CHOOSE: {e}")
             break
@@ -1648,10 +1651,19 @@ def _do_upload(
                                     page.keyboard.press("ArrowDown")
                                     page.wait_for_timeout(300)
                                     page.keyboard.press("Enter")
-                                page.wait_for_timeout(800)
+                                # Close dropdown if still open after selection
+                                page.keyboard.press("Escape")
+                                page.wait_for_timeout(300)
+                                page.wait_for_timeout(500)
 
                         except Exception as e:
                             log.warning(f"  Role selects EXCEPTION: {e}")
+
+                        # Close any lingering dropdown overlay before moving on
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(300)
+                        page.locator("body").click(position={"x": 10, "y": 10})
+                        page.wait_for_timeout(500)
 
                         # ── 5. Copyright → No ──
                         copyright_done = False
@@ -1702,6 +1714,8 @@ def _do_upload(
                                 return 'NOT_FOUND';
                             }""")
                             log.info(f"  Copyright No JS: {cr}")
+                            if cr and cr.startswith("CLICKED:"):
+                                copyright_done = True
 
                         # Method 4: Click the <label> element
                         if not copyright_done:
@@ -2004,6 +2018,9 @@ def _do_upload(
                                                     page.wait_for_timeout(300)
                                                     page.keyboard.press("Enter")
                                                 page.wait_for_timeout(800)
+                                                # Close dropdown if still open
+                                                page.keyboard.press("Escape")
+                                                page.wait_for_timeout(200)
                                                 log.info(f"  Role[{i}]: retry context='{retry_context}', selected '{retry_role}'")
                                     else:
                                         log.warning("  Role retry: no selectable role dropdowns found on page")
