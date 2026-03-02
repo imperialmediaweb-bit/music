@@ -358,6 +358,7 @@ def _smart_fill(page, field_name: str, value: str, label: str) -> bool:
         return False
 
     kind = info.get("kind", "text")
+    info["fieldName"] = field_name  # pass field_name for fiber lookup
     log.info(f"  '{label}': detected {kind} (field={field_name})")
 
     # ── Step 2: Interact based on component type ──
@@ -386,9 +387,117 @@ def _smart_fill(page, field_name: str, value: str, label: str) -> bool:
         return False
 
 
+def _react_fiber_set(page, selector: str, value: str, label: str) -> bool:
+    """Set a React-controlled value by accessing React fiber internals.
+
+    Instead of clicking dropdown + picking option (fragile), we:
+    1. Find the DOM element via selector
+    2. Walk the React fiber tree to find the onChange handler
+    3. Call onChange directly with the desired value
+
+    Works with react-select, MUI Select, MUI Autocomplete, and any
+    React-controlled component.
+    """
+    result = page.evaluate("""(args) => {
+        const { selector, value } = args;
+        const el = document.querySelector(selector);
+        if (!el) return { ok: false, error: 'element not found: ' + selector };
+
+        // Find React fiber key on the element
+        const fiberKey = Object.keys(el).find(
+            k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')
+        );
+        if (!fiberKey) return { ok: false, error: 'no React fiber on element' };
+
+        let fiber = el[fiberKey];
+
+        // Walk UP the fiber tree looking for onChange / onInputChange / props.onChange
+        // We look for select-like components (react-select, MUI Select, etc.)
+        const MAX_DEPTH = 30;
+        for (let i = 0; i < MAX_DEPTH && fiber; i++) {
+            const props = fiber.memoizedProps || fiber.pendingProps || {};
+
+            // react-select: has onChange that accepts { value, label }
+            if (props.onChange && (props.options || props.isSearchable !== undefined)) {
+                // Find matching option
+                const options = props.options || [];
+                let match = options.find(o =>
+                    (o.label || '').toLowerCase().includes(value.toLowerCase())
+                );
+                if (!match) {
+                    // Flatten grouped options
+                    for (const group of options) {
+                        if (group.options) {
+                            match = group.options.find(o =>
+                                (o.label || '').toLowerCase().includes(value.toLowerCase())
+                            );
+                            if (match) break;
+                        }
+                    }
+                }
+                if (match) {
+                    props.onChange(match, { action: 'select-option', option: match });
+                    return { ok: true, method: 'react-select', selected: match.label };
+                }
+                // If no match found, list available options for debugging
+                const available = options.slice(0, 10).map(o => o.label || o.value || JSON.stringify(o));
+                return { ok: false, error: 'no matching option', available, value };
+            }
+
+            // MUI Select: has onChange that accepts a synthetic event
+            if (props.onChange && props.value !== undefined && props.children) {
+                // Try to find the option value from children
+                const findValue = (children) => {
+                    if (!children) return null;
+                    const arr = Array.isArray(children) ? children : [children];
+                    for (const child of arr) {
+                        if (!child || !child.props) continue;
+                        const childText = child.props.children || '';
+                        if (typeof childText === 'string' &&
+                            childText.toLowerCase().includes(value.toLowerCase())) {
+                            return child.props.value;
+                        }
+                    }
+                    return null;
+                };
+                const optValue = findValue(props.children);
+                if (optValue !== null) {
+                    props.onChange({ target: { value: optValue } });
+                    return { ok: true, method: 'mui-select', selected: optValue };
+                }
+            }
+
+            fiber = fiber.return;
+        }
+
+        return { ok: false, error: 'no onChange handler found after ' + MAX_DEPTH + ' levels' };
+    }""", {"selector": selector, "value": value})
+
+    if result.get("ok"):
+        log.info(f"  {label}: '{result.get('selected')}' ({result.get('method')})")
+        page.wait_for_timeout(500)
+        return True
+
+    log.info(f"  {label}: fiber approach failed: {result.get('error', '?')}")
+    if result.get("available"):
+        log.info(f"  {label}: available options: {result['available']}")
+    return False
+
+
 def _interact_mui_select(page, info: dict, text: str, label: str) -> bool:
-    """Click the MUI Select combobox div, then pick an option from the popup."""
-    # Find the combobox div — prefer by ID, fallback to role
+    """Set MUI Select value — tries React fiber first, then DOM click fallback."""
+    field_name = info.get("fieldName", "")
+
+    # ── Strategy 1: React fiber (most reliable) ──
+    for selector in [
+        f"input[name='{field_name}']" if field_name else None,
+        ".MuiSelect-nativeInput",
+        f"#{info.get('comboboxId', '')}" if info.get("comboboxId") else None,
+    ]:
+        if selector and _react_fiber_set(page, selector, text, label):
+            return True
+
+    # ── Strategy 2: DOM click fallback ──
     combobox_id = info.get("comboboxId", "")
     if combobox_id:
         combobox = page.locator(f"#{combobox_id}").first
@@ -400,19 +509,26 @@ def _interact_mui_select(page, info: dict, text: str, label: str) -> bool:
         log.warning(f"  '{label}': MUI Select combobox not visible")
         return False
 
-    combobox.click()
-    page.wait_for_timeout(1000)
+    # Try click, then mousedown, then keyboard to open
+    for open_method in ["click", "mousedown", "keyboard"]:
+        try:
+            if open_method == "click":
+                combobox.click()
+            elif open_method == "mousedown":
+                combobox.dispatch_event("mousedown")
+            else:
+                combobox.focus()
+                page.keyboard.press("Space")
+            page.wait_for_timeout(1000)
 
-    # Pick the matching option from the popup listbox
-    option = page.locator("[role='listbox'] [role='option']").filter(has_text=text).first
-    try:
-        if option.is_visible(timeout=3000):
-            option.click()
-            page.wait_for_timeout(500)
-            log.info(f"  {label}: {text} (MUI Select)")
-            return True
-    except Exception:
-        pass
+            option = page.locator("[role='listbox'] [role='option']").filter(has_text=text).first
+            if option.is_visible(timeout=2000):
+                option.click()
+                page.wait_for_timeout(500)
+                log.info(f"  {label}: {text} (MUI Select via {open_method})")
+                return True
+        except Exception:
+            continue
 
     page.keyboard.press("Escape")
     page.wait_for_timeout(300)
@@ -421,7 +537,12 @@ def _interact_mui_select(page, info: dict, text: str, label: str) -> bool:
 
 
 def _interact_mui_autocomplete(page, field_name: str, text: str, label: str) -> bool:
-    """Type into MUI Autocomplete input, then pick from the filtered dropdown."""
+    """Set MUI Autocomplete — tries React fiber first, then type+pick fallback."""
+    # ── Strategy 1: React fiber ──
+    if _react_fiber_set(page, f"input[name='{field_name}']", text, label):
+        return True
+
+    # ── Strategy 2: Type + pick from dropdown ──
     el = page.locator(f"input[name='{field_name}']").first
     if not el.is_visible(timeout=2000):
         log.warning(f"  '{label}': Autocomplete input not visible")
@@ -440,7 +561,7 @@ def _interact_mui_autocomplete(page, field_name: str, text: str, label: str) -> 
         if option.is_visible(timeout=2000):
             option.click()
             page.wait_for_timeout(500)
-            log.info(f"  {label}: {text} (Autocomplete)")
+            log.info(f"  {label}: {text} (Autocomplete click)")
             return True
     except Exception:
         pass
@@ -1210,56 +1331,118 @@ def _do_upload(
                             log.warning("  Perf Name: input NOT FOUND")
 
                         # ── 4. Fill ALL react-select role dropdowns ──
-                        # The page may have multiple artist rows, each with
-                        # div.artist-song-role-select containing a react-select.
-                        # Find all of them and select "producer" for any that are empty.
+                        # Uses React fiber to set values directly (bypasses DOM clicks)
                         try:
-                            role_selects = page.locator(".artist-song-role-select")
-                            count = role_selects.count()
-                            log.info(f"  Role selects found: {count}")
-                            for i in range(count):
-                                rs = role_selects.nth(i)
-                                try:
-                                    # Check if already has a value (no placeholder visible)
-                                    has_placeholder = rs.locator(
-                                        "[class*='placeholder']").count() > 0
-                                    if not has_placeholder:
-                                        # Check for "CHOOSE" text
-                                        txt = rs.inner_text(timeout=1000).strip()
-                                        if txt and txt != 'CHOOSE':
-                                            log.info(f"  Role[{i}]: already set to '{txt}'")
-                                            continue
-                                except Exception:
-                                    pass
+                            role_count = page.evaluate("""() => {
+                                return document.querySelectorAll('.artist-song-role-select').length;
+                            }""")
+                            log.info(f"  Role selects found: {role_count}")
 
-                                # Click the react-select control
+                            for i in range(role_count):
+                                # Check if already has a value
+                                has_value = page.evaluate("""(idx) => {
+                                    const el = document.querySelectorAll('.artist-song-role-select')[idx];
+                                    if (!el) return false;
+                                    const ph = el.querySelector('[class*="placeholder"]');
+                                    if (ph) return false;
+                                    const sv = el.querySelector('[class*="singleValue"]');
+                                    if (sv && sv.textContent.trim() && sv.textContent.trim() !== 'CHOOSE') {
+                                        return sv.textContent.trim();
+                                    }
+                                    return false;
+                                }""", i)
+
+                                if has_value and has_value is not False:
+                                    log.info(f"  Role[{i}]: already set to '{has_value}'")
+                                    continue
+
+                                # Strategy 1: React fiber — set value directly
+                                fiber_ok = page.evaluate("""(args) => {
+                                    const { idx, value } = args;
+                                    const el = document.querySelectorAll('.artist-song-role-select')[idx];
+                                    if (!el) return { ok: false, error: 'no element at index ' + idx };
+
+                                    // Find react fiber on the container or any child
+                                    let fiberEl = el;
+                                    let fiberKey = Object.keys(fiberEl).find(
+                                        k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')
+                                    );
+                                    if (!fiberKey) {
+                                        // Try children
+                                        for (const child of el.querySelectorAll('*')) {
+                                            fiberKey = Object.keys(child).find(
+                                                k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')
+                                            );
+                                            if (fiberKey) { fiberEl = child; break; }
+                                        }
+                                    }
+                                    if (!fiberKey) return { ok: false, error: 'no fiber found' };
+
+                                    let fiber = fiberEl[fiberKey];
+                                    for (let depth = 0; depth < 40 && fiber; depth++) {
+                                        const props = fiber.memoizedProps || fiber.pendingProps || {};
+
+                                        // react-select: has onChange + options array
+                                        if (typeof props.onChange === 'function' && props.options) {
+                                            const options = props.options || [];
+                                            // Flatten grouped options
+                                            let allOpts = [];
+                                            for (const o of options) {
+                                                if (o.options) allOpts.push(...o.options);
+                                                else allOpts.push(o);
+                                            }
+                                            const match = allOpts.find(o =>
+                                                (o.label || '').toLowerCase().includes(value.toLowerCase())
+                                            );
+                                            if (match) {
+                                                props.onChange(match, { action: 'select-option', option: match });
+                                                return { ok: true, selected: match.label, method: 'fiber' };
+                                            }
+                                            return {
+                                                ok: false,
+                                                error: 'no match for "' + value + '"',
+                                                available: allOpts.slice(0, 15).map(o => o.label)
+                                            };
+                                        }
+                                        fiber = fiber.return;
+                                    }
+                                    return { ok: false, error: 'no onChange+options found' };
+                                }""", {"idx": i, "value": "producer"})
+
+                                if fiber_ok.get("ok"):
+                                    log.info(f"  Role[{i}]: '{fiber_ok.get('selected')}' (React fiber)")
+                                    page.wait_for_timeout(500)
+                                    continue
+
+                                log.info(f"  Role[{i}]: fiber failed: {fiber_ok.get('error', '?')}")
+                                if fiber_ok.get("available"):
+                                    log.info(f"  Role[{i}]: available: {fiber_ok['available']}")
+
+                                # Strategy 2: DOM click fallback
+                                rs = page.locator(".artist-song-role-select").nth(i)
                                 try:
                                     ctrl = rs.locator("[class*='control']").first
                                     ctrl.click(timeout=2000)
                                 except Exception:
                                     rs.click(timeout=2000)
-                                log.info(f"  Role[{i}]: clicked to open")
+                                log.info(f"  Role[{i}]: clicked to open (fallback)")
                                 page.wait_for_timeout(800)
-
-                                # Type "producer" to filter
                                 page.keyboard.type("producer", delay=50)
                                 page.wait_for_timeout(500)
-
-                                # Click the option or press Enter
-                                option_clicked = False
                                 try:
                                     opt = page.locator("[class*='option']").filter(
                                         has_text="producer").first
-                                    if opt.is_visible(timeout=1000):
+                                    if opt.is_visible(timeout=1500):
                                         opt.click()
-                                        option_clicked = True
-                                        log.info(f"  Role[{i}]: clicked 'producer'")
+                                        log.info(f"  Role[{i}]: clicked 'producer' (DOM)")
+                                    else:
+                                        page.keyboard.press("Enter")
+                                        log.info(f"  Role[{i}]: Enter to select (DOM)")
                                 except Exception:
-                                    pass
-                                if not option_clicked:
                                     page.keyboard.press("Enter")
-                                    log.info(f"  Role[{i}]: Enter to select")
+                                    log.info(f"  Role[{i}]: Enter fallback")
                                 page.wait_for_timeout(800)
+
                         except Exception as e:
                             log.warning(f"  Role selects EXCEPTION: {e}")
 
