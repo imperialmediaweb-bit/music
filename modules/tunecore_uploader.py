@@ -220,7 +220,7 @@ def continue_tunecore_draft(
         try:
             from modules.thumbnail_generator import generate_cover_art
             log.info("No cover art found — generating 1600x1600...")
-            cover_path = generate_cover_art(concept.thumbnail_prompt, track_name)
+            cover_path = generate_cover_art(concept.thumbnail_prompt, track_name, artist)
             log.info(f"Cover art generated: {cover_path}")
         except Exception as e:
             log.warning(f"Could not generate cover art: {e}")

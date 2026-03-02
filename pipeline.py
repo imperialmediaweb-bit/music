@@ -5,12 +5,15 @@ from pathlib import Path
 from utils.logger import log
 from utils.auto_setup import ensure_path
 from modules.concept_generator import generate_concept
-from modules.thumbnail_generator import generate_thumbnail, generate_cover_art
+from modules.thumbnail_generator import generate_thumbnail, generate_cover_art, generate_thumbnail_and_cover
 from modules.video_creator import create_video
 from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
 from modules.tunecore_uploader import upload_to_tunecore
 from config import SKIP_TUNECORE
+
+# Default artist name (used for cover art overlay and TuneCore metadata)
+DEFAULT_ARTIST = "GrooveGenix"
 
 
 def reupload_track(track_name: str, only: str | None = None) -> dict:
@@ -160,7 +163,9 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
             try:
                 log.info("=" * 60)
                 log.info("Generating 1600x1600 cover art for TuneCore...")
-                cover_file = generate_cover_art(concept.thumbnail_prompt, concept.track_name)
+                cover_file = generate_cover_art(
+                    concept.thumbnail_prompt, concept.track_name, DEFAULT_ARTIST
+                )
                 log.info(f"Cover art: {cover_file}")
             except Exception as e:
                 log.error(f"Cover art generation failed: {e}")
@@ -277,13 +282,19 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         result["errors"].append(f"concept: {e}")
         return result
 
-    # Step 3: Generate thumbnail (African mask + track name)
+    # Step 3: Generate thumbnail + cover art from ONE DALL-E call (saves API cost)
+    cover_path = None
     try:
         log.info("=" * 60)
-        log.info("STEP 3: Generating African mask thumbnail...")
-        thumbnail_path = generate_thumbnail(concept.thumbnail_prompt, concept.track_name)
+        log.info("STEP 3: Generating thumbnail + TuneCore cover art (single DALL-E call)...")
+        artist_name = DEFAULT_ARTIST
+        thumbnail_path, cover_path = generate_thumbnail_and_cover(
+            concept.thumbnail_prompt, concept.track_name, artist_name
+        )
         result["thumbnail_path"] = str(thumbnail_path)
+        result["cover_path"] = str(cover_path)
         log.info(f"Thumbnail: {thumbnail_path}")
+        log.info(f"Cover art: {cover_path}")
     except Exception as e:
         log.error(f"Thumbnail generation failed: {e}")
         result["errors"].append(f"thumbnail: {e}")
@@ -332,17 +343,23 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         log.error(f"TikTok upload failed: {e}")
         result["errors"].append(f"tiktok: {e}")
 
-    # Step 7: Generate 1600x1600 cover art for TuneCore
-    cover_path = None
-    try:
+    # Step 7: Cover art already generated in Step 3 (combined DALL-E call)
+    if not cover_path:
+        try:
+            log.info("=" * 60)
+            log.info("STEP 7: Cover art missing from Step 3 — generating separately...")
+            artist_name = DEFAULT_ARTIST
+            cover_path = generate_cover_art(
+                concept.thumbnail_prompt, concept.track_name, artist_name
+            )
+            result["cover_path"] = str(cover_path)
+            log.info(f"Cover art: {cover_path}")
+        except Exception as e:
+            log.error(f"Cover art generation failed: {e}")
+            result["errors"].append(f"cover_art: {e}")
+    else:
         log.info("=" * 60)
-        log.info("STEP 7: Generating 1600x1600 cover art for TuneCore...")
-        cover_path = generate_cover_art(concept.thumbnail_prompt, concept.track_name)
-        result["cover_path"] = str(cover_path)
-        log.info(f"Cover art: {cover_path}")
-    except Exception as e:
-        log.error(f"Cover art generation failed: {e}")
-        result["errors"].append(f"cover_art: {e}")
+        log.info("STEP 7: Cover art already generated in Step 3 — skipping")
 
     # Step 8: Upload to TuneCore
     if SKIP_TUNECORE:
