@@ -1483,7 +1483,7 @@ def _do_upload(
                                     }
                                     // Also check for CHOOSE placeholder inside
                                     const ph = el.querySelector('[class*="placeholder"]');
-                                    if (ph && /choose/i.test(ph.textContent)) {
+                                    if (ph && /choose|^select/i.test(ph.textContent.trim())) {
                                         if (!roleEls.includes(el)) roleEls.push(el);
                                     }
                                 }
@@ -1507,13 +1507,13 @@ def _do_upload(
                                     const mv = el.querySelector('[class*="multiValue"], [class*="multi-value"]');
                                     if (mv) return mv.textContent.trim() || 'selected';
                                     const ph = el.querySelector('[class*="placeholder"]');
-                                    if (ph && /choose/i.test(ph.textContent)) return false;
+                                    if (ph && /choose|^select/i.test(ph.textContent.trim())) return false;
                                     const sv = el.querySelector('[class*="singleValue"], [class*="single-value"]');
-                                    if (sv && sv.textContent.trim() && !/choose/i.test(sv.textContent)) {
+                                    if (sv && sv.textContent.trim() && !/choose|^select/i.test(sv.textContent.trim())) {
                                         return sv.textContent.trim();
                                     }
                                     const text = el.textContent.trim();
-                                    if (text && !/choose/i.test(text) && text.length < 30) return text;
+                                    if (text && !/choose|^select/i.test(text) && text.length < 30) return text;
                                     return false;
                                 }""", {"sel": rs_sel, "idx": i})
 
@@ -1619,29 +1619,28 @@ def _do_upload(
                                 log.info(f"  Role[{i}]: clicked to open dropdown (fallback)")
                                 page.wait_for_timeout(1500)
 
-                                # Click the matching option from the dropdown list (NO typing)
+                                # Type to filter the dropdown (react-select filters on keyboard input)
                                 role_clicked = False
                                 try:
+                                    page.keyboard.type(role_value, delay=50)
+                                    page.wait_for_timeout(1000)
+                                    # Click first visible matching option
                                     opt = page.locator(
                                         "[class*='option'], [role='option'], [id*='option']"
-                                    ).filter(has_text=re.compile(f"^{re.escape(role_value)}$", re.IGNORECASE)).first
+                                    ).filter(has_text=re.compile(role_value, re.IGNORECASE)).first
                                     if opt.is_visible(timeout=3000):
-                                        opt.click()
-                                        log.info(f"  Role[{i}]: clicked '{role_value}' from dropdown")
+                                        opt.click(force=True)
+                                        log.info(f"  Role[{i}]: typed+clicked '{role_value}'")
                                         role_clicked = True
                                 except Exception:
                                     pass
 
-                                # Broader match if exact didn't work
                                 if not role_clicked:
+                                    # Press Enter to select first filtered result
                                     try:
-                                        opt = page.locator(
-                                            "[class*='option'], [role='option'], [id*='option']"
-                                        ).filter(has_text=re.compile(role_value, re.IGNORECASE)).first
-                                        if opt.is_visible(timeout=2000):
-                                            opt.click()
-                                            log.info(f"  Role[{i}]: clicked '{role_value}' from dropdown (broad)")
-                                            role_clicked = True
+                                        page.keyboard.press("Enter")
+                                        log.info(f"  Role[{i}]: typed+Enter '{role_value}'")
+                                        role_clicked = True
                                     except Exception:
                                         pass
 
@@ -1949,7 +1948,7 @@ def _do_upload(
                                             const ph = el.querySelector('[class*="placeholder"]');
                                             const sv = el.querySelector('[class*="singleValue"]');
                                             const text = (sv ? sv.textContent : el.textContent).trim();
-                                            if ((ph && /choose/i.test(ph.textContent)) || text === 'CHOOSE' || !text) {
+                                            if ((ph && /choose|^select/i.test(ph.textContent.trim())) || text === 'CHOOSE' || /^select/i.test(text) || !text) {
                                                 el.setAttribute('data-tc-role-retry', tagged++);
                                             }
                                         }
@@ -1961,7 +1960,7 @@ def _do_upload(
                                         for i in range(choose_els.count()):
                                             rs = choose_els.nth(i)
                                             txt = rs.inner_text(timeout=1000)
-                                            if 'CHOOSE' in txt.upper() or not txt.strip():
+                                            if 'CHOOSE' in txt.upper() or txt.strip().lower().startswith('select') or not txt.strip():
                                                 # Determine context for this role dropdown
                                                 retry_context = page.evaluate("""(args) => {
                                                     const el = document.querySelectorAll(args.sel)[args.idx];
@@ -1983,7 +1982,7 @@ def _do_upload(
                                                     return 'unknown';
                                                 }""", {"sel": retry_rs_sel, "idx": i})
                                                 retry_role = "producer" if "producer" in retry_context else "main artist"
-                                                # Click to open dropdown, then click option (NO typing)
+                                                # Click to open dropdown, then type to filter and select
                                                 try:
                                                     ctrl = rs.locator("[class*='control']").first
                                                     ctrl.scroll_into_view_if_needed(timeout=2000)
@@ -1991,26 +1990,24 @@ def _do_upload(
                                                 except Exception:
                                                     rs.scroll_into_view_if_needed(timeout=2000)
                                                     rs.click(timeout=2000)
-                                                page.wait_for_timeout(1500)
-                                                # Click matching option from dropdown
+                                                page.wait_for_timeout(1000)
+                                                # Type to filter the dropdown
                                                 retry_clicked = False
                                                 try:
+                                                    page.keyboard.type(retry_role, delay=50)
+                                                    page.wait_for_timeout(1000)
                                                     opt = page.locator(
                                                         "[class*='option'], [role='option']"
-                                                    ).filter(has_text=re.compile(f"^{re.escape(retry_role)}$", re.IGNORECASE)).first
+                                                    ).filter(has_text=re.compile(retry_role, re.IGNORECASE)).first
                                                     if opt.is_visible(timeout=3000):
-                                                        opt.click()
+                                                        opt.click(force=True)
                                                         retry_clicked = True
                                                 except Exception:
                                                     pass
                                                 if not retry_clicked:
                                                     try:
-                                                        opt = page.locator(
-                                                            "[class*='option'], [role='option']"
-                                                        ).filter(has_text=re.compile(retry_role, re.IGNORECASE)).first
-                                                        if opt.is_visible(timeout=2000):
-                                                            opt.click()
-                                                            retry_clicked = True
+                                                        page.keyboard.press("Enter")
+                                                        retry_clicked = True
                                                     except Exception:
                                                         pass
                                                 if not retry_clicked:
