@@ -693,12 +693,9 @@ def _click_dropdown_option(page, name: str, label: str, prefer: list = None):
                 return { found: true, text: t };
             }
         }
-        // Last resort: first option
-        if (opts.length > 0) {
-            opts[0].setAttribute('data-pick-me', 'true');
-            return { found: true, text: opts[0].textContent.trim(), fallback: true };
-        }
-        return { found: false, total: opts.length };
+        // Do NOT pick first random option — return not found instead
+        const available = opts.map(el => el.textContent.trim()).slice(0, 15);
+        return { found: false, total: opts.length, available };
     }""", {"name": name, "prefer": prefer or []})
 
     if tagged.get('found'):
@@ -707,17 +704,16 @@ def _click_dropdown_option(page, name: str, label: str, prefer: list = None):
             if pick.is_visible(timeout=2000):
                 pick.click()
                 page.wait_for_timeout(500)
-                fb = ' (fallback)' if tagged.get('fallback') else ''
-                log.info(f"  {label}: selected '{tagged.get('text')}'{fb}")
+                log.info(f"  {label}: selected '{tagged.get('text')}'")
                 return True
         except Exception as e:
             log.warning(f"  {label}: Playwright click failed: {e}")
-    # Keyboard fallback
-    page.keyboard.press("ArrowDown")
-    page.wait_for_timeout(300)
-    page.keyboard.press("Enter")
-    log.info(f"  {label}: keyboard fallback")
-    return True
+    # Log available options instead of blindly selecting
+    if tagged.get('available'):
+        log.warning(f"  {label}: could not find '{name}' — available options: {tagged['available']}")
+    else:
+        log.warning(f"  {label}: no matching option found for '{name}'")
+    return False
 
 
 def _fill_choose_sections(page, artist: str):
@@ -806,54 +802,71 @@ def _fill_choose_sections(page, artist: str):
             # Browse visible options and click matching one directly
             # (works for non-searchable react-select where typing does nothing)
             clicked = False
+            # Try multiple role name variants in priority order
+            role_variants = (
+                ["main artist", "primary artist"] if target_role == "main artist"
+                else ["producer"]
+            )
             try:
                 opts = page.locator(
                     "[role='option'], [id*='option'], [class*='option']"
                 )
-                for oi in range(opts.count()):
+                opts_count = opts.count()
+                # Collect all visible option texts for debugging
+                all_opt_texts = []
+                for oi in range(opts_count):
                     try:
                         opt_el = opts.nth(oi)
                         if not opt_el.is_visible(timeout=500):
                             continue
-                        opt_text = opt_el.inner_text(timeout=500).strip().lower()
-                        if target_role in opt_text or opt_text in target_role:
-                            opt_el.click()
-                            log.info(f"  [{attempt}] Role: '{opt_text}' selected (direct click)")
-                            clicked = True
-                            break
+                        all_opt_texts.append((oi, opt_el.inner_text(timeout=500).strip()))
                     except Exception:
                         continue
+                if all_opt_texts:
+                    log.info(f"  [{attempt}] Role dropdown options: {[t for _, t in all_opt_texts]}")
+
+                # Try exact match first, then partial match for each variant
+                for variant in role_variants:
+                    if clicked:
+                        break
+                    # Exact match (case-insensitive)
+                    for oi, text in all_opt_texts:
+                        if text.lower() == variant:
+                            opts.nth(oi).click()
+                            log.info(f"  [{attempt}] Role: '{text}' selected (exact match)")
+                            clicked = True
+                            break
+                    if clicked:
+                        break
+                    # Partial match: option contains variant
+                    for oi, text in all_opt_texts:
+                        if variant in text.lower():
+                            opts.nth(oi).click()
+                            log.info(f"  [{attempt}] Role: '{text}' selected (contains '{variant}')")
+                            clicked = True
+                            break
             except Exception:
                 pass
 
             # Fallback: type to filter then click (for searchable dropdowns)
             if not clicked:
-                try:
-                    page.keyboard.type(target_role, delay=50)
-                    page.wait_for_timeout(1500)
-                    opt = page.locator(
-                        "[role='option'], [id*='option'], [class*='option']"
-                    ).filter(has_text=re.compile(target_role, re.IGNORECASE)).first
-                    if opt.is_visible(timeout=3000):
-                        opt.click()
-                        log.info(f"  [{attempt}] Role: '{target_role}' selected (typed+clicked)")
-                        clicked = True
-                except Exception:
-                    pass
+                for variant in role_variants:
+                    try:
+                        page.keyboard.type(variant, delay=50)
+                        page.wait_for_timeout(1500)
+                        opt = page.locator(
+                            "[role='option'], [id*='option'], [class*='option']"
+                        ).filter(has_text=re.compile(re.escape(variant), re.IGNORECASE)).first
+                        if opt.is_visible(timeout=3000):
+                            opt.click()
+                            log.info(f"  [{attempt}] Role: '{variant}' selected (typed+clicked)")
+                            clicked = True
+                            break
+                    except Exception:
+                        pass
 
             if not clicked:
-                try:
-                    page.keyboard.press("Enter")
-                    log.info(f"  [{attempt}] Role: '{target_role}' selected (typed+Enter)")
-                    clicked = True
-                except Exception:
-                    pass
-
-            if not clicked:
-                page.keyboard.press("ArrowDown")
-                page.wait_for_timeout(300)
-                page.keyboard.press("Enter")
-                log.info(f"  [{attempt}] Role: keyboard fallback")
+                log.warning(f"  [{attempt}] Role: could NOT find '{target_role}' in dropdown — skipping (DO NOT select random)")
             # Dismiss by clicking outside (NOT Escape — can clear react-select values)
             page.wait_for_timeout(500)
             try:
@@ -1646,58 +1659,71 @@ def _do_upload(
                                 # Strategy 2a: Browse visible options and click matching one directly
                                 # This works for non-searchable react-select (typing does nothing there)
                                 role_clicked = False
+                                # Try multiple role name variants in priority order
+                                role_variants = (
+                                    ["main artist", "primary artist"] if role_value == "main artist"
+                                    else ["producer"]
+                                )
                                 try:
                                     opts = page.locator(
                                         "[class*='option'], [role='option'], [id*='option']"
                                     )
                                     opts_count = opts.count()
-                                    log.info(f"  Role[{i}]: {opts_count} options visible in dropdown")
+                                    # Collect all visible option texts for debugging
+                                    all_opt_texts = []
                                     for oi in range(opts_count):
                                         try:
                                             opt_el = opts.nth(oi)
                                             if not opt_el.is_visible(timeout=500):
                                                 continue
-                                            opt_text = opt_el.inner_text(timeout=500).strip().lower()
-                                            if role_value in opt_text or opt_text in role_value:
-                                                opt_el.click()
-                                                log.info(f"  Role[{i}]: clicked option '{opt_text}' directly")
-                                                role_clicked = True
-                                                break
+                                            all_opt_texts.append((oi, opt_el.inner_text(timeout=500).strip()))
                                         except Exception:
                                             continue
+                                    log.info(f"  Role[{i}]: {len(all_opt_texts)} options visible: {[t for _, t in all_opt_texts]}")
+
+                                    # Try exact match first, then partial match for each variant
+                                    for variant in role_variants:
+                                        if role_clicked:
+                                            break
+                                        # Exact match (case-insensitive)
+                                        for oi, text in all_opt_texts:
+                                            if text.lower() == variant:
+                                                opts.nth(oi).click()
+                                                log.info(f"  Role[{i}]: clicked '{text}' (exact match)")
+                                                role_clicked = True
+                                                break
+                                        if role_clicked:
+                                            break
+                                        # Partial match: option contains variant
+                                        for oi, text in all_opt_texts:
+                                            if variant in text.lower():
+                                                opts.nth(oi).click()
+                                                log.info(f"  Role[{i}]: clicked '{text}' (contains '{variant}')")
+                                                role_clicked = True
+                                                break
                                 except Exception as e:
                                     log.info(f"  Role[{i}]: direct browse failed: {e}")
 
                                 # Strategy 2b: Type to filter then click (searchable react-select)
                                 if not role_clicked:
-                                    try:
-                                        page.keyboard.type(role_value, delay=50)
-                                        page.wait_for_timeout(1000)
-                                        opt = page.locator(
-                                            "[class*='option'], [role='option'], [id*='option']"
-                                        ).filter(has_text=re.compile(role_value, re.IGNORECASE)).first
-                                        if opt.is_visible(timeout=3000):
-                                            opt.click(force=True)
-                                            log.info(f"  Role[{i}]: typed+clicked '{role_value}'")
-                                            role_clicked = True
-                                    except Exception:
-                                        pass
+                                    for variant in role_variants:
+                                        try:
+                                            page.keyboard.type(variant, delay=50)
+                                            page.wait_for_timeout(1000)
+                                            opt = page.locator(
+                                                "[class*='option'], [role='option'], [id*='option']"
+                                            ).filter(has_text=re.compile(re.escape(variant), re.IGNORECASE)).first
+                                            if opt.is_visible(timeout=3000):
+                                                opt.click(force=True)
+                                                log.info(f"  Role[{i}]: typed+clicked '{variant}'")
+                                                role_clicked = True
+                                                break
+                                        except Exception:
+                                            pass
 
-                                # Strategy 2c: Enter to select first filtered result
+                                # Do NOT blindly ArrowDown+Enter — that selects random items
                                 if not role_clicked:
-                                    try:
-                                        page.keyboard.press("Enter")
-                                        log.info(f"  Role[{i}]: typed+Enter '{role_value}'")
-                                        role_clicked = True
-                                    except Exception:
-                                        pass
-
-                                # Strategy 2d: keyboard navigation as last resort
-                                if not role_clicked:
-                                    log.info(f"  Role[{i}]: option not found, using keyboard navigation")
-                                    page.keyboard.press("ArrowDown")
-                                    page.wait_for_timeout(300)
-                                    page.keyboard.press("Enter")
+                                    log.warning(f"  Role[{i}]: could NOT find '{role_value}' — skipping to avoid random selection")
 
                                 # Dismiss dropdown by clicking outside instead of Escape
                                 # (Escape can CLEAR react-select values in some configurations)
@@ -2045,48 +2071,66 @@ def _do_upload(
                                                 page.wait_for_timeout(2000)
                                                 # Browse visible options and click matching one directly
                                                 retry_clicked = False
+                                                retry_variants = (
+                                                    ["main artist", "primary artist"] if retry_role == "main artist"
+                                                    else ["producer"]
+                                                )
                                                 try:
                                                     opts = page.locator(
                                                         "[class*='option'], [role='option'], [id*='option']"
                                                     )
+                                                    # Collect all visible option texts for debugging
+                                                    all_retry_opts = []
                                                     for oi in range(opts.count()):
                                                         try:
                                                             opt_el = opts.nth(oi)
                                                             if not opt_el.is_visible(timeout=500):
                                                                 continue
-                                                            opt_text = opt_el.inner_text(timeout=500).strip().lower()
-                                                            if retry_role in opt_text or opt_text in retry_role:
-                                                                opt_el.click()
-                                                                log.info(f"  Role[{i}]: retry clicked '{opt_text}' directly")
-                                                                retry_clicked = True
-                                                                break
+                                                            all_retry_opts.append((oi, opt_el.inner_text(timeout=500).strip()))
                                                         except Exception:
                                                             continue
+                                                    log.info(f"  Role[{i}]: retry options: {[t for _, t in all_retry_opts]}")
+
+                                                    for variant in retry_variants:
+                                                        if retry_clicked:
+                                                            break
+                                                        # Exact match
+                                                        for oi, text in all_retry_opts:
+                                                            if text.lower() == variant:
+                                                                opts.nth(oi).click()
+                                                                log.info(f"  Role[{i}]: retry clicked '{text}' (exact)")
+                                                                retry_clicked = True
+                                                                break
+                                                        if retry_clicked:
+                                                            break
+                                                        # Partial match
+                                                        for oi, text in all_retry_opts:
+                                                            if variant in text.lower():
+                                                                opts.nth(oi).click()
+                                                                log.info(f"  Role[{i}]: retry clicked '{text}' (contains '{variant}')")
+                                                                retry_clicked = True
+                                                                break
                                                 except Exception:
                                                     pass
                                                 # Fallback: type to filter then click
                                                 if not retry_clicked:
-                                                    try:
-                                                        page.keyboard.type(retry_role, delay=50)
-                                                        page.wait_for_timeout(1000)
-                                                        opt = page.locator(
-                                                            "[class*='option'], [role='option']"
-                                                        ).filter(has_text=re.compile(retry_role, re.IGNORECASE)).first
-                                                        if opt.is_visible(timeout=3000):
-                                                            opt.click(force=True)
-                                                            retry_clicked = True
-                                                    except Exception:
-                                                        pass
+                                                    for variant in retry_variants:
+                                                        try:
+                                                            page.keyboard.type(variant, delay=50)
+                                                            page.wait_for_timeout(1000)
+                                                            opt = page.locator(
+                                                                "[class*='option'], [role='option']"
+                                                            ).filter(has_text=re.compile(re.escape(variant), re.IGNORECASE)).first
+                                                            if opt.is_visible(timeout=3000):
+                                                                opt.click(force=True)
+                                                                log.info(f"  Role[{i}]: retry typed+clicked '{variant}'")
+                                                                retry_clicked = True
+                                                                break
+                                                        except Exception:
+                                                            pass
+                                                # Do NOT blindly select random items
                                                 if not retry_clicked:
-                                                    try:
-                                                        page.keyboard.press("Enter")
-                                                        retry_clicked = True
-                                                    except Exception:
-                                                        pass
-                                                if not retry_clicked:
-                                                    page.keyboard.press("ArrowDown")
-                                                    page.wait_for_timeout(300)
-                                                    page.keyboard.press("Enter")
+                                                    log.warning(f"  Role[{i}]: retry could NOT find '{retry_role}' — skipping")
                                                 page.wait_for_timeout(800)
                                                 # Dismiss by clicking outside (NOT Escape — can clear react-select)
                                                 try:
