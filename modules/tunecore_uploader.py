@@ -21,6 +21,7 @@ Flow (web.tunecore.com):
   11. "Congrats, you submitted your release!"
 """
 
+import re
 import time
 from pathlib import Path
 
@@ -1411,57 +1412,106 @@ def _do_upload(
                         page.wait_for_timeout(1000)
 
                         # ── 4. Fill ALL react-select role dropdowns showing CHOOSE ──
-                        # Uses React fiber to set values directly (bypasses DOM clicks)
+                        # Dynamically detect the correct selector for role dropdowns
                         try:
-                            role_count = page.evaluate("""() => {
-                                return document.querySelectorAll('.artist-song-role-select').length;
+                            role_selector = page.evaluate("""() => {
+                                const candidates = [
+                                    '.artist-song-role-select',
+                                    '[class*="role-select"]',
+                                    '[class*="roleSelect"]',
+                                    '[class*="role_select"]',
+                                ];
+                                for (const sel of candidates) {
+                                    const els = document.querySelectorAll(sel);
+                                    if (els.length > 0) return { selector: sel, count: els.length };
+                                }
+                                // Fallback: find react-select containers near "Role" labels
+                                const allSelects = document.querySelectorAll(
+                                    '[class*="css-"][class*="container"], '
+                                    + '[class*="react-select"], '
+                                    + '[class*="Select__control"], '
+                                    + '[class*="select-container"]'
+                                );
+                                let roleEls = [];
+                                for (const el of allSelects) {
+                                    // Walk up to find if near a "Role" label or header
+                                    let node = el.parentElement;
+                                    for (let i = 0; i < 5 && node; i++) {
+                                        const lbl = node.querySelector('label, [class*="label"], [class*="header"]');
+                                        if (lbl && /role/i.test(lbl.textContent)) {
+                                            roleEls.push(el);
+                                            break;
+                                        }
+                                        node = node.parentElement;
+                                    }
+                                    // Also check for CHOOSE placeholder inside
+                                    const ph = el.querySelector('[class*="placeholder"]');
+                                    if (ph && /choose/i.test(ph.textContent)) {
+                                        if (!roleEls.includes(el)) roleEls.push(el);
+                                    }
+                                }
+                                if (roleEls.length > 0) {
+                                    // Tag them with a data attribute for easy selection
+                                    roleEls.forEach((el, i) => el.setAttribute('data-tc-role-select', i));
+                                    return { selector: '[data-tc-role-select]', count: roleEls.length, tagged: true };
+                                }
+                                return { selector: null, count: 0 };
                             }""")
-                            log.info(f"  Role selects found: {role_count}")
+                            rs_sel = role_selector.get("selector") or ".artist-song-role-select"
+                            role_count = role_selector.get("count", 0)
+                            log.info(f"  Role selects: selector='{rs_sel}', count={role_count}, tagged={role_selector.get('tagged', False)}")
 
                             for i in range(role_count):
                                 # Check if already has a value (not CHOOSE/placeholder)
-                                has_value = page.evaluate("""(idx) => {
-                                    const el = document.querySelectorAll('.artist-song-role-select')[idx];
+                                has_value = page.evaluate("""(args) => {
+                                    const el = document.querySelectorAll(args.sel)[args.idx];
                                     if (!el) return false;
-                                    // Check for placeholder text "CHOOSE"
                                     const ph = el.querySelector('[class*="placeholder"]');
-                                    if (ph) return false;
-                                    const sv = el.querySelector('[class*="singleValue"]');
-                                    if (sv && sv.textContent.trim() && sv.textContent.trim() !== 'CHOOSE') {
+                                    if (ph && /choose/i.test(ph.textContent)) return false;
+                                    const sv = el.querySelector('[class*="singleValue"], [class*="single-value"]');
+                                    if (sv && sv.textContent.trim() && !/choose/i.test(sv.textContent)) {
                                         return sv.textContent.trim();
                                     }
-                                    // Also check the rendered text directly
                                     const text = el.textContent.trim();
-                                    if (text && text !== 'CHOOSE' && text.length < 30) return text;
+                                    if (text && !/choose/i.test(text) && text.length < 30) return text;
                                     return false;
-                                }""", i)
+                                }""", {"sel": rs_sel, "idx": i})
 
                                 if has_value and has_value is not False:
                                     log.info(f"  Role[{i}]: already set to '{has_value}'")
                                     continue
 
                                 # Determine context: which section is this role in?
-                                role_context = page.evaluate("""(idx) => {
-                                    const el = document.querySelectorAll('.artist-song-role-select')[idx];
+                                role_context = page.evaluate("""(args) => {
+                                    const el = document.querySelectorAll(args.sel)[args.idx];
                                     if (!el) return 'unknown';
                                     let node = el.parentElement;
-                                    for (let i = 0; i < 10 && node; i++) {
-                                        const text = node.textContent || '';
-                                        if (text.includes('Performing')) return 'performing';
-                                        if (text.includes('Producer')) return 'producer';
-                                        if (text.includes('Song Artists')) return 'song_artist';
+                                    for (let i = 0; i < 15 && node; i++) {
+                                        const text = (node.textContent || '').substring(0, 500);
+                                        if (/Producers?\s*&?\s*Engineers?/i.test(text)
+                                            && !/Performing/i.test(text.substring(0, 100))) return 'producer';
+                                        if (/Performing\s*Artist/i.test(text)
+                                            && !/Producer/i.test(text.substring(0, 100))) return 'performing';
+                                        if (/Song\s*Artist/i.test(text)) return 'song_artist';
+                                        // Check section headings specifically
+                                        const headings = node.querySelectorAll('h1,h2,h3,h4,h5,h6,[class*="heading"],[class*="title"],[class*="header"]');
+                                        for (const h of headings) {
+                                            const ht = h.textContent || '';
+                                            if (/Producer/i.test(ht)) return 'producer';
+                                            if (/Performing/i.test(ht)) return 'performing';
+                                        }
                                         node = node.parentElement;
                                     }
                                     return 'unknown';
-                                }""", i)
+                                }""", {"sel": rs_sel, "idx": i})
                                 # Pick role based on section
                                 role_value = "producer" if "producer" in role_context else "main artist"
                                 log.info(f"  Role[{i}]: context='{role_context}', will set '{role_value}'")
 
                                 # Strategy 1: React fiber — set value directly
                                 fiber_ok = page.evaluate("""(args) => {
-                                    const { idx, value } = args;
-                                    const el = document.querySelectorAll('.artist-song-role-select')[idx];
+                                    const { sel, idx, value } = args;
+                                    const el = document.querySelectorAll(sel)[idx];
                                     if (!el) return { ok: false, error: 'no element at index ' + idx };
 
                                     // Find react fiber on the container or any child
@@ -1506,7 +1556,7 @@ def _do_upload(
                                         fiber = fiber.return;
                                     }
                                     return { ok: false, error: 'no onChange+options found' };
-                                }""", {"idx": i, "value": role_value})
+                                }""", {"sel": rs_sel, "idx": i, "value": role_value})
 
                                 if fiber_ok.get("ok"):
                                     log.info(f"  Role[{i}]: '{fiber_ok.get('selected')}' (React fiber)")
@@ -1518,7 +1568,7 @@ def _do_upload(
                                     log.info(f"  Role[{i}]: available: {fiber_ok['available']}")
 
                                 # Strategy 2: DOM click fallback
-                                rs = page.locator(".artist-song-role-select").nth(i)
+                                rs = page.locator(rs_sel).nth(i)
                                 try:
                                     ctrl = rs.locator("[class*='control']").first
                                     ctrl.click(timeout=2000)
@@ -1527,11 +1577,12 @@ def _do_upload(
                                 log.info(f"  Role[{i}]: clicked to open (fallback)")
                                 page.wait_for_timeout(800)
                                 page.keyboard.type(role_value, delay=50)
-                                page.wait_for_timeout(500)
+                                page.wait_for_timeout(800)
                                 try:
-                                    opt = page.locator("[class*='option']").filter(
-                                        has_text=role_value).first
-                                    if opt.is_visible(timeout=1500):
+                                    opt = page.locator(
+                                        "[class*='option'], [role='option'], [id*='option']"
+                                    ).filter(has_text=re.compile(role_value, re.IGNORECASE)).first
+                                    if opt.is_visible(timeout=2000):
                                         opt.click()
                                         log.info(f"  Role[{i}]: clicked '{role_value}' (DOM)")
                                     else:
@@ -1702,14 +1753,24 @@ def _do_upload(
                                 if (inp.offsetWidth > 0 && !inp.value.trim()) emptyArtist++;
                             }
                             if (emptyArtist > 0) problems.push('artist_inputs:' + emptyArtist);
-                            // Check role dropdowns showing CHOOSE
-                            const roles = document.querySelectorAll('.artist-song-role-select');
+                            // Check role dropdowns showing CHOOSE (multiple selectors)
+                            const roleSels = [
+                                '.artist-song-role-select',
+                                '[class*="role-select"]',
+                                '[class*="roleSelect"]',
+                                '[data-tc-role-select]',
+                            ];
                             let emptyRoles = 0;
-                            for (const r of roles) {
-                                const ph = r.querySelector('[class*="placeholder"]');
-                                const sv = r.querySelector('[class*="singleValue"]');
-                                const text = (sv ? sv.textContent : r.textContent).trim();
-                                if (ph || text === 'CHOOSE' || !text) emptyRoles++;
+                            const checkedRoles = new Set();
+                            for (const sel of roleSels) {
+                                for (const r of document.querySelectorAll(sel)) {
+                                    if (checkedRoles.has(r)) continue;
+                                    checkedRoles.add(r);
+                                    const ph = r.querySelector('[class*="placeholder"]');
+                                    const sv = r.querySelector('[class*="singleValue"], [class*="single-value"]');
+                                    const text = (sv ? sv.textContent : r.textContent).trim();
+                                    if (ph || /choose/i.test(text) || !text) emptyRoles++;
+                                }
                             }
                             if (emptyRoles > 0) problems.push('roles:' + emptyRoles);
                             // Check validation message
@@ -1787,22 +1848,86 @@ def _do_upload(
                                 except Exception as e:
                                     log.warning(f"  Artist retry failed: {e}")
 
-                            # Retry empty roles
+                            # Retry empty roles — detect selector dynamically
                             if any('roles' in p for p in empty_scan):
                                 log.info("  Roles STILL showing CHOOSE — retrying...")
                                 try:
-                                    choose_els = page.locator('.artist-song-role-select')
-                                    for i in range(choose_els.count()):
-                                        rs = choose_els.nth(i)
-                                        txt = rs.inner_text(timeout=1000)
-                                        if 'CHOOSE' in txt or not txt.strip():
-                                            rs.click(timeout=2000)
-                                            page.wait_for_timeout(800)
-                                            page.keyboard.type("main artist", delay=50)
-                                            page.wait_for_timeout(500)
-                                            page.keyboard.press("Enter")
-                                            page.wait_for_timeout(800)
-                                            log.info(f"  Role[{i}]: retry typed 'main artist' + Enter")
+                                    # Re-detect role selector
+                                    retry_sel_info = page.evaluate("""() => {
+                                        const candidates = [
+                                            '.artist-song-role-select',
+                                            '[class*="role-select"]',
+                                            '[class*="roleSelect"]',
+                                            '[data-tc-role-select]',
+                                        ];
+                                        for (const sel of candidates) {
+                                            const els = document.querySelectorAll(sel);
+                                            if (els.length > 0) return { sel: sel, count: els.length };
+                                        }
+                                        // Fallback: tag CHOOSE dropdowns
+                                        const allSelects = document.querySelectorAll(
+                                            '[class*="css-"][class*="container"], '
+                                            + '[class*="react-select"], '
+                                            + '[class*="select-container"]'
+                                        );
+                                        let tagged = 0;
+                                        for (const el of allSelects) {
+                                            const ph = el.querySelector('[class*="placeholder"]');
+                                            const sv = el.querySelector('[class*="singleValue"]');
+                                            const text = (sv ? sv.textContent : el.textContent).trim();
+                                            if ((ph && /choose/i.test(ph.textContent)) || text === 'CHOOSE' || !text) {
+                                                el.setAttribute('data-tc-role-retry', tagged++);
+                                            }
+                                        }
+                                        return tagged > 0 ? { sel: '[data-tc-role-retry]', count: tagged } : { sel: null, count: 0 };
+                                    }""")
+                                    retry_rs_sel = retry_sel_info.get("sel")
+                                    if retry_rs_sel:
+                                        choose_els = page.locator(retry_rs_sel)
+                                        for i in range(choose_els.count()):
+                                            rs = choose_els.nth(i)
+                                            txt = rs.inner_text(timeout=1000)
+                                            if 'CHOOSE' in txt.upper() or not txt.strip():
+                                                # Determine context for this role dropdown
+                                                retry_context = page.evaluate("""(args) => {
+                                                    const el = document.querySelectorAll(args.sel)[args.idx];
+                                                    if (!el) return 'unknown';
+                                                    let node = el.parentElement;
+                                                    for (let i = 0; i < 15 && node; i++) {
+                                                        const text = (node.textContent || '').substring(0, 500);
+                                                        if (/Producers?\s*&?\s*Engineers?/i.test(text)
+                                                            && !/Performing/i.test(text.substring(0, 100))) return 'producer';
+                                                        if (/Performing/i.test(text)
+                                                            && !/Producer/i.test(text.substring(0, 100))) return 'performing';
+                                                        const headings = node.querySelectorAll('h1,h2,h3,h4,h5,h6,[class*="heading"],[class*="title"]');
+                                                        for (const h of headings) {
+                                                            if (/Producer/i.test(h.textContent)) return 'producer';
+                                                            if (/Performing/i.test(h.textContent)) return 'performing';
+                                                        }
+                                                        node = node.parentElement;
+                                                    }
+                                                    return 'unknown';
+                                                }""", {"sel": retry_rs_sel, "idx": i})
+                                                retry_role = "producer" if "producer" in retry_context else "main artist"
+                                                rs.click(timeout=2000)
+                                                page.wait_for_timeout(800)
+                                                page.keyboard.type(retry_role, delay=50)
+                                                page.wait_for_timeout(800)
+                                                # Try to click matching option
+                                                try:
+                                                    opt = page.locator(
+                                                        "[class*='option'], [role='option']"
+                                                    ).filter(has_text=re.compile(retry_role, re.IGNORECASE)).first
+                                                    if opt.is_visible(timeout=2000):
+                                                        opt.click()
+                                                    else:
+                                                        page.keyboard.press("Enter")
+                                                except Exception:
+                                                    page.keyboard.press("Enter")
+                                                page.wait_for_timeout(800)
+                                                log.info(f"  Role[{i}]: retry context='{retry_context}', typed '{retry_role}'")
+                                    else:
+                                        log.warning("  Role retry: no selectable role dropdowns found on page")
                                 except Exception as e:
                                     log.warning(f"  Role retry failed: {e}")
 
@@ -1821,13 +1946,25 @@ def _do_upload(
                                     if (inp.offsetWidth > 0 && !inp.value.trim()) emptyArtist++;
                                 }
                                 if (emptyArtist > 0) problems.push('artist_inputs:' + emptyArtist);
-                                const roles = document.querySelectorAll('.artist-song-role-select');
+                                // Check role dropdowns with multiple selectors
+                                const roleSels = [
+                                    '.artist-song-role-select',
+                                    '[class*="role-select"]',
+                                    '[class*="roleSelect"]',
+                                    '[data-tc-role-select]',
+                                    '[data-tc-role-retry]',
+                                ];
                                 let emptyRoles = 0;
-                                for (const r of roles) {
-                                    const ph = r.querySelector('[class*="placeholder"]');
-                                    const sv = r.querySelector('[class*="singleValue"]');
-                                    const text = (sv ? sv.textContent : r.textContent).trim();
-                                    if (ph || text === 'CHOOSE' || !text) emptyRoles++;
+                                let checkedRoles = new Set();
+                                for (const sel of roleSels) {
+                                    for (const r of document.querySelectorAll(sel)) {
+                                        if (checkedRoles.has(r)) continue;
+                                        checkedRoles.add(r);
+                                        const ph = r.querySelector('[class*="placeholder"]');
+                                        const sv = r.querySelector('[class*="singleValue"], [class*="single-value"]');
+                                        const text = (sv ? sv.textContent : r.textContent).trim();
+                                        if (ph || /choose/i.test(text) || !text) emptyRoles++;
+                                    }
                                 }
                                 if (emptyRoles > 0) problems.push('roles:' + emptyRoles);
                                 return problems;
