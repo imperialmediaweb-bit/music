@@ -31,6 +31,9 @@ MUSIC_STYLE_PROMPT = os.getenv("MUSIC_STYLE_PROMPT", "")
 # Custom thumbnail style prompt (overrides default)
 THUMBNAIL_STYLE_PROMPT = os.getenv("THUMBNAIL_STYLE_PROMPT", "")
 
+# Skip TuneCore upload in the pipeline (set to "true" to disable)
+SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "false").lower() == "true"
+
 # Ensure directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 INPUT_DIR.mkdir(parents=True, exist_ok=True)

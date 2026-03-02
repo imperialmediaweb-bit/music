@@ -10,6 +10,7 @@ from modules.video_creator import create_video
 from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
 from modules.tunecore_uploader import upload_to_tunecore
+from config import SKIP_TUNECORE
 
 
 def reupload_track(track_name: str, only: str | None = None) -> dict:
@@ -344,7 +345,10 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         result["errors"].append(f"cover_art: {e}")
 
     # Step 8: Upload to TuneCore
-    if cover_path and wav_path.exists():
+    if SKIP_TUNECORE:
+        log.info("=" * 60)
+        log.info("STEP 8: TuneCore SKIPPED (SKIP_TUNECORE=true)")
+    elif cover_path and wav_path.exists():
         try:
             log.info("=" * 60)
             log.info("STEP 8: Uploading to TuneCore...")
