@@ -49,6 +49,23 @@ def _mock_tiktok_uploader():
     )
 
 
+def _mock_cover_art(tmp_output):
+    """Return a patch that creates a real PNG instead of calling DALL-E for cover art."""
+    def fake_generate_cover_art(prompt, track_name):
+        img = Image.new("RGB", (1600, 1600), color=(40, 80, 40))
+        safe = "".join(c if c.isalnum() or c in "-_ " else "" for c in track_name)
+        safe = safe.strip().replace(" ", "_")[:50]
+        path = tmp_output / f"{safe}_cover.jpg"
+        img.save(str(path), "JPEG")
+        return path
+    return patch("pipeline.generate_cover_art", side_effect=fake_generate_cover_art)
+
+
+def _mock_skip_tunecore():
+    """Return a patch that skips TuneCore uploads."""
+    return patch("pipeline.SKIP_TUNECORE", True)
+
+
 def _mock_concept_generator(concept):
     """Return a patch that returns a fixed concept."""
     return patch("pipeline.generate_concept", return_value=concept)
@@ -82,7 +99,9 @@ class TestProcessSingleTrackE2E:
     def test_full_pipeline_success(self, fake_mp3, fake_concept, tmp_output):
         with _mock_thumbnail_generator(tmp_output), \
              _mock_youtube_uploader(), \
-             _mock_tiktok_uploader():
+             _mock_tiktok_uploader(), \
+             _mock_cover_art(tmp_output), \
+             _mock_skip_tunecore():
             result = process_single_track(fake_mp3, concept=fake_concept)
 
         assert result["errors"] == [], f"Pipeline had errors: {result['errors']}"
@@ -100,7 +119,9 @@ class TestProcessSingleTrackE2E:
         with _mock_concept_generator(fake_concept), \
              _mock_thumbnail_generator(tmp_output), \
              _mock_youtube_uploader(), \
-             _mock_tiktok_uploader():
+             _mock_tiktok_uploader(), \
+             _mock_cover_art(tmp_output), \
+             _mock_skip_tunecore():
             result = process_single_track(fake_mp3, concept=None)
 
         assert result["concept"] == "Zanu"
@@ -142,13 +163,15 @@ class TestProcessSingleTrackE2E:
         """Verify the result dict has all expected keys."""
         with _mock_thumbnail_generator(tmp_output), \
              _mock_youtube_uploader(), \
-             _mock_tiktok_uploader():
+             _mock_tiktok_uploader(), \
+             _mock_cover_art(tmp_output), \
+             _mock_skip_tunecore():
             result = process_single_track(fake_mp3, concept=fake_concept)
 
         expected_keys = {
             "file", "concept", "duration", "thumbnail_path",
-            "video_path",
-            "youtube_url", "tiktok_url", "errors",
+            "video_path", "cover_path",
+            "youtube_url", "tiktok_url", "tunecore_url", "errors",
         }
         assert set(result.keys()) == expected_keys
 
@@ -164,7 +187,9 @@ class TestProcessSingleTrackWithMerge:
 
         with _mock_thumbnail_generator(tmp_output), \
              _mock_youtube_uploader(), \
-             _mock_tiktok_uploader():
+             _mock_tiktok_uploader(), \
+             _mock_cover_art(tmp_output), \
+             _mock_skip_tunecore():
             result = process_single_track(merged, concept=fake_concept)
 
         assert result["errors"] == []
