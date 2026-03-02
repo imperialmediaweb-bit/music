@@ -785,7 +785,7 @@ def _fill_choose_sections(page, artist: str):
             if "producer" in section_text.lower():
                 target_role = "producer"
             else:
-                target_role = "main artist"
+                target_role = "banjo"
 
             log.info(f"  [{attempt}] Clicking Role dropdown (target: '{target_role}')...")
 
@@ -804,8 +804,8 @@ def _fill_choose_sections(page, artist: str):
             clicked = False
             # Try multiple role name variants in priority order
             role_variants = (
-                ["main artist", "primary artist"] if target_role == "main artist"
-                else ["producer"]
+                ["producer"] if target_role == "producer"
+                else ["banjo"]
             )
             try:
                 opts = page.locator(
