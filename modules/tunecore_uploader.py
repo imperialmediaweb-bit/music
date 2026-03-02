@@ -803,28 +803,27 @@ def _fill_choose_sections(page, artist: str):
                 choose.click()
             page.wait_for_timeout(1500)
 
-            # Click matching option from the dropdown list (NO typing)
+            # Type to filter the dropdown (react-select filters on keyboard input)
             clicked = False
             try:
+                page.keyboard.type(target_role, delay=50)
+                page.wait_for_timeout(1500)
                 opt = page.locator(
                     "[role='option'], [id*='option'], [class*='option']"
-                ).filter(has_text=re.compile(f"^{re.escape(target_role)}$", re.IGNORECASE)).first
+                ).filter(has_text=re.compile(target_role, re.IGNORECASE)).first
                 if opt.is_visible(timeout=3000):
                     opt.click()
-                    log.info(f"  [{attempt}] Role: '{target_role}' selected from dropdown")
+                    log.info(f"  [{attempt}] Role: '{target_role}' selected (typed+clicked)")
                     clicked = True
             except Exception:
                 pass
 
             if not clicked:
+                # Try pressing Enter to select the first filtered result
                 try:
-                    opt = page.locator(
-                        "[role='option'], [id*='option'], [class*='option']"
-                    ).filter(has_text=re.compile(target_role, re.IGNORECASE)).first
-                    if opt.is_visible(timeout=2000):
-                        opt.click()
-                        log.info(f"  [{attempt}] Role: '{target_role}' selected (broad match)")
-                        clicked = True
+                    page.keyboard.press("Enter")
+                    log.info(f"  [{attempt}] Role: '{target_role}' selected (typed+Enter)")
+                    clicked = True
                 except Exception:
                     pass
 
