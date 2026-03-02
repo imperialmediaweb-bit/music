@@ -1064,6 +1064,8 @@ def _do_upload(
         page = context.new_page()
         step = 0
         MAX_STEPS = 20
+        # Track repeated visits to same page to detect stuck loops
+        page_visit_counts = {}
 
         try:
             log.info("Navigating to TuneCore dashboard...")
@@ -1082,9 +1084,32 @@ def _do_upload(
                 except Exception:
                     pass
                 state = _detect_page(page)
+                page_visit_counts[state] = page_visit_counts.get(state, 0) + 1
                 log.info(f"{'='*50}")
-                log.info(f"[{step}] Page state: {state}")
+                log.info(f"[{step}] Page state: {state} (visit #{page_visit_counts[state]})")
                 log.info(f"{'='*50}")
+
+                # Detect stuck loop — if we visit the same page 4+ times, force skip
+                if page_visit_counts[state] >= 4 and state not in ('done', 'unknown'):
+                    log.error(f"  STUCK on '{state}' after {page_visit_counts[state]} visits!")
+                    log.error("  Taking debug screenshot and forcing Continue...")
+                    try:
+                        page.screenshot(path=f"output/tunecore_stuck_{state}.png")
+                        _dump_page_state(page, f"STUCK on {state}")
+                    except Exception:
+                        pass
+                    # Try to click Continue/Next to force-advance
+                    skip_btn = _find_clickable(page, [
+                        "a.secondary-btn", "a:has-text('Continue')",
+                        "button:has-text('Continue')", "button:has-text('Next')",
+                        "button:has-text('Skip')",
+                    ])
+                    if skip_btn:
+                        skip_btn.click()
+                        log.info("  Forced Continue click to break stuck loop")
+                        page.wait_for_timeout(5000)
+                    continue
+
                 try:
                     # ── DASHBOARD ──
                     if state == 'dashboard':
@@ -1267,70 +1292,118 @@ def _do_upload(
                             except Exception:
                                 continue
 
-                        # ── 2. Songwriter (React native value setter) ──
+                        # ── 2. Songwriter — keyboard typing (React native setter unreliable) ──
                         sw_result = page.evaluate("""(artist) => {
                             const inp = document.querySelector('input[placeholder*="Legal First"]');
                             if (!inp) return 'NOT_FOUND';
                             if (inp.value.trim()) return 'SKIP:' + inp.value;
-                            const setter = Object.getOwnPropertyDescriptor(
-                                HTMLInputElement.prototype, 'value').set;
-                            setter.call(inp, artist);
-                            inp.dispatchEvent(new Event('input', {bubbles: true}));
-                            inp.dispatchEvent(new Event('change', {bubbles: true}));
-                            return 'OK';
+                            inp.focus();
+                            inp.scrollIntoView({block: 'center'});
+                            // Clear any existing value
+                            inp.value = '';
+                            return 'FOCUSED';
                         }""", artist)
-                        log.info(f"  Songwriter: {sw_result}")
+                        log.info(f"  Songwriter focus: {sw_result}")
+
+                        if sw_result == 'FOCUSED':
+                            page.wait_for_timeout(300)
+                            page.keyboard.type(artist, delay=50)
+                            page.wait_for_timeout(500)
+                            # Tab out to trigger blur/change/validation
+                            page.keyboard.press("Tab")
+                            log.info(f"  Songwriter: typed '{artist}' + Tab")
+                            page.wait_for_timeout(1000)
+
+                            # Verify it stuck — if React cleared it, use native setter as backup
+                            sw_verify = page.evaluate("""(artist) => {
+                                const inp = document.querySelector('input[placeholder*="Legal First"]');
+                                if (!inp) return 'NO_INPUT';
+                                if (inp.value.trim()) return 'OK:' + inp.value;
+                                // React cleared it — force via native setter + React events
+                                const setter = Object.getOwnPropertyDescriptor(
+                                    HTMLInputElement.prototype, 'value').set;
+                                setter.call(inp, artist);
+                                inp.dispatchEvent(new Event('input', {bubbles: true}));
+                                inp.dispatchEvent(new Event('change', {bubbles: true}));
+                                inp.dispatchEvent(new Event('blur', {bubbles: true}));
+                                // Also try React synthetic event
+                                const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+                                    window.HTMLInputElement.prototype, 'value').set;
+                                nativeInputValueSetter.call(inp, artist);
+                                inp.dispatchEvent(new Event('input', {bubbles: true}));
+                                return 'FORCED:' + inp.value;
+                            }""", artist)
+                            log.info(f"  Songwriter verify: {sw_verify}")
+                        elif sw_result.startswith('SKIP:'):
+                            log.info(f"  Songwriter: already '{sw_result[5:]}'")
+                        else:
+                            log.warning(f"  Songwriter: {sw_result}")
                         page.wait_for_timeout(1000)
 
-                        # ── 3. Performing Artists — Name (JS focus + keyboard type) ──
-                        log.info("  --- Step 3: Performing Artists Name ---")
-                        perf_focused = page.evaluate("""() => {
-                            for (const inp of document.querySelectorAll('input')) {
-                                const ph = (inp.placeholder || '').toLowerCase();
-                                if (inp.value.trim()) continue;
-                                if (!ph.includes('artist') && !ph.includes('creative')) continue;
-                                let node = inp.parentElement;
-                                for (let j = 0; j < 8 && node; j++) {
-                                    for (const child of node.children) {
-                                        if (child.textContent.trim().startsWith('Performing')) {
+                        # ── 3. Fill ALL empty artist autocomplete inputs ──
+                        # Sections: Song Artists & Creatives, Performing Artists, Producers & Engineers
+                        # Find each section by header text, then fill the empty input within it
+                        for section_name in ["Performing", "Producer"]:
+                            log.info(f"  --- Filling '{section_name}' section ---")
+                            focused = page.evaluate("""(args) => {
+                                const { sectionName, artist } = args;
+                                // Find ALL visible section headers/labels
+                                const allEls = document.querySelectorAll(
+                                    'h1, h2, h3, h4, h5, h6, label, legend, span, div, p, strong, b'
+                                );
+                                for (const header of allEls) {
+                                    const txt = header.textContent.trim();
+                                    if (!txt.toLowerCase().startsWith(sectionName.toLowerCase())) continue;
+                                    if (header.offsetWidth === 0 && header.offsetHeight === 0) continue;
+                                    // Walk up to find the section container
+                                    let container = header.parentElement;
+                                    for (let i = 0; i < 6 && container; i++) {
+                                        const inputs = container.querySelectorAll(
+                                            'input[placeholder*="Artist" i], input[placeholder*="Creative" i]'
+                                        );
+                                        for (const inp of inputs) {
+                                            if (inp.value.trim()) continue;
+                                            if (inp.offsetWidth === 0) continue;
+                                            inp.scrollIntoView({block: 'center'});
                                             inp.focus();
-                                            inp.scrollIntoView({block:'center'});
-                                            return true;
+                                            inp.click();
+                                            return {found: true, section: sectionName, placeholder: inp.placeholder};
                                         }
+                                        container = container.parentElement;
                                     }
-                                    node = node.parentElement;
                                 }
-                            }
-                            return false;
-                        }""")
-                        log.info(f"  Perf Name focused: {perf_focused}")
-                        if perf_focused:
-                            page.wait_for_timeout(500)
-                            page.keyboard.type(artist, delay=80)
-                            log.info(f"  Perf Name: typed '{artist}'")
-                            page.wait_for_timeout(2000)
-                            # DEBUG: check what autocomplete options appeared
-                            ac_count = page.locator("[role='option']").count()
-                            log.info(f"  Perf Name: {ac_count} autocomplete options visible")
-                            try:
-                                opt = page.locator("[role='option']").filter(
-                                    has_text=artist).first
-                                if opt.is_visible(timeout=2000):
-                                    opt.click()
-                                    log.info("  Perf Name: dropdown OK")
-                                else:
+                                return {found: false, section: sectionName};
+                            }""", {"sectionName": section_name, "artist": artist})
+
+                            if focused.get("found"):
+                                log.info(f"  {section_name}: found empty input, typing '{artist}'...")
+                                page.wait_for_timeout(500)
+                                page.keyboard.type(artist, delay=80)
+                                page.wait_for_timeout(2000)
+                                # Pick from autocomplete dropdown
+                                ac_count = page.locator("[role='option']").count()
+                                log.info(f"  {section_name}: {ac_count} autocomplete options")
+                                picked = False
+                                try:
+                                    opt = page.locator("[role='option']").filter(
+                                        has_text=artist).first
+                                    if opt.is_visible(timeout=2000):
+                                        opt.click()
+                                        log.info(f"  {section_name}: selected '{artist}' from dropdown")
+                                        picked = True
+                                except Exception:
+                                    pass
+                                if not picked:
+                                    # Keyboard fallback: select first option
                                     page.keyboard.press("ArrowDown")
                                     page.wait_for_timeout(200)
                                     page.keyboard.press("Enter")
-                                    log.info("  Perf Name: keyboard fallback")
-                            except Exception as e:
-                                log.warning(f"  Perf Name autocomplete error: {e}")
-                                page.keyboard.press("Enter")
-                            page.wait_for_timeout(1500)
-                        else:
-                            log.warning("  Perf Name: input NOT FOUND")
+                                    log.info(f"  {section_name}: keyboard fallback (ArrowDown+Enter)")
+                                page.wait_for_timeout(1500)
+                            else:
+                                log.info(f"  {section_name}: no empty input found (already filled or section missing)")
 
-                        # ── 4. Fill ALL react-select role dropdowns ──
+                        # ── 4. Fill ALL react-select role dropdowns showing CHOOSE ──
                         # Uses React fiber to set values directly (bypasses DOM clicks)
                         try:
                             role_count = page.evaluate("""() => {
@@ -1339,22 +1412,44 @@ def _do_upload(
                             log.info(f"  Role selects found: {role_count}")
 
                             for i in range(role_count):
-                                # Check if already has a value
+                                # Check if already has a value (not CHOOSE/placeholder)
                                 has_value = page.evaluate("""(idx) => {
                                     const el = document.querySelectorAll('.artist-song-role-select')[idx];
                                     if (!el) return false;
+                                    // Check for placeholder text "CHOOSE"
                                     const ph = el.querySelector('[class*="placeholder"]');
                                     if (ph) return false;
                                     const sv = el.querySelector('[class*="singleValue"]');
                                     if (sv && sv.textContent.trim() && sv.textContent.trim() !== 'CHOOSE') {
                                         return sv.textContent.trim();
                                     }
+                                    // Also check the rendered text directly
+                                    const text = el.textContent.trim();
+                                    if (text && text !== 'CHOOSE' && text.length < 30) return text;
                                     return false;
                                 }""", i)
 
                                 if has_value and has_value is not False:
                                     log.info(f"  Role[{i}]: already set to '{has_value}'")
                                     continue
+
+                                # Determine context: which section is this role in?
+                                role_context = page.evaluate("""(idx) => {
+                                    const el = document.querySelectorAll('.artist-song-role-select')[idx];
+                                    if (!el) return 'unknown';
+                                    let node = el.parentElement;
+                                    for (let i = 0; i < 10 && node; i++) {
+                                        const text = node.textContent || '';
+                                        if (text.includes('Performing')) return 'performing';
+                                        if (text.includes('Producer')) return 'producer';
+                                        if (text.includes('Song Artists')) return 'song_artist';
+                                        node = node.parentElement;
+                                    }
+                                    return 'unknown';
+                                }""", i)
+                                # Pick role based on section
+                                role_value = "producer" if "producer" in role_context else "main artist"
+                                log.info(f"  Role[{i}]: context='{role_context}', will set '{role_value}'")
 
                                 # Strategy 1: React fiber — set value directly
                                 fiber_ok = page.evaluate("""(args) => {
@@ -1368,7 +1463,6 @@ def _do_upload(
                                         k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')
                                     );
                                     if (!fiberKey) {
-                                        // Try children
                                         for (const child of el.querySelectorAll('*')) {
                                             fiberKey = Object.keys(child).find(
                                                 k => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$')
@@ -1382,10 +1476,8 @@ def _do_upload(
                                     for (let depth = 0; depth < 40 && fiber; depth++) {
                                         const props = fiber.memoizedProps || fiber.pendingProps || {};
 
-                                        // react-select: has onChange + options array
                                         if (typeof props.onChange === 'function' && props.options) {
                                             const options = props.options || [];
-                                            // Flatten grouped options
                                             let allOpts = [];
                                             for (const o of options) {
                                                 if (o.options) allOpts.push(...o.options);
@@ -1407,7 +1499,7 @@ def _do_upload(
                                         fiber = fiber.return;
                                     }
                                     return { ok: false, error: 'no onChange+options found' };
-                                }""", {"idx": i, "value": "producer"})
+                                }""", {"idx": i, "value": role_value})
 
                                 if fiber_ok.get("ok"):
                                     log.info(f"  Role[{i}]: '{fiber_ok.get('selected')}' (React fiber)")
@@ -1427,14 +1519,14 @@ def _do_upload(
                                     rs.click(timeout=2000)
                                 log.info(f"  Role[{i}]: clicked to open (fallback)")
                                 page.wait_for_timeout(800)
-                                page.keyboard.type("producer", delay=50)
+                                page.keyboard.type(role_value, delay=50)
                                 page.wait_for_timeout(500)
                                 try:
                                     opt = page.locator("[class*='option']").filter(
-                                        has_text="producer").first
+                                        has_text=role_value).first
                                     if opt.is_visible(timeout=1500):
                                         opt.click()
-                                        log.info(f"  Role[{i}]: clicked 'producer' (DOM)")
+                                        log.info(f"  Role[{i}]: clicked '{role_value}' (DOM)")
                                     else:
                                         page.keyboard.press("Enter")
                                         log.info(f"  Role[{i}]: Enter to select (DOM)")
@@ -1446,12 +1538,10 @@ def _do_upload(
                         except Exception as e:
                             log.warning(f"  Role selects EXCEPTION: {e}")
 
-                        # ── 7. Copyright → No ──
-                        # Known HTML: <input id="song-cover-song-metadata-cover-song-no"
-                        #   type="radio" name="cover_song" value="No">
+                        # ── 5. Copyright → No ──
                         copyright_done = False
 
-                        # Method 1: Direct ID selector (exact match from page source)
+                        # Method 1: Direct ID selector
                         try:
                             radio = page.locator("#song-cover-song-metadata-cover-song-no")
                             radio.scroll_into_view_if_needed(timeout=3000)
@@ -1474,30 +1564,20 @@ def _do_upload(
                         # Method 3: JS direct
                         if not copyright_done:
                             cr = page.evaluate("""() => {
-                                // Try exact ID
                                 let el = document.getElementById(
                                     'song-cover-song-metadata-cover-song-no');
+                                if (!el) el = document.querySelector(
+                                    'input[name="cover_song"][value="No"]');
                                 if (!el) {
-                                    // Fallback: find by name+value
-                                    el = document.querySelector(
-                                        'input[name="cover_song"][value="No"]');
-                                }
-                                if (!el) {
-                                    // Fallback: any radio with value "No"
-                                    const radios = document.querySelectorAll(
-                                        'input[type="radio"]');
+                                    const radios = document.querySelectorAll('input[type="radio"]');
                                     for (const r of radios) {
-                                        if (r.value === 'No' || r.value === 'no') {
-                                            el = r; break;
-                                        }
+                                        if (r.value === 'No' || r.value === 'no') { el = r; break; }
                                     }
                                 }
                                 if (el) {
                                     el.checked = true;
                                     el.click();
                                     el.dispatchEvent(new Event('change', {bubbles:true}));
-                                    el.dispatchEvent(new Event('input', {bubbles:true}));
-                                    // Also try triggering React's synthetic events
                                     const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
                                         window.HTMLInputElement.prototype, 'checked').set;
                                     nativeInputValueSetter.call(el, true);
@@ -1508,7 +1588,7 @@ def _do_upload(
                             }""")
                             log.info(f"  Copyright No JS: {cr}")
 
-                        # Method 4: Click the <label> element next to it
+                        # Method 4: Click the <label> element
                         if not copyright_done:
                             try:
                                 lbl = page.locator(
@@ -1521,7 +1601,7 @@ def _do_upload(
 
                         page.wait_for_timeout(500)
 
-                        # ── 8. Instrumental checkbox (JS click) ──
+                        # ── 6. Instrumental checkbox ──
                         instr = page.evaluate("""() => {
                             for (const cb of document.querySelectorAll('input[type=checkbox]')) {
                                 const lbl = cb.closest('label') || cb.parentElement;
@@ -1535,10 +1615,79 @@ def _do_upload(
                         log.info(f"  Instrumental: {instr}")
                         page.wait_for_timeout(500)
 
-                        # ── Explicit — skip when Instrumental is checked ──
-                        log.info("  Explicit: skipped (Instrumental checked)")
+                        # ── 7. Explicit lyrics → No ──
+                        explicit_result = page.evaluate("""() => {
+                            // Look for Yes/No buttons near "explicit" text
+                            const allBtns = document.querySelectorAll('button, input[type="button"]');
+                            for (const btn of allBtns) {
+                                const txt = btn.textContent.trim().toLowerCase();
+                                if (txt !== 'no') continue;
+                                // Check if near "explicit" context
+                                let node = btn.parentElement;
+                                for (let i = 0; i < 5 && node; i++) {
+                                    if (node.textContent.toLowerCase().includes('explicit')) {
+                                        btn.click();
+                                        return 'CLICKED_NO';
+                                    }
+                                    node = node.parentElement;
+                                }
+                            }
+                            return 'NOT_FOUND';
+                        }""")
+                        log.info(f"  Explicit: {explicit_result}")
 
                         page.wait_for_timeout(2000)
+
+                        # ── 8. FINAL SCAN — check ALL empty required fields before Save ──
+                        empty_scan = page.evaluate("""(artist) => {
+                            const problems = [];
+                            // Check songwriter
+                            const sw = document.querySelector('input[placeholder*="Legal First"]');
+                            if (sw && !sw.value.trim()) problems.push('songwriter');
+                            // Check all inputs with placeholder containing Artist/Creative
+                            const artInputs = document.querySelectorAll(
+                                'input[placeholder*="Artist" i], input[placeholder*="Creative" i]'
+                            );
+                            let emptyArtist = 0;
+                            for (const inp of artInputs) {
+                                if (inp.offsetWidth > 0 && !inp.value.trim()) emptyArtist++;
+                            }
+                            if (emptyArtist > 0) problems.push('artist_inputs:' + emptyArtist);
+                            // Check role dropdowns showing CHOOSE
+                            const roles = document.querySelectorAll('.artist-song-role-select');
+                            let emptyRoles = 0;
+                            for (const r of roles) {
+                                const ph = r.querySelector('[class*="placeholder"]');
+                                const sv = r.querySelector('[class*="singleValue"]');
+                                const text = (sv ? sv.textContent : r.textContent).trim();
+                                if (ph || text === 'CHOOSE' || !text) emptyRoles++;
+                            }
+                            if (emptyRoles > 0) problems.push('roles:' + emptyRoles);
+                            // Check validation message
+                            const body = document.body.innerText.toLowerCase();
+                            if (body.includes('required before saving')) problems.push('validation_msg');
+                            return problems;
+                        }""", artist)
+                        log.info(f"  Pre-save scan: {empty_scan if empty_scan else 'ALL FIELDS OK'}")
+
+                        # If songwriter still empty, try one more time with click + type
+                        if any('songwriter' in p for p in empty_scan):
+                            log.info("  Songwriter STILL empty — retrying with click + type...")
+                            try:
+                                sw_el = page.locator('input[placeholder*="Legal First"]').first
+                                sw_el.scroll_into_view_if_needed(timeout=2000)
+                                sw_el.click(timeout=2000)
+                                page.wait_for_timeout(300)
+                                sw_el.fill("")  # clear
+                                page.wait_for_timeout(200)
+                                sw_el.type(artist, delay=40)
+                                page.wait_for_timeout(300)
+                                page.keyboard.press("Tab")
+                                log.info(f"  Songwriter retry: typed '{artist}' via Playwright")
+                            except Exception as e:
+                                log.warning(f"  Songwriter retry failed: {e}")
+                            page.wait_for_timeout(1000)
+
                         _dump_page_state(page, "Track Details — after fill")
 
                         # ── SAVE (within the React form) ──
@@ -1548,8 +1697,30 @@ def _do_upload(
                         ])
                         if save:
                             save.click()
-                            log.info("  Saved track details — waiting 10s...")
-                            page.wait_for_timeout(10_000)
+                            log.info("  Clicked Save — waiting for response...")
+                            page.wait_for_timeout(5000)
+
+                            # Check if save succeeded or validation errors appeared
+                            save_ok = page.evaluate("""() => {
+                                const body = document.body.innerText.toLowerCase();
+                                if (body.includes('required before saving')) return 'VALIDATION_ERROR';
+                                if (body.includes('error')) return 'ERROR';
+                                return 'OK';
+                            }""")
+                            log.info(f"  Save result: {save_ok}")
+
+                            if save_ok == 'VALIDATION_ERROR':
+                                log.warning("  Save failed — validation errors still present!")
+                                log.info("  Taking screenshot of validation failure...")
+                                try:
+                                    page.screenshot(path="output/tunecore_validation_fail.png")
+                                except Exception:
+                                    pass
+                                # Wait a bit and continue — the adaptive loop will retry
+                                page.wait_for_timeout(3000)
+                            else:
+                                log.info("  Save appears successful — waiting 5s more...")
+                                page.wait_for_timeout(5000)
 
                         # ── CONTINUE (a.secondary-btn link at bottom of page) ──
                         cont = _find_clickable(page, [
