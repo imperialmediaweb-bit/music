@@ -36,11 +36,15 @@ DEFAULT_AFRO_HOUSE_STYLE = (
 )
 
 DEFAULT_THUMBNAIL_PROMPT = (
-    "A dramatic, high-detail African tribal mask centered on a dark, smoky background. "
-    "The mask is ornate with gold, bronze, and deep red tribal patterns, glowing edges, "
-    "and mystical energy radiating from it. No text or letters on the image. "
-    "The overall style is cinematic, vivid, dark, and powerful. "
-    "Afro House music album cover aesthetic. 4K quality, ultra detailed."
+    "A dramatic, high-detail AUTHENTIC African tribal mask centered on a dark, smoky background. "
+    "Each mask must be COMPLETELY UNIQUE — vary the tribe/region inspiration: "
+    "Yoruba, Dogon, Fang, Punu, Dan, Kuba, Chokwe, Makonde, Baule, Songye, Luba, Bamana. "
+    "Use authentic patterns, materials and colors from real African art traditions: "
+    "carved wood with natural patina, cowrie shells, raffia, brass ornaments, scarification marks, "
+    "geometric tribal patterns, ritual paint in ochre/indigo/kaolin white. "
+    "The mask has glowing mystical energy radiating from it. No text or letters on the image. "
+    "The overall style is cinematic, vivid, dark, and powerful — like a sacred artifact photographed "
+    "in dramatic lighting. Afro House music album cover aesthetic. 4K quality, ultra detailed."
 )
 
 
@@ -73,10 +77,11 @@ Return ONLY valid JSON with these exact fields:
   "description": "2-3 sentence vivid description of the track's atmosphere and energy (in English)",
   "music_prompt": "detailed prompt for AI music generation - describe instruments, rhythm, bass, mood, style. Must match the {genre} genre.",
   "hashtags": ["relevant hashtags for {genre} music - include genre-specific and general music hashtags, 10-15 total"],
-  "youtube_title": "Create a CLICKBAIT-style YouTube title that makes people NEED to click. Format: TRACKNAME fire_emoji [Clickbait Hook] | [Element] {genre_hashtag}. Use power words like: INSANE, MASSIVE, ULTIMATE, LEGENDARY, MIND-BLOWING, EUPHORIC, GODLIKE, UNSTOPPABLE, HEAVIEST, DARKEST. Rules: track name UPPERCASE, fire emoji, end with {genre_hashtag}, max 100 chars. Do NOT include duration. EVERY title must be DIFFERENT and attention-grabbing.",
+  "youtube_title": "Create a UNIQUE clickbait YouTube title. RANDOMLY pick ONE of these formats (NEVER repeat the same format twice in a row):\\n\\n- TRACKNAME 🔥 Hidden Gem | [Vibe Word] {genre_hashtag}\\n- TRACKNAME 🔥 [X] Minutes of Pure Madness | {genre_hashtag}\\n- TRACKNAME 🔥 Extended Mix | [Mood] {genre_hashtag}\\n- TRACKNAME 🔥 The [Adjective] African Ritual | {genre_hashtag}\\n- TRACKNAME 🔥 Tribal Ceremony [Mood] | {genre_hashtag}\\n- TRACKNAME 🔥 Rare Afro Gem | [Element] {genre_hashtag}\\n- TRACKNAME 🔥 Deep African Journey | [Vibe] {genre_hashtag}\\n- TRACKNAME 🔥 Ancestral Beats [Intensity] | {genre_hashtag}\\n- TRACKNAME 🔥 Sacred Drums of [Place/Spirit] | {genre_hashtag}\\n- TRACKNAME 🔥 Untamed African Energy | {genre_hashtag}\\n\\nPower words to MIX IN: GEM, EXTENDED, MADNESS, RITUAL, SACRED, ANCESTRAL, UNTAMED, RARE, DEEP, HYPNOTIC, VOLCANIC, LEGENDARY, RAW, PRIMAL, FORBIDDEN, ANCIENT.\\n\\nRules: track name UPPERCASE, fire emoji after name, end with {genre_hashtag}, max 100 chars. Do NOT include duration (it gets injected automatically). EVERY title MUST be COMPLETELY different — vary format, adjectives, and structure each time.",
   "youtube_description": "Write a LONG (20+ lines) SEO-optimized YouTube description. VARY the structure each time. Include:\\n\\n1. Opening hook: compelling first 2 lines about THIS specific track\\n2. Detailed description of the track's sound, instruments, and atmosphere (3-5 lines)\\n3. What this track is perfect for: driving, gym, meditation, DJ sets, festivals, etc\\n4. A unique closing statement or call to action\\n5. Contact: imperialmediaweb@gmail.com\\n\\nIMPORTANT: Do NOT include hashtags in the description. Be creative with formatting.",
   "youtube_tags": ["relevant YouTube tags for {genre} music - include genre variations, mood tags, and general music discovery tags, 15-25 total"],
-  "tiktok_caption": "short TikTok caption in English with relevant hashtags for {genre} (max 150 chars)"
+  "tiktok_caption": "short TikTok caption in English with relevant hashtags for {genre} (max 150 chars)",
+  "thumbnail_prompt": "Generate a UNIQUE image prompt for an authentic African tribal mask. EACH mask must be from a DIFFERENT African tribe/tradition — rotate between: Yoruba (Nigeria), Dogon (Mali), Fang (Gabon), Punu (Gabon), Dan (Ivory Coast), Kuba (Congo), Chokwe (Angola), Makonde (Tanzania), Baule (Ivory Coast), Songye (Congo), Luba (Congo), Bamana (Mali). Describe the specific mask style, materials (carved wood, cowrie shells, raffia, brass, beads), colors (ochre, indigo, kaolin white, burnt sienna), and ritual purpose. Dark smoky cinematic background with mystical glowing energy. No text. 4K ultra detailed. Must be COMPLETELY different from any previous mask."
 }}"""
 
 
@@ -168,6 +173,10 @@ def generate_concept(track_name: str = "", genre: str = "",
 
     genre_lower = genre.lower().replace(" ", "")
 
+    # Use AI-generated thumbnail prompt if available, otherwise fall back to default
+    ai_thumbnail = data.get("thumbnail_prompt", "")
+    final_thumbnail = ai_thumbnail if ai_thumbnail else thumbnail_style
+
     return MusicConcept(
         track_name=final_name,
         genre=genre,
@@ -175,7 +184,7 @@ def generate_concept(track_name: str = "", genre: str = "",
         description=data.get("description", f"A {genre} track called {final_name}"),
         music_prompt=music_prompt,
         hashtags=data.get("hashtags", [genre_lower, f"{genre_lower}music", "music", "newmusic"]),
-        thumbnail_prompt=thumbnail_style,
+        thumbnail_prompt=final_thumbnail,
         youtube_title=data.get("youtube_title", f"{final_name} - {genre}"),
         youtube_description=data.get("youtube_description", f"{final_name} - A {genre} track."),
         youtube_tags=final_tags,
