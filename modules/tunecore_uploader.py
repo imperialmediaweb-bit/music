@@ -801,25 +801,47 @@ def _fill_choose_sections(page, artist: str):
             except Exception:
                 choose.scroll_into_view_if_needed(timeout=2000)
                 choose.click()
-            page.wait_for_timeout(1500)
+            page.wait_for_timeout(2000)
 
-            # Type to filter the dropdown (react-select filters on keyboard input)
+            # Browse visible options and click matching one directly
+            # (works for non-searchable react-select where typing does nothing)
             clicked = False
             try:
-                page.keyboard.type(target_role, delay=50)
-                page.wait_for_timeout(1500)
-                opt = page.locator(
+                opts = page.locator(
                     "[role='option'], [id*='option'], [class*='option']"
-                ).filter(has_text=re.compile(target_role, re.IGNORECASE)).first
-                if opt.is_visible(timeout=3000):
-                    opt.click()
-                    log.info(f"  [{attempt}] Role: '{target_role}' selected (typed+clicked)")
-                    clicked = True
+                )
+                for oi in range(opts.count()):
+                    try:
+                        opt_el = opts.nth(oi)
+                        if not opt_el.is_visible(timeout=500):
+                            continue
+                        opt_text = opt_el.inner_text(timeout=500).strip().lower()
+                        if target_role in opt_text or opt_text in target_role:
+                            opt_el.click()
+                            log.info(f"  [{attempt}] Role: '{opt_text}' selected (direct click)")
+                            clicked = True
+                            break
+                    except Exception:
+                        continue
             except Exception:
                 pass
 
+            # Fallback: type to filter then click (for searchable dropdowns)
             if not clicked:
-                # Try pressing Enter to select the first filtered result
+                try:
+                    page.keyboard.type(target_role, delay=50)
+                    page.wait_for_timeout(1500)
+                    opt = page.locator(
+                        "[role='option'], [id*='option'], [class*='option']"
+                    ).filter(has_text=re.compile(target_role, re.IGNORECASE)).first
+                    if opt.is_visible(timeout=3000):
+                        opt.click()
+                        log.info(f"  [{attempt}] Role: '{target_role}' selected (typed+clicked)")
+                        clicked = True
+                except Exception:
+                    pass
+
+            if not clicked:
                 try:
                     page.keyboard.press("Enter")
                     log.info(f"  [{attempt}] Role: '{target_role}' selected (typed+Enter)")
@@ -832,9 +854,12 @@ def _fill_choose_sections(page, artist: str):
                 page.wait_for_timeout(300)
                 page.keyboard.press("Enter")
                 log.info(f"  [{attempt}] Role: keyboard fallback")
-            # Close dropdown if still lingering
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(300)
+            # Dismiss by clicking outside (NOT Escape — can clear react-select values)
+            page.wait_for_timeout(500)
+            try:
+                page.locator("body").click(position={"x": 10, "y": 10})
+            except Exception:
+                pass
             page.wait_for_timeout(1200)
         except Exception as e:
             log.warning(f"  [{attempt}] CHOOSE: {e}")
@@ -1616,26 +1641,50 @@ def _do_upload(
                                     rs.scroll_into_view_if_needed(timeout=2000)
                                     rs.click(timeout=2000)
                                 log.info(f"  Role[{i}]: clicked to open dropdown (fallback)")
-                                page.wait_for_timeout(1500)
+                                page.wait_for_timeout(2000)
 
-                                # Type to filter the dropdown (react-select filters on keyboard input)
+                                # Strategy 2a: Browse visible options and click matching one directly
+                                # This works for non-searchable react-select (typing does nothing there)
                                 role_clicked = False
                                 try:
-                                    page.keyboard.type(role_value, delay=50)
-                                    page.wait_for_timeout(1000)
-                                    # Click first visible matching option
-                                    opt = page.locator(
+                                    opts = page.locator(
                                         "[class*='option'], [role='option'], [id*='option']"
-                                    ).filter(has_text=re.compile(role_value, re.IGNORECASE)).first
-                                    if opt.is_visible(timeout=3000):
-                                        opt.click(force=True)
-                                        log.info(f"  Role[{i}]: typed+clicked '{role_value}'")
-                                        role_clicked = True
-                                except Exception:
-                                    pass
+                                    )
+                                    opts_count = opts.count()
+                                    log.info(f"  Role[{i}]: {opts_count} options visible in dropdown")
+                                    for oi in range(opts_count):
+                                        try:
+                                            opt_el = opts.nth(oi)
+                                            if not opt_el.is_visible(timeout=500):
+                                                continue
+                                            opt_text = opt_el.inner_text(timeout=500).strip().lower()
+                                            if role_value in opt_text or opt_text in role_value:
+                                                opt_el.click()
+                                                log.info(f"  Role[{i}]: clicked option '{opt_text}' directly")
+                                                role_clicked = True
+                                                break
+                                        except Exception:
+                                            continue
+                                except Exception as e:
+                                    log.info(f"  Role[{i}]: direct browse failed: {e}")
 
+                                # Strategy 2b: Type to filter then click (searchable react-select)
                                 if not role_clicked:
-                                    # Press Enter to select first filtered result
+                                    try:
+                                        page.keyboard.type(role_value, delay=50)
+                                        page.wait_for_timeout(1000)
+                                        opt = page.locator(
+                                            "[class*='option'], [role='option'], [id*='option']"
+                                        ).filter(has_text=re.compile(role_value, re.IGNORECASE)).first
+                                        if opt.is_visible(timeout=3000):
+                                            opt.click(force=True)
+                                            log.info(f"  Role[{i}]: typed+clicked '{role_value}'")
+                                            role_clicked = True
+                                    except Exception:
+                                        pass
+
+                                # Strategy 2c: Enter to select first filtered result
+                                if not role_clicked:
                                     try:
                                         page.keyboard.press("Enter")
                                         log.info(f"  Role[{i}]: typed+Enter '{role_value}'")
@@ -1643,23 +1692,27 @@ def _do_upload(
                                     except Exception:
                                         pass
 
+                                # Strategy 2d: keyboard navigation as last resort
                                 if not role_clicked:
-                                    # Last resort: arrow down through options
                                     log.info(f"  Role[{i}]: option not found, using keyboard navigation")
                                     page.keyboard.press("ArrowDown")
                                     page.wait_for_timeout(300)
                                     page.keyboard.press("Enter")
-                                # Close dropdown if still open after selection
-                                page.keyboard.press("Escape")
-                                page.wait_for_timeout(300)
+
+                                # Dismiss dropdown by clicking outside instead of Escape
+                                # (Escape can CLEAR react-select values in some configurations)
+                                page.wait_for_timeout(500)
+                                try:
+                                    page.locator("body").click(position={"x": 10, "y": 10})
+                                except Exception:
+                                    pass
                                 page.wait_for_timeout(500)
 
                         except Exception as e:
                             log.warning(f"  Role selects EXCEPTION: {e}")
 
                         # Close any lingering dropdown overlay before moving on
-                        page.keyboard.press("Escape")
-                        page.wait_for_timeout(300)
+                        # (avoid Escape which can clear react-select values)
                         page.locator("body").click(position={"x": 10, "y": 10})
                         page.wait_for_timeout(500)
 
@@ -1981,7 +2034,7 @@ def _do_upload(
                                                     return 'unknown';
                                                 }""", {"sel": retry_rs_sel, "idx": i})
                                                 retry_role = "producer" if "producer" in retry_context else "main artist"
-                                                # Click to open dropdown, then type to filter and select
+                                                # Click to open dropdown
                                                 try:
                                                     ctrl = rs.locator("[class*='control']").first
                                                     ctrl.scroll_into_view_if_needed(timeout=2000)
@@ -1989,20 +2042,41 @@ def _do_upload(
                                                 except Exception:
                                                     rs.scroll_into_view_if_needed(timeout=2000)
                                                     rs.click(timeout=2000)
-                                                page.wait_for_timeout(1000)
-                                                # Type to filter the dropdown
+                                                page.wait_for_timeout(2000)
+                                                # Browse visible options and click matching one directly
                                                 retry_clicked = False
                                                 try:
-                                                    page.keyboard.type(retry_role, delay=50)
-                                                    page.wait_for_timeout(1000)
-                                                    opt = page.locator(
-                                                        "[class*='option'], [role='option']"
-                                                    ).filter(has_text=re.compile(retry_role, re.IGNORECASE)).first
-                                                    if opt.is_visible(timeout=3000):
-                                                        opt.click(force=True)
-                                                        retry_clicked = True
+                                                    opts = page.locator(
+                                                        "[class*='option'], [role='option'], [id*='option']"
+                                                    )
+                                                    for oi in range(opts.count()):
+                                                        try:
+                                                            opt_el = opts.nth(oi)
+                                                            if not opt_el.is_visible(timeout=500):
+                                                                continue
+                                                            opt_text = opt_el.inner_text(timeout=500).strip().lower()
+                                                            if retry_role in opt_text or opt_text in retry_role:
+                                                                opt_el.click()
+                                                                log.info(f"  Role[{i}]: retry clicked '{opt_text}' directly")
+                                                                retry_clicked = True
+                                                                break
+                                                        except Exception:
+                                                            continue
                                                 except Exception:
                                                     pass
+                                                # Fallback: type to filter then click
+                                                if not retry_clicked:
+                                                    try:
+                                                        page.keyboard.type(retry_role, delay=50)
+                                                        page.wait_for_timeout(1000)
+                                                        opt = page.locator(
+                                                            "[class*='option'], [role='option']"
+                                                        ).filter(has_text=re.compile(retry_role, re.IGNORECASE)).first
+                                                        if opt.is_visible(timeout=3000):
+                                                            opt.click(force=True)
+                                                            retry_clicked = True
+                                                    except Exception:
+                                                        pass
                                                 if not retry_clicked:
                                                     try:
                                                         page.keyboard.press("Enter")
@@ -2014,8 +2088,11 @@ def _do_upload(
                                                     page.wait_for_timeout(300)
                                                     page.keyboard.press("Enter")
                                                 page.wait_for_timeout(800)
-                                                # Close dropdown if still open
-                                                page.keyboard.press("Escape")
+                                                # Dismiss by clicking outside (NOT Escape — can clear react-select)
+                                                try:
+                                                    page.locator("body").click(position={"x": 10, "y": 10})
+                                                except Exception:
+                                                    pass
                                                 page.wait_for_timeout(200)
                                                 log.info(f"  Role[{i}]: retry context='{retry_context}', selected '{retry_role}'")
                                     else:
