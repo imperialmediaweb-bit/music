@@ -878,6 +878,11 @@ def _fill_choose_sections(page, artist: str):
             if not clicked:
                 for variant in role_variants:
                     try:
+                        # Clear any previously typed text before trying next variant
+                        page.keyboard.press("Control+a")
+                        page.wait_for_timeout(200)
+                        page.keyboard.press("Backspace")
+                        page.wait_for_timeout(500)
                         page.keyboard.type(variant, delay=50)
                         page.wait_for_timeout(1500)
                         opt = page.locator(
