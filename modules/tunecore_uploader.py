@@ -782,7 +782,7 @@ def _fill_choose_sections(page, artist: str):
             except Exception:
                 section_text = ""
 
-            target_role = "banjo"
+            target_role = "main artist"
 
             log.info(f"  [{attempt}] Clicking Role dropdown (target: '{target_role}')...")
 
@@ -800,7 +800,7 @@ def _fill_choose_sections(page, artist: str):
             # (works for non-searchable react-select where typing does nothing)
             clicked = False
             # Try multiple role name variants in priority order
-            role_variants = ["banjo"]
+            role_variants = ["main artist", "performer", "producer"]
             try:
                 opts = page.locator(
                     "[role='option'], [id*='option'], [class*='option']"
