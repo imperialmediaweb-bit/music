@@ -766,58 +766,119 @@ def _fill_choose_sections(page, artist: str):
             log.info(f"  No more empty name inputs (after {attempt})")
             break
 
-    # ── Phase 2: Click Role dropdowns — detect section, pick correct role ──
-    # Mapping: keyword found in <legend> text → desired role to select
-    # Legend text looks like "Performing Artists*", "Producers & Engineers*", etc.
-    SECTION_ROLE_MAP = {
-        'performing artists': 'banjo',
-        'performing artist':  'banjo',
-        'song artists':       'performer',
-        'artists & creatives': 'performer',
-        'producers & engineers': 'producer',
-        'producers':          'producer',
-        'engineers':          'producer',
+    # ── Phase 2: Fill Role dropdowns per section (multi-select) ──
+    # Each section maps to a LIST of roles to select (react-select multi-select chips)
+    # Legend text: "Performing Artists*", "Song Artists & Creatives", "Producers & Engineers*"
+    SECTION_ROLES = {
+        'song artists':          ['main artist', 'performer'],
+        'artists & creatives':   ['main artist', 'performer'],
+        'performing artists':    ['accordion', 'background vocals', 'banjo'],
+        'performing artist':     ['accordion', 'background vocals', 'banjo'],
+        'producers & engineers': ['producer'],
+        'producers':             ['producer'],
+        'engineers':             ['producer'],
     }
 
-    def _match_section_role(section_text):
-        """Match section legend text to desired role."""
+    def _get_section_roles(section_text):
+        """Match section legend text to list of desired roles."""
         s = section_text.lower().replace('*', '').strip()
-        for key, role in SECTION_ROLE_MAP.items():
+        for key, roles in SECTION_ROLES.items():
             if key in s:
-                return role
-        return 'producer'  # safe default
+                return roles
+        return ['producer']  # safe default
 
-    for attempt in range(8):
+    def _select_role_from_dropdown(page, role_name, attempt_label):
+        """Open dropdown is already open — find and click a role option."""
+        opts = page.locator("[role='option']")
+        opts_count = opts.count()
+
+        # Exact match
+        for oi in range(opts_count):
+            try:
+                opt_el = opts.nth(oi)
+                if not opt_el.is_visible(timeout=500):
+                    continue
+                text = opt_el.inner_text(timeout=500).strip()
+                if text.lower() == role_name.lower():
+                    opt_el.click(force=True, timeout=3000)
+                    log.info(f"  {attempt_label} Role: '{text}' selected (exact)")
+                    return True
+            except Exception:
+                continue
+
+        # Partial match
+        for oi in range(opts_count):
+            try:
+                opt_el = opts.nth(oi)
+                if not opt_el.is_visible(timeout=500):
+                    continue
+                text = opt_el.inner_text(timeout=500).strip()
+                if role_name.lower() in text.lower():
+                    opt_el.click(force=True, timeout=3000)
+                    log.info(f"  {attempt_label} Role: '{text}' selected (partial)")
+                    return True
+            except Exception:
+                continue
+
+        # Type-search fallback: type in react-select input to filter
+        log.info(f"  {attempt_label} Role '{role_name}' not in list, typing to search...")
+        try:
+            search_input = page.locator(
+                "[class*='control'] input, "
+                "[class*='Input'] input, "
+                "input[id*='react-select']"
+            )
+            for si in range(search_input.count()):
+                inp = search_input.nth(si)
+                if inp.is_visible(timeout=500) or inp.is_enabled(timeout=500):
+                    inp.fill('')
+                    inp.type(role_name, delay=80)
+                    page.wait_for_timeout(1500)
+                    first_opt = page.locator("[role='option']").first
+                    if first_opt.is_visible(timeout=2000):
+                        opt_text = first_opt.inner_text(timeout=500).strip()
+                        first_opt.click(force=True, timeout=3000)
+                        log.info(f"  {attempt_label} Role: '{opt_text}' selected (typed)")
+                        return True
+                    break
+        except Exception as e:
+            log.warning(f"  {attempt_label} Type-search failed: {e}")
+
+        return False
+
+    # Track which sections we've already filled
+    filled_sections = set()
+
+    for attempt in range(12):
         try:
             choose = page.get_by_text('CHOOSE', exact=True).first
             if not choose.is_visible(timeout=1500):
                 log.info(f"  No more CHOOSE (after {attempt})")
                 break
 
-            # Detect which section via closest <fieldset> → <legend> text
+            # Detect section via closest <fieldset> → <legend>
             section_text = page.evaluate("""(el) => {
                 const fs = el.closest('fieldset.artists_creatives_fieldset');
                 if (fs) {
                     const legend = fs.querySelector('legend.artists_creatives_legend');
                     if (legend) return legend.textContent.trim().toLowerCase();
                 }
-                // Fallback: walk up DOM looking for section headings
                 let node = el;
                 for (let i = 0; i < 20 && node; i++) {
                     node = node.parentElement;
                     if (!node) break;
                     const t = node.textContent || '';
-                    if (/performing artist/i.test(t)) return 'performing artists';
-                    if (/producers|engineers/i.test(t)) return 'producers & engineers';
-                    if (/song artists|artists.*creatives/i.test(t)) return 'song artists';
+                    if (/performing artist/i.test(t)) return 'performing artists*';
+                    if (/producers|engineers/i.test(t)) return 'producers & engineers*';
+                    if (/song artists|artists.*creatives/i.test(t)) return 'song artists & creatives';
                 }
                 return 'unknown';
             }""", choose.element_handle())
 
-            desired_role = _match_section_role(section_text)
-            log.info(f"  [{attempt}] Section: '{section_text}' → desired role: '{desired_role}'")
+            desired_roles = _get_section_roles(section_text)
+            log.info(f"  [{attempt}] Section: '{section_text}' → roles: {desired_roles}")
 
-            # Click control to open dropdown
+            # Open the dropdown (click control)
             try:
                 ctrl = choose.locator("xpath=ancestor::*[contains(@class, 'control')]").first
                 ctrl.scroll_into_view_if_needed(timeout=2000)
@@ -827,72 +888,20 @@ def _fill_choose_sections(page, artist: str):
                 choose.click()
             page.wait_for_timeout(2500)
 
-            # Try to find and click the desired role option
-            opts = page.locator("[role='option']")
-            opts_count = opts.count()
-            clicked = False
+            # Select each desired role one by one (multi-select: dropdown stays open)
+            any_clicked = False
+            for role_name in desired_roles:
+                label = f"[{attempt}]"
+                if _select_role_from_dropdown(page, role_name, label):
+                    any_clicked = True
+                    page.wait_for_timeout(1000)  # wait for chip to appear
+                else:
+                    log.warning(f"  [{attempt}] Could not select role '{role_name}'")
 
-            # First pass: look for exact/partial match with desired role
-            for oi in range(opts_count):
-                try:
-                    opt_el = opts.nth(oi)
-                    if not opt_el.is_visible(timeout=500):
-                        continue
-                    text = opt_el.inner_text(timeout=500).strip()
-                    if text.lower() == desired_role.lower():
-                        opt_el.click(force=True, timeout=3000)
-                        log.info(f"  [{attempt}] Role: '{text}' selected (exact match)")
-                        clicked = True
-                        break
-                except Exception:
-                    continue
-
-            # Second pass: partial match (contains)
-            if not clicked:
-                for oi in range(opts_count):
-                    try:
-                        opt_el = opts.nth(oi)
-                        if not opt_el.is_visible(timeout=500):
-                            continue
-                        text = opt_el.inner_text(timeout=500).strip()
-                        if desired_role.lower() in text.lower():
-                            opt_el.click(force=True, timeout=3000)
-                            log.info(f"  [{attempt}] Role: '{text}' selected (partial match)")
-                            clicked = True
-                            break
-                    except Exception:
-                        continue
-
-            # Fallback: type the role in the react-select search input to filter
-            if not clicked:
-                log.info(f"  [{attempt}] Role '{desired_role}' not in list, typing to search...")
-                try:
-                    # react-select has a hidden input that becomes active when menu is open
-                    search_input = page.locator(
-                        "[class*='control'] input, "
-                        "[class*='Input'] input, "
-                        "input[id*='react-select']"
-                    )
-                    for si in range(search_input.count()):
-                        inp = search_input.nth(si)
-                        if inp.is_visible(timeout=500) or inp.is_enabled(timeout=500):
-                            inp.fill('')
-                            inp.type(desired_role, delay=80)
-                            page.wait_for_timeout(1500)
-                            # Pick first filtered option
-                            first_opt = page.locator("[role='option']").first
-                            if first_opt.is_visible(timeout=2000):
-                                opt_text = first_opt.inner_text(timeout=500).strip()
-                                first_opt.click(force=True, timeout=3000)
-                                log.info(f"  [{attempt}] Role: '{opt_text}' selected (typed search)")
-                                clicked = True
-                            break
-                except Exception as e:
-                    log.warning(f"  [{attempt}] Type-search fallback failed: {e}")
-
-            # Last resort: click first visible option
-            if not clicked:
-                for oi in range(opts_count):
+            if not any_clicked:
+                # Last resort: click first visible option
+                opts = page.locator("[role='option']")
+                for oi in range(opts.count()):
                     try:
                         opt_el = opts.nth(oi)
                         if not opt_el.is_visible(timeout=500):
@@ -900,13 +909,10 @@ def _fill_choose_sections(page, artist: str):
                         text = opt_el.inner_text(timeout=500).strip()
                         opt_el.click(force=True, timeout=3000)
                         log.info(f"  [{attempt}] Role: '{text}' selected (first-option fallback)")
-                        clicked = True
                         break
                     except Exception:
                         continue
 
-            if not clicked:
-                log.warning(f"  [{attempt}] Role: no visible options in dropdown")
             # Dismiss by clicking outside (NOT Escape — can clear react-select values)
             page.wait_for_timeout(500)
             try:
