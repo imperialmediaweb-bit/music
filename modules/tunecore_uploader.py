@@ -766,7 +766,16 @@ def _fill_choose_sections(page, artist: str):
             log.info(f"  No more empty name inputs (after {attempt})")
             break
 
-    # ── Phase 2: Click Role dropdowns — open, read options, click first one ──
+    # ── Phase 2: Click Role dropdowns — detect section, pick correct role ──
+    # Mapping: section keyword in ancestor text → desired role to select
+    SECTION_ROLE_MAP = {
+        'performing artist': 'banjo',
+        'song artists':      'performer',
+        'artists & creatives': 'performer',
+        'producers':         'producer',
+        'engineers':         'producer',
+    }
+
     for attempt in range(8):
         try:
             choose = page.get_by_text('CHOOSE', exact=True).first
@@ -774,7 +783,22 @@ def _fill_choose_sections(page, artist: str):
                 log.info(f"  No more CHOOSE (after {attempt})")
                 break
 
-            log.info(f"  [{attempt}] Opening Role dropdown...")
+            # Detect which section this CHOOSE belongs to by reading ancestor text
+            section_text = page.evaluate("""(el) => {
+                let node = el;
+                for (let i = 0; i < 20 && node; i++) {
+                    node = node.parentElement;
+                    if (!node) break;
+                    const t = node.textContent || '';
+                    if (/performing artist/i.test(t)) return 'performing artist';
+                    if (/producers|engineers/i.test(t)) return 'producers';
+                    if (/song artists|artists.*creatives/i.test(t)) return 'song artists';
+                }
+                return 'unknown';
+            }""", choose.element_handle())
+
+            desired_role = SECTION_ROLE_MAP.get(section_text, 'producer')
+            log.info(f"  [{attempt}] Section: '{section_text}' → desired role: '{desired_role}'")
 
             # Click control to open dropdown
             try:
@@ -786,22 +810,83 @@ def _fill_choose_sections(page, artist: str):
                 choose.click()
             page.wait_for_timeout(2500)
 
-            # Find all visible options and click the first one
+            # Try to find and click the desired role option
             opts = page.locator("[role='option']")
             opts_count = opts.count()
             clicked = False
+
+            # First pass: look for exact/partial match with desired role
             for oi in range(opts_count):
                 try:
                     opt_el = opts.nth(oi)
                     if not opt_el.is_visible(timeout=500):
                         continue
                     text = opt_el.inner_text(timeout=500).strip()
-                    opt_el.click(force=True, timeout=3000)
-                    log.info(f"  [{attempt}] Role: '{text}' selected")
-                    clicked = True
-                    break
+                    if text.lower() == desired_role.lower():
+                        opt_el.click(force=True, timeout=3000)
+                        log.info(f"  [{attempt}] Role: '{text}' selected (exact match)")
+                        clicked = True
+                        break
                 except Exception:
                     continue
+
+            # Second pass: partial match (contains)
+            if not clicked:
+                for oi in range(opts_count):
+                    try:
+                        opt_el = opts.nth(oi)
+                        if not opt_el.is_visible(timeout=500):
+                            continue
+                        text = opt_el.inner_text(timeout=500).strip()
+                        if desired_role.lower() in text.lower():
+                            opt_el.click(force=True, timeout=3000)
+                            log.info(f"  [{attempt}] Role: '{text}' selected (partial match)")
+                            clicked = True
+                            break
+                    except Exception:
+                        continue
+
+            # Fallback: type the role in the react-select search input to filter
+            if not clicked:
+                log.info(f"  [{attempt}] Role '{desired_role}' not in list, typing to search...")
+                try:
+                    # react-select has a hidden input that becomes active when menu is open
+                    search_input = page.locator(
+                        "[class*='control'] input, "
+                        "[class*='Input'] input, "
+                        "input[id*='react-select']"
+                    )
+                    for si in range(search_input.count()):
+                        inp = search_input.nth(si)
+                        if inp.is_visible(timeout=500) or inp.is_enabled(timeout=500):
+                            inp.fill('')
+                            inp.type(desired_role, delay=80)
+                            page.wait_for_timeout(1500)
+                            # Pick first filtered option
+                            first_opt = page.locator("[role='option']").first
+                            if first_opt.is_visible(timeout=2000):
+                                opt_text = first_opt.inner_text(timeout=500).strip()
+                                first_opt.click(force=True, timeout=3000)
+                                log.info(f"  [{attempt}] Role: '{opt_text}' selected (typed search)")
+                                clicked = True
+                            break
+                except Exception as e:
+                    log.warning(f"  [{attempt}] Type-search fallback failed: {e}")
+
+            # Last resort: click first visible option
+            if not clicked:
+                for oi in range(opts_count):
+                    try:
+                        opt_el = opts.nth(oi)
+                        if not opt_el.is_visible(timeout=500):
+                            continue
+                        text = opt_el.inner_text(timeout=500).strip()
+                        opt_el.click(force=True, timeout=3000)
+                        log.info(f"  [{attempt}] Role: '{text}' selected (first-option fallback)")
+                        clicked = True
+                        break
+                    except Exception:
+                        continue
 
             if not clicked:
                 log.warning(f"  [{attempt}] Role: no visible options in dropdown")
