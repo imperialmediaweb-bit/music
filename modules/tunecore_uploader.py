@@ -768,6 +768,14 @@ def _fill_choose_sections(page, artist: str):
 
     # ── Phase 2: Click Role dropdowns and select from dropdown list ──
     # Find all react-select containers that show CHOOSE or are empty
+    #
+    # TuneCore has 3 sections with role dropdowns, each with DIFFERENT options:
+    #   Song Artists & Creatives  → performer (id:1), producer (id:2), songwriter (id:3), instruments...
+    #   Performing Artists        → programming, keyboards, vocals, drums, guitar... (NO "performer")
+    #   Producers & Engineers     → producer, mixing engineer, mastering engineer... (NO "performer")
+    #
+    # By ordering variants as ["performer", "producer", "programming"], the first
+    # match naturally selects the right role per section (each only exists in one).
     for attempt in range(8):
         try:
             choose = page.get_by_text('CHOOSE', exact=True).first
@@ -775,16 +783,42 @@ def _fill_choose_sections(page, artist: str):
                 log.info(f"  No more CHOOSE (after {attempt})")
                 break
 
-            # Determine context: walk up DOM to find section heading
-            choose_box = choose.locator("xpath=ancestor::*[contains(@class, 'container') or contains(@class, 'select') or contains(@class, 'css-')]").first
+            # Detect section context via nearby heading text
+            section_context = "unknown"
             try:
-                section_text = choose_box.locator("xpath=ancestor::fieldset | ancestor::*[contains(@class, 'section')]").first.inner_text(timeout=1000)
+                section_text = page.evaluate("""(chooseText) => {
+                    const els = [...document.querySelectorAll('*')].filter(
+                        el => el.offsetWidth > 0 && el.textContent.trim() === chooseText
+                    );
+                    if (!els.length) return '';
+                    let node = els[0];
+                    for (let i = 0; i < 25 && node; i++) {
+                        const hs = node.querySelectorAll('h2, h3, h4, label, [class*="header"], [class*="title"]');
+                        for (const h of hs) {
+                            const t = h.textContent.toLowerCase();
+                            if (t.includes('performing artist')) return 'performing';
+                            if (t.includes('producer') && t.includes('engineer')) return 'production';
+                            if (t.includes('artist') && t.includes('creative')) return 'creative';
+                        }
+                        node = node.parentElement;
+                    }
+                    return 'unknown';
+                }""", "CHOOSE")
+                section_context = section_text or "unknown"
             except Exception:
-                section_text = ""
+                pass
 
-            target_role = "main artist"
+            # Pick role based on which section the CHOOSE dropdown is in
+            if section_context == "performing":
+                role_variants = ["programming", "keyboards", "vocals", "drums"]
+            elif section_context == "production":
+                role_variants = ["producer", "mixing engineer", "mastering engineer"]
+            else:
+                # Song Artists & Creatives (default)
+                role_variants = ["performer", "producer", "songwriter"]
+            target_role = role_variants[0]
 
-            log.info(f"  [{attempt}] Clicking Role dropdown (target: '{target_role}')...")
+            log.info(f"  [{attempt}] Clicking Role dropdown (section: {section_context}, target: '{target_role}')...")
 
             # Click control to open dropdown
             try:
@@ -799,8 +833,6 @@ def _fill_choose_sections(page, artist: str):
             # Browse visible options and click matching one directly
             # (works for non-searchable react-select where typing does nothing)
             clicked = False
-            # Try multiple role name variants in priority order
-            role_variants = ["main artist", "performer", "producer"]
             try:
                 opts = page.locator(
                     "[role='option'], [id*='option'], [class*='option']"
