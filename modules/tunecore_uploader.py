@@ -767,14 +767,25 @@ def _fill_choose_sections(page, artist: str):
             break
 
     # ── Phase 2: Click Role dropdowns — detect section, pick correct role ──
-    # Mapping: section keyword in ancestor text → desired role to select
+    # Mapping: keyword found in <legend> text → desired role to select
+    # Legend text looks like "Performing Artists*", "Producers & Engineers*", etc.
     SECTION_ROLE_MAP = {
-        'performing artist': 'banjo',
-        'song artists':      'performer',
+        'performing artists': 'banjo',
+        'performing artist':  'banjo',
+        'song artists':       'performer',
         'artists & creatives': 'performer',
-        'producers':         'producer',
-        'engineers':         'producer',
+        'producers & engineers': 'producer',
+        'producers':          'producer',
+        'engineers':          'producer',
     }
+
+    def _match_section_role(section_text):
+        """Match section legend text to desired role."""
+        s = section_text.lower().replace('*', '').strip()
+        for key, role in SECTION_ROLE_MAP.items():
+            if key in s:
+                return role
+        return 'producer'  # safe default
 
     for attempt in range(8):
         try:
@@ -783,21 +794,27 @@ def _fill_choose_sections(page, artist: str):
                 log.info(f"  No more CHOOSE (after {attempt})")
                 break
 
-            # Detect which section this CHOOSE belongs to by reading ancestor text
+            # Detect which section via closest <fieldset> → <legend> text
             section_text = page.evaluate("""(el) => {
+                const fs = el.closest('fieldset.artists_creatives_fieldset');
+                if (fs) {
+                    const legend = fs.querySelector('legend.artists_creatives_legend');
+                    if (legend) return legend.textContent.trim().toLowerCase();
+                }
+                // Fallback: walk up DOM looking for section headings
                 let node = el;
                 for (let i = 0; i < 20 && node; i++) {
                     node = node.parentElement;
                     if (!node) break;
                     const t = node.textContent || '';
-                    if (/performing artist/i.test(t)) return 'performing artist';
-                    if (/producers|engineers/i.test(t)) return 'producers';
+                    if (/performing artist/i.test(t)) return 'performing artists';
+                    if (/producers|engineers/i.test(t)) return 'producers & engineers';
                     if (/song artists|artists.*creatives/i.test(t)) return 'song artists';
                 }
                 return 'unknown';
             }""", choose.element_handle())
 
-            desired_role = SECTION_ROLE_MAP.get(section_text, 'producer')
+            desired_role = _match_section_role(section_text)
             log.info(f"  [{attempt}] Section: '{section_text}' → desired role: '{desired_role}'")
 
             # Click control to open dropdown
