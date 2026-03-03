@@ -767,7 +767,7 @@ def _fill_choose_sections(page, artist: str):
             break
 
     # ── Phase 2: Fill Role dropdowns per section (multi-select) ──
-    # Each section maps to a LIST of roles to select (react-select multi-select chips)
+    # Click the box → dropdown opens → click option(s) → done.
     # Legend text: "Performing Artists*", "Song Artists & Creatives", "Producers & Engineers*"
     SECTION_ROLES = {
         'song artists':          ['main artist', 'performer'],
@@ -779,98 +779,26 @@ def _fill_choose_sections(page, artist: str):
         'engineers':             ['producer'],
     }
 
-    def _get_section_roles(section_text):
-        """Match section legend text to list of desired roles."""
-        s = section_text.lower().replace('*', '').strip()
+    def _get_section_roles(legend_text):
+        s = legend_text.lower().replace('*', '').strip()
         for key, roles in SECTION_ROLES.items():
             if key in s:
                 return roles
-        return ['producer']  # safe default
+        return ['producer']
 
-    def _select_role_from_dropdown(page, role_name, attempt_label):
-        """Open dropdown is already open — find and click a role option."""
-        opts = page.locator("[role='option']")
-        opts_count = opts.count()
-
-        # Exact match
-        for oi in range(opts_count):
-            try:
-                opt_el = opts.nth(oi)
-                if not opt_el.is_visible(timeout=500):
-                    continue
-                text = opt_el.inner_text(timeout=500).strip()
-                if text.lower() == role_name.lower():
-                    opt_el.click(force=True, timeout=3000)
-                    log.info(f"  {attempt_label} Role: '{text}' selected (exact)")
-                    return True
-            except Exception:
-                continue
-
-        # Partial match
-        for oi in range(opts_count):
-            try:
-                opt_el = opts.nth(oi)
-                if not opt_el.is_visible(timeout=500):
-                    continue
-                text = opt_el.inner_text(timeout=500).strip()
-                if role_name.lower() in text.lower():
-                    opt_el.click(force=True, timeout=3000)
-                    log.info(f"  {attempt_label} Role: '{text}' selected (partial)")
-                    return True
-            except Exception:
-                continue
-
-        # Type-search fallback: type in react-select input to filter
-        log.info(f"  {attempt_label} Role '{role_name}' not in list, typing to search...")
-        try:
-            search_input = page.locator(
-                "[class*='control'] input, "
-                "[class*='Input'] input, "
-                "input[id*='react-select']"
-            )
-            for si in range(search_input.count()):
-                inp = search_input.nth(si)
-                if inp.is_visible(timeout=500) or inp.is_enabled(timeout=500):
-                    inp.fill('')
-                    inp.type(role_name, delay=80)
-                    page.wait_for_timeout(1500)
-                    first_opt = page.locator("[role='option']").first
-                    if first_opt.is_visible(timeout=2000):
-                        opt_text = first_opt.inner_text(timeout=500).strip()
-                        first_opt.click(force=True, timeout=3000)
-                        log.info(f"  {attempt_label} Role: '{opt_text}' selected (typed)")
-                        return True
-                    break
-        except Exception as e:
-            log.warning(f"  {attempt_label} Type-search failed: {e}")
-
-        return False
-
-    # Track which sections we've already filled
-    filled_sections = set()
-
-    for attempt in range(12):
+    for attempt in range(8):
         try:
             choose = page.get_by_text('CHOOSE', exact=True).first
             if not choose.is_visible(timeout=1500):
-                log.info(f"  No more CHOOSE (after {attempt})")
+                log.info(f"  No more CHOOSE dropdowns (after {attempt})")
                 break
 
-            # Detect section via closest <fieldset> → <legend>
+            # Find which section this belongs to via <fieldset> → <legend>
             section_text = page.evaluate("""(el) => {
                 const fs = el.closest('fieldset.artists_creatives_fieldset');
                 if (fs) {
-                    const legend = fs.querySelector('legend.artists_creatives_legend');
-                    if (legend) return legend.textContent.trim().toLowerCase();
-                }
-                let node = el;
-                for (let i = 0; i < 20 && node; i++) {
-                    node = node.parentElement;
-                    if (!node) break;
-                    const t = node.textContent || '';
-                    if (/performing artist/i.test(t)) return 'performing artists*';
-                    if (/producers|engineers/i.test(t)) return 'producers & engineers*';
-                    if (/song artists|artists.*creatives/i.test(t)) return 'song artists & creatives';
+                    const lg = fs.querySelector('legend.artists_creatives_legend');
+                    if (lg) return lg.textContent.trim().toLowerCase();
                 }
                 return 'unknown';
             }""", choose.element_handle())
@@ -878,48 +806,30 @@ def _fill_choose_sections(page, artist: str):
             desired_roles = _get_section_roles(section_text)
             log.info(f"  [{attempt}] Section: '{section_text}' → roles: {desired_roles}")
 
-            # Open the dropdown (click control)
-            try:
-                ctrl = choose.locator("xpath=ancestor::*[contains(@class, 'control')]").first
-                ctrl.scroll_into_view_if_needed(timeout=2000)
-                ctrl.click(timeout=2000)
-            except Exception:
-                choose.scroll_into_view_if_needed(timeout=2000)
-                choose.click()
-            page.wait_for_timeout(2500)
+            # Click the box to open the dropdown
+            choose.scroll_into_view_if_needed(timeout=2000)
+            choose.click()
+            page.wait_for_timeout(1500)
 
-            # Select each desired role one by one (multi-select: dropdown stays open)
-            any_clicked = False
+            # Click each desired role option (dropdown stays open for multi-select)
             for role_name in desired_roles:
-                label = f"[{attempt}]"
-                if _select_role_from_dropdown(page, role_name, label):
-                    any_clicked = True
-                    page.wait_for_timeout(1000)  # wait for chip to appear
-                else:
-                    log.warning(f"  [{attempt}] Could not select role '{role_name}'")
+                try:
+                    opt = page.locator("[role='option']").filter(has_text=re.compile(
+                        f'^{re.escape(role_name)}$', re.IGNORECASE))
+                    if opt.first.is_visible(timeout=2000):
+                        opt.first.click(timeout=3000)
+                        log.info(f"  [{attempt}] Role: '{role_name}' clicked")
+                        page.wait_for_timeout(800)
+                except Exception as e:
+                    log.warning(f"  [{attempt}] Role '{role_name}' click failed: {e}")
 
-            if not any_clicked:
-                # Last resort: click first visible option
-                opts = page.locator("[role='option']")
-                for oi in range(opts.count()):
-                    try:
-                        opt_el = opts.nth(oi)
-                        if not opt_el.is_visible(timeout=500):
-                            continue
-                        text = opt_el.inner_text(timeout=500).strip()
-                        opt_el.click(force=True, timeout=3000)
-                        log.info(f"  [{attempt}] Role: '{text}' selected (first-option fallback)")
-                        break
-                    except Exception:
-                        continue
-
-            # Dismiss by clicking outside (NOT Escape — can clear react-select values)
+            # Click outside to close dropdown
             page.wait_for_timeout(500)
             try:
                 page.locator("body").click(position={"x": 10, "y": 10})
             except Exception:
                 pass
-            page.wait_for_timeout(1200)
+            page.wait_for_timeout(1000)
         except Exception as e:
             log.warning(f"  [{attempt}] CHOOSE: {e}")
             break
