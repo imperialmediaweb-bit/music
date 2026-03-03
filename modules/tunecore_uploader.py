@@ -771,11 +771,10 @@ def _fill_choose_sections(page, artist: str):
     #
     # TuneCore has 3 sections with role dropdowns, each with DIFFERENT options:
     #   Song Artists & Creatives  → performer (id:1), producer (id:2), songwriter (id:3), instruments...
-    #   Performing Artists        → programming, keyboards, vocals, drums, guitar... (NO "performer")
-    #   Producers & Engineers     → producer, mixing engineer, mastering engineer... (NO "performer")
+    #   Performing Artists        → accordion, banjo, background vocals, keyboards, drums, guitar...
+    #   Producers & Engineers     → assistant engineer, producer, mixing engineer, mastering engineer...
     #
-    # By ordering variants as ["performer", "producer", "programming"], the first
-    # match naturally selects the right role per section (each only exists in one).
+    # By ordering variants per section, the first match selects the right role.
     for attempt in range(8):
         try:
             choose = page.get_by_text('CHOOSE', exact=True).first
@@ -810,9 +809,9 @@ def _fill_choose_sections(page, artist: str):
 
             # Pick role based on which section the CHOOSE dropdown is in
             if section_context == "performing":
-                role_variants = ["programming", "keyboards", "vocals", "drums"]
+                role_variants = ["accordion", "banjo", "background vocals", "keyboards"]
             elif section_context == "production":
-                role_variants = ["producer", "mixing engineer", "mastering engineer"]
+                role_variants = ["assistant engineer", "producer", "mixing engineer"]
             else:
                 # Song Artists & Creatives (default)
                 role_variants = ["performer", "producer", "songwriter"]
@@ -828,14 +827,15 @@ def _fill_choose_sections(page, artist: str):
             except Exception:
                 choose.scroll_into_view_if_needed(timeout=2000)
                 choose.click()
-            page.wait_for_timeout(2000)
+            page.wait_for_timeout(2500)
 
             # Browse visible options and click matching one directly
-            # (works for non-searchable react-select where typing does nothing)
             clicked = False
             try:
+                # Broader selector to catch all dropdown option variants
                 opts = page.locator(
-                    "[role='option'], [id*='option'], [class*='option']"
+                    "[role='option'], [id*='option'], [class*='option'], "
+                    "[class*='menu'] [class*='item'], [class*='listbox'] > div"
                 )
                 opts_count = opts.count()
                 # Collect all visible option texts for debugging
@@ -858,7 +858,11 @@ def _fill_choose_sections(page, artist: str):
                     # Exact match (case-insensitive)
                     for oi, text in all_opt_texts:
                         if text.lower() == variant:
-                            opts.nth(oi).click()
+                            try:
+                                opts.nth(oi).click(force=True, timeout=3000)
+                            except Exception:
+                                # JS click fallback if Playwright click is intercepted
+                                opts.nth(oi).evaluate("el => el.click()")
                             log.info(f"  [{attempt}] Role: '{text}' selected (exact match)")
                             clicked = True
                             break
@@ -867,18 +871,52 @@ def _fill_choose_sections(page, artist: str):
                     # Partial match: option contains variant
                     for oi, text in all_opt_texts:
                         if variant in text.lower():
-                            opts.nth(oi).click()
+                            try:
+                                opts.nth(oi).click(force=True, timeout=3000)
+                            except Exception:
+                                opts.nth(oi).evaluate("el => el.click()")
                             log.info(f"  [{attempt}] Role: '{text}' selected (contains '{variant}')")
                             clicked = True
                             break
             except Exception:
                 pass
 
-            # Fallback: type to filter then click (for searchable dropdowns)
+            # Fallback: JS-based click on matching option text
             if not clicked:
                 for variant in role_variants:
                     try:
-                        # Clear any previously typed text before trying next variant
+                        js_clicked = page.evaluate("""(targetText) => {
+                            const opts = document.querySelectorAll(
+                                "[role='option'], [id*='option'], [class*='option'], [class*='menu'] [class*='item']"
+                            );
+                            for (const opt of opts) {
+                                if (opt.offsetWidth > 0 && opt.textContent.trim().toLowerCase() === targetText) {
+                                    opt.scrollIntoView({block: 'nearest'});
+                                    opt.click();
+                                    return true;
+                                }
+                            }
+                            // Partial match fallback
+                            for (const opt of opts) {
+                                if (opt.offsetWidth > 0 && opt.textContent.trim().toLowerCase().includes(targetText)) {
+                                    opt.scrollIntoView({block: 'nearest'});
+                                    opt.click();
+                                    return true;
+                                }
+                            }
+                            return false;
+                        }""", variant)
+                        if js_clicked:
+                            log.info(f"  [{attempt}] Role: '{variant}' selected (JS click)")
+                            clicked = True
+                            break
+                    except Exception:
+                        pass
+
+            # Last resort: type to filter then click (for searchable dropdowns)
+            if not clicked:
+                for variant in role_variants:
+                    try:
                         page.keyboard.press("Control+a")
                         page.wait_for_timeout(200)
                         page.keyboard.press("Backspace")
@@ -889,7 +927,7 @@ def _fill_choose_sections(page, artist: str):
                             "[role='option'], [id*='option'], [class*='option']"
                         ).filter(has_text=re.compile(re.escape(variant), re.IGNORECASE)).first
                         if opt.is_visible(timeout=3000):
-                            opt.click()
+                            opt.click(force=True)
                             log.info(f"  [{attempt}] Role: '{variant}' selected (typed+clicked)")
                             clicked = True
                             break
