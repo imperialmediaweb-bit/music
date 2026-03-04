@@ -1312,9 +1312,18 @@ def _do_upload(
                         _dump_page_state(page, f"STUCK on {state}")
                     except Exception:
                         pass
-                    # If stuck on dashboard, try clicking Add Release or navigate directly
+                    # If stuck on dashboard, restore nav and try clicking Add Release
                     if state == 'dashboard':
-                        log.info("  Stuck on dashboard — trying 'Add Release' button")
+                        log.info("  Stuck on dashboard — restoring nav & trying 'Add Release'")
+                        # Restore navbar so Add Release button is visible
+                        page.evaluate("""() => {
+                            for (const sel of ['#v2-nav-mountpoint', '.nav-nav85', '[class*="nav-nav"]']) {
+                                for (const el of document.querySelectorAll(sel)) {
+                                    el.style.display = '';
+                                }
+                            }
+                        }""")
+                        page.wait_for_timeout(1000)
                         add_rel = _find_clickable(page, [
                             "button:has-text('Add Release')",
                             "a:has-text('Add Release')",
@@ -1335,6 +1344,27 @@ def _do_upload(
                             page.wait_for_timeout(500)
                             add_rel.click()
                             log.info("  Clicked 'Add Release'")
+                            page.wait_for_timeout(3000)
+                            # Select Single from modal
+                            single_btn = _find_clickable(page, [
+                                "button:has-text('Single')",
+                                "a:has-text('Single')",
+                                "[role='menuitem']:has-text('Single')",
+                                "[role='option']:has-text('Single')",
+                                "li:has-text('Single')",
+                            ])
+                            if single_btn:
+                                single_btn.click()
+                                log.info("  Selected 'Single' from modal")
+                            else:
+                                page.evaluate("""() => {
+                                    const els = [...document.querySelectorAll('button, a, [role="menuitem"], [role="option"], li, div, span')];
+                                    for (const el of els) {
+                                        const txt = (el.textContent || '').trim();
+                                        if (/^single$/i.test(txt) && el.offsetWidth > 0) { el.click(); return; }
+                                    }
+                                }""")
+                                log.info("  Selected 'Single' via JS fallback")
                             page.wait_for_timeout(3000)
                             _dismiss_overlays(page)
                         else:
@@ -1361,7 +1391,16 @@ def _do_upload(
                     # ── DASHBOARD ──
                     if state == 'dashboard':
                         log.info("  Creating new release...")
-                        _dismiss_overlays(page)
+
+                        # Restore navbar first — "Add Release" button lives inside it
+                        page.evaluate("""() => {
+                            for (const sel of ['#v2-nav-mountpoint', '.nav-nav85', '[class*="nav-nav"]']) {
+                                for (const el of document.querySelectorAll(sel)) {
+                                    el.style.display = '';
+                                }
+                            }
+                        }""")
+                        page.wait_for_timeout(1000)
 
                         # Click "Add Release" — try broad selectors (any element type)
                         add_rel = _find_clickable(page, [
@@ -1380,31 +1419,60 @@ def _do_upload(
                                     add_rel = None
                             except Exception:
                                 add_rel = None
+                        if not add_rel:
+                            # JS click fallback — click even if overlapped
+                            clicked_js = page.evaluate("""() => {
+                                const els = [...document.querySelectorAll('button, a, [role="button"], div, span')];
+                                for (const el of els) {
+                                    const txt = (el.textContent || '').trim();
+                                    if (/^add\\s+release$/i.test(txt) && el.offsetWidth > 0) {
+                                        el.click();
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            }""")
+                            if clicked_js:
+                                log.info("  Clicked 'Add Release' via JS fallback")
+                                add_rel = True  # flag so we enter the modal handler below
                         if add_rel:
-                            add_rel.scroll_into_view_if_needed()
-                            page.wait_for_timeout(500)
-                            add_rel.click()
+                            if add_rel is not True:
+                                add_rel.scroll_into_view_if_needed()
+                                page.wait_for_timeout(500)
+                                add_rel.click()
                             log.info("  Clicked 'Add Release'")
                             page.wait_for_timeout(3000)
-                            _dismiss_overlays(page)
-                            # After clicking "Add Release", a dropdown/popup may appear
-                            # with options like Single, Album, etc. — select Single.
+
+                            # A modal/popup appears with Single / Album — select Single
                             single_btn = _find_clickable(page, [
-                                "text=Single",
                                 "button:has-text('Single')",
                                 "a:has-text('Single')",
                                 "[role='menuitem']:has-text('Single')",
                                 "[role='option']:has-text('Single')",
                                 "li:has-text('Single')",
-                                "div:has-text('Single')",
                             ])
-                            if single_btn:
+                            if not single_btn:
+                                # JS fallback for Single in modal
+                                page.evaluate("""() => {
+                                    const els = [...document.querySelectorAll('button, a, [role="menuitem"], [role="option"], li, div, span')];
+                                    for (const el of els) {
+                                        const txt = (el.textContent || '').trim();
+                                        if (/^single$/i.test(txt) && el.offsetWidth > 0) {
+                                            el.click();
+                                            return;
+                                        }
+                                    }
+                                }""")
+                                log.info("  Selected 'Single' via JS fallback")
+                            else:
                                 single_btn.click()
-                                log.info("  Selected 'Single' from dropdown")
-                                page.wait_for_timeout(3000)
+                                log.info("  Selected 'Single' from modal")
+                            page.wait_for_timeout(3000)
+                            _dismiss_overlays(page)
                         else:
                             # Fallback: navigate directly
                             log.warning("  'Add Release' button not found — navigating to /singles/new")
+                            _dismiss_overlays(page)
                             page.goto(f"{TUNECORE_BASE}/singles/new",
                                       wait_until="domcontentloaded", timeout=30_000)
                             page.wait_for_timeout(3000)
