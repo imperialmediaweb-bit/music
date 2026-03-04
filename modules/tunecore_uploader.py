@@ -1007,6 +1007,8 @@ def _upload_file(page, file_path: Path):
     # Strategy 3: Click upload area to trigger a file chooser dialog
     log.info("  Strategy 3: Trying file chooser via click...")
     for selector in [
+        "text=UPLOAD STEREO", "text=Upload Stereo",
+        "button:has-text('UPLOAD STEREO')", "button:has-text('Upload Stereo')",
         "[class*='upload' i]", "[class*='drop' i]", "[class*='dropzone' i]",
         "[class*='drag' i]", "[data-testid*='upload' i]",
         "text=Upload", "text=Choose File", "text=Browse",
@@ -1930,7 +1932,31 @@ def _do_upload(
                                 continue
                             log.info(f"  Uploading WAV: {wav_path.name}")
                             _dump_page_state(page, "Before WAV Upload")
-                            wav_ok = _upload_file(page, wav_path)
+
+                            # Click "UPLOAD STEREO" button first to open file chooser
+                            stereo_btn = _find_clickable(page, [
+                                "text=UPLOAD STEREO",
+                                "text=Upload Stereo",
+                                "button:has-text('UPLOAD STEREO')",
+                                "button:has-text('Upload Stereo')",
+                                "a:has-text('UPLOAD STEREO')",
+                                "[class*='upload' i]:has-text('Stereo')",
+                            ])
+                            if stereo_btn:
+                                log.info("  Found 'UPLOAD STEREO' button — clicking...")
+                                try:
+                                    with page.expect_file_chooser(timeout=10000) as fc_info:
+                                        stereo_btn.click()
+                                    file_chooser = fc_info.value
+                                    file_chooser.set_files(str(wav_path))
+                                    log.info(f"  WAV selected via UPLOAD STEREO file chooser: {wav_path.name}")
+                                    wav_ok = True
+                                except Exception as e:
+                                    log.warning(f"  UPLOAD STEREO file chooser failed: {e} — falling back to _upload_file")
+                                    wav_ok = _upload_file(page, wav_path)
+                            else:
+                                log.info("  'UPLOAD STEREO' button not found — using generic _upload_file")
+                                wav_ok = _upload_file(page, wav_path)
                             if not wav_ok:
                                 log.warning(f"  WAV upload failed for '{wav_path.name}' — skipping...")
                                 continue
