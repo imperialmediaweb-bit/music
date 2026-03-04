@@ -9,7 +9,8 @@ from pathlib import Path
 
 from config import (
     SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE,
-    SUNO_STATE_FILE, UDIO_STATE_FILE, TUNECORE_STATE_FILE, MUSIC_PLATFORM, SONGS_PER_CLIP,
+    SUNO_STATE_FILE, UDIO_STATE_FILE, TUNECORE_STATE_FILE, SOUNDCLOUD_STATE_FILE,
+    MUSIC_PLATFORM, SONGS_PER_CLIP,
 )
 from utils.logger import log
 
@@ -275,6 +276,47 @@ def cmd_tunecore_continue(args):
     else:
         log.error("Failed — check logs and screenshots in output/")
         sys.exit(1)
+
+
+def cmd_soundcloud_login(args):
+    """Open browser to log into SoundCloud and save session state.
+
+    These cookies are needed for automated track uploads to SoundCloud.
+    """
+    from playwright.sync_api import sync_playwright
+
+    state_file = SOUNDCLOUD_STATE_FILE
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info("Opening Chrome browser for SoundCloud login...")
+    log.info("Log in with your SoundCloud account, then come back here.")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+        )
+        page = context.new_page()
+        page.goto("https://soundcloud.com/signin", wait_until="domcontentloaded", timeout=60_000)
+
+        log.info("=" * 60)
+        log.info("Browser is open. Please:")
+        log.info("  1. Log into your SoundCloud account")
+        log.info("  2. Wait until you see the SoundCloud feed (logged in)")
+        log.info("  3. Come back here and press ENTER")
+        log.info("=" * 60)
+
+        input("\n>>> Press ENTER here after you've logged in... ")
+
+        context.storage_state(path=str(state_file))
+        log.info(f"SoundCloud session saved to: {state_file}")
+        log.info("You can now run the pipeline and SoundCloud uploads will work!")
+
+        browser.close()
 
 
 def cmd_suno_login(args):
@@ -746,6 +788,13 @@ def main():
     )
     tc_cont_parser.set_defaults(func=cmd_tunecore_continue)
 
+    # soundcloud-login - save SoundCloud session state
+    soundcloud_login_parser = subparsers.add_parser(
+        "soundcloud-login",
+        help="Log into SoundCloud and save session for automated uploads",
+    )
+    soundcloud_login_parser.set_defaults(func=cmd_soundcloud_login)
+
     # suno-login - save Suno session state
     suno_login_parser = subparsers.add_parser(
         "suno-login",
@@ -796,7 +845,7 @@ def main():
         help="Track name (e.g. Tikasa) — must match files in output/",
     )
     reupload_parser.add_argument(
-        "--only", choices=["youtube", "tiktok", "tunecore"],
+        "--only", choices=["youtube", "tiktok", "tunecore", "soundcloud"],
         help="Upload to only one platform (default: all)",
     )
     reupload_parser.set_defaults(func=cmd_reupload)

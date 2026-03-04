@@ -15,6 +15,7 @@ AIMUSICFACTORY_STATE_FILE = Path(os.getenv("AIMUSICFACTORY_STATE_FILE", BASE_DIR
 SUNO_STATE_FILE = Path(os.getenv("SUNO_STATE_FILE", BASE_DIR / "cookies" / "suno_state.json"))
 UDIO_STATE_FILE = Path(os.getenv("UDIO_STATE_FILE", BASE_DIR / "cookies" / "udio_state.json"))
 TUNECORE_STATE_FILE = Path(os.getenv("TUNECORE_STATE_FILE", BASE_DIR / "cookies" / "tunecore_state.json"))
+SOUNDCLOUD_STATE_FILE = Path(os.getenv("SOUNDCLOUD_STATE_FILE", BASE_DIR / "cookies" / "soundcloud_state.json"))
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "output"))
 INPUT_DIR = Path(os.getenv("INPUT_DIR", BASE_DIR / "input"))
 HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
@@ -33,6 +34,9 @@ THUMBNAIL_STYLE_PROMPT = os.getenv("THUMBNAIL_STYLE_PROMPT", "")
 
 # Skip TuneCore upload in the pipeline (set to "true" to disable)
 SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "false").lower() == "true"
+
+# Skip SoundCloud upload in the pipeline (set to "true" to disable)
+SKIP_SOUNDCLOUD = os.getenv("SKIP_SOUNDCLOUD", "false").lower() == "true"
 
 # Ensure directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)

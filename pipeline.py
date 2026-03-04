@@ -10,7 +10,8 @@ from modules.video_creator import create_video
 from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
 from modules.tunecore_uploader import upload_to_tunecore
-from config import SKIP_TUNECORE
+from modules.soundcloud_uploader import upload_to_soundcloud
+from config import SKIP_TUNECORE, SKIP_SOUNDCLOUD
 
 # Default artist name (used for cover art overlay and TuneCore metadata)
 DEFAULT_ARTIST = "GrooveGenix"
@@ -36,6 +37,8 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
         "duration": None,
         "youtube_url": None,
         "tiktok_url": None,
+        "tunecore_url": None,
+        "soundcloud_url": None,
         "errors": [],
     }
 
@@ -188,6 +191,50 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     else:
         log.info(f"Skipping TuneCore (--only {only})")
 
+    # Upload to SoundCloud
+    if only in (None, "soundcloud"):
+        # Reuse the same WAV + cover art files
+        name_variants = [track_name, track_name.replace(" ", "_")]
+        sc_wav = None
+        for name in name_variants:
+            candidate = OUTPUT_DIR / f"{name}.wav"
+            if candidate.exists():
+                sc_wav = candidate
+                break
+        sc_cover = None
+        for name in name_variants:
+            for suffix in ["_cover.jpg", "_cover.png"]:
+                candidate = OUTPUT_DIR / f"{name}{suffix}"
+                if candidate.exists():
+                    sc_cover = candidate
+                    break
+            if sc_cover:
+                break
+
+        if not sc_wav:
+            # Fall back to MP3 if no WAV
+            sc_wav = mp3_file if mp3_file.exists() else None
+
+        if sc_wav:
+            try:
+                log.info("=" * 60)
+                log.info("Uploading to SoundCloud...")
+                soundcloud_url = upload_to_soundcloud(sc_wav, concept, sc_cover)
+                result["soundcloud_url"] = soundcloud_url
+                if soundcloud_url:
+                    log.info(f"SoundCloud: {soundcloud_url}")
+                else:
+                    log.error("SoundCloud upload returned None — run: python main.py soundcloud-login")
+                    result["errors"].append("soundcloud: upload returned None (session expired)")
+            except Exception as e:
+                log.error(f"SoundCloud upload failed: {e}")
+                result["errors"].append(f"soundcloud: {e}")
+        else:
+            log.warning(f"No audio file found for SoundCloud (tried WAV + MP3) — skipping")
+            result["errors"].append("soundcloud: no audio file found")
+    else:
+        log.info(f"Skipping SoundCloud (--only {only})")
+
     # Summary
     log.info("=" * 60)
     if result["errors"]:
@@ -198,6 +245,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     log.info(f"YouTube: {result.get('youtube_url', 'N/A')}")
     log.info(f"TikTok: {result.get('tiktok_url', 'N/A')}")
     log.info(f"TuneCore: {result.get('tunecore_url', 'N/A')}")
+    log.info(f"SoundCloud: {result.get('soundcloud_url', 'N/A')}")
 
     return result
 
@@ -226,6 +274,7 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         "youtube_url": None,
         "tiktok_url": None,
         "tunecore_url": None,
+        "soundcloud_url": None,
         "errors": [],
     }
 
@@ -386,6 +435,30 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         if not cover_path:
             log.warning("Cover art not generated — skipping TuneCore")
 
+    # Step 9: Upload to SoundCloud (uses same WAV + cover art as TuneCore)
+    if SKIP_SOUNDCLOUD:
+        log.info("=" * 60)
+        log.info("STEP 9: SoundCloud SKIPPED (SKIP_SOUNDCLOUD=true)")
+    elif wav_path.exists():
+        try:
+            log.info("=" * 60)
+            log.info("STEP 9: Uploading to SoundCloud...")
+            # Use cover art as thumbnail (1600x1600 works well on SoundCloud)
+            sc_thumbnail = Path(cover_path) if cover_path else None
+            soundcloud_url = upload_to_soundcloud(wav_path, concept, sc_thumbnail)
+            result["soundcloud_url"] = soundcloud_url
+            if soundcloud_url:
+                log.info(f"SoundCloud: {soundcloud_url}")
+            else:
+                log.error("SoundCloud upload returned None — run: python main.py soundcloud-login")
+                result["errors"].append("soundcloud: upload returned None (session expired)")
+        except Exception as e:
+            log.error(f"SoundCloud upload failed: {e}")
+            result["errors"].append(f"soundcloud: {e}")
+    else:
+        log.warning(f"WAV file not found ({wav_path}) — skipping SoundCloud")
+        result["errors"].append(f"soundcloud: WAV not found at {wav_path}")
+
     # Summary
     log.info("=" * 60)
     if result["errors"]:
@@ -397,5 +470,6 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
     log.info(f"YouTube: {result.get('youtube_url', 'N/A')}")
     log.info(f"TikTok: {result.get('tiktok_url', 'N/A')}")
     log.info(f"TuneCore: {result.get('tunecore_url', 'N/A')}")
+    log.info(f"SoundCloud: {result.get('soundcloud_url', 'N/A')}")
 
     return result
