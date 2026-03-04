@@ -1224,12 +1224,10 @@ def _dismiss_overlays(page):
     """
     try:
         page.evaluate("""() => {
-            // Hide sticky navbar that intercepts clicks
+            // Completely hide sticky navbar that intercepts clicks
             for (const sel of ['#v2-nav-mountpoint', '.nav-nav85', '[class*="nav-nav"]']) {
                 for (const el of document.querySelectorAll(sel)) {
-                    el.style.pointerEvents = 'none';
-                    el.style.position = 'relative';
-                    el.style.zIndex = '0';
+                    el.style.display = 'none';
                 }
             }
             // Click "Reject All" cookie banner if present
@@ -1240,7 +1238,7 @@ def _dismiss_overlays(page):
                 }
             }
         }""")
-        log.info("  Dismissed overlays (navbar + cookies)")
+        log.info("  Dismissed overlays (navbar hidden + cookies)")
     except Exception as e:
         log.info(f"  Overlay dismiss failed (non-fatal): {e}")
 
@@ -1457,7 +1455,7 @@ def _do_upload(
                             if not wav_path.exists() or str(wav_path) == '/dev/null':
                                 log.info("  Add Track step — no WAV file, skipping...")
                                 cont = _find_clickable(page, [
-                                    "a.secondary-btn", "a:has-text('Continue')",
+                                    "a.secondary-btn:not([href*='payout'])", "a:has-text('Continue')",
                                     "button:has-text('Continue')",
                                 ])
                                 if cont:
@@ -1999,7 +1997,7 @@ def _do_upload(
 
                         # ── CONTINUE (a.secondary-btn link at bottom of page) ──
                         cont = _find_clickable(page, [
-                            "a.secondary-btn",
+                            "a.secondary-btn:not([href*='payout'])",
                             "a:has-text('Continue')",
                             "button:has-text('Continue')",
                         ])
@@ -2014,7 +2012,7 @@ def _do_upload(
                             if not wav_path.exists() or str(wav_path) == '/dev/null':
                                 log.info("  WAV upload step — no file provided, skipping (draft mode)")
                                 cont = _find_clickable(page, [
-                                    "a.secondary-btn", "a:has-text('Continue')",
+                                    "a.secondary-btn:not([href*='payout'])", "a:has-text('Continue')",
                                     "button:has-text('Continue')", "button:has-text('Next')",
                                 ])
                                 if cont:
@@ -2092,7 +2090,7 @@ def _do_upload(
                             if not cover_path.exists() or str(cover_path) == '/dev/null':
                                 log.info("  Artwork step — no file provided, skipping (draft mode)")
                                 cont = _find_clickable(page, [
-                                    "a.secondary-btn", "a:has-text('Continue')",
+                                    "a.secondary-btn:not([href*='payout'])", "a:has-text('Continue')",
                                     "button:has-text('Continue')", "button:has-text('Next')",
                                 ])
                                 if cont:
