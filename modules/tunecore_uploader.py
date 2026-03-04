@@ -6,8 +6,8 @@ TuneCore requires:
   - Metadata: title, artist, genre, songwriter, etc.
 
 Flow (web.tunecore.com):
-  1. Dashboard -> "Add Single" (or "Add Release" -> Choose "Single")
-  2. Click "Start"
+  1. Dashboard -> navigate to /singles/new (creates a new Single directly)
+  2. Click "Start" (if shown)
   4. Release details: track name, language=English, genre=Afro House,
      Previously Released=No -> Save
   5. Tracks -> "Add Track"
@@ -1336,49 +1336,15 @@ def _do_upload(
                 try:
                     # ── DASHBOARD ──
                     if state == 'dashboard':
-                        log.info("  Creating new single (fresh start)...")
+                        log.info("  Creating new single...")
                         _dismiss_overlays(page)
 
-                        # Strategy 1: Click "Add Single" button first
-                        add_single_btn = _find_clickable(page, [
-                            "button:has-text('Add Single')",
-                            "button:has-text('ADD SINGLE')",
-                            "a:has-text('Add Single')",
-                            "a:has-text('ADD SINGLE')",
-                        ])
-                        if add_single_btn:
-                            add_single_btn.click(force=True)
-                            log.info("  Clicked ADD SINGLE")
-                            page.wait_for_timeout(3000)
-                            _dismiss_overlays(page)
-
-                            # Then click "Add Release"
-                            add_release_btn = _find_clickable(page, [
-                                "button:has-text('Add Release')",
-                                "button:has-text('ADD RELEASE')",
-                                "a:has-text('Add Release')",
-                                "a:has-text('ADD RELEASE')",
-                            ])
-                            if add_release_btn:
-                                add_release_btn.click(force=True)
-                                log.info("  Clicked ADD RELEASE after ADD SINGLE")
-                                page.wait_for_timeout(3000)
-                        else:
-                            # Strategy 2: Try SINGLE link directly (older UI)
-                            single_link = _find_clickable(page, [
-                                "a[href*='/singles/new']",
-                                "a:has-text('SINGLE')", "a:has-text('Single')",
-                            ])
-                            if single_link:
-                                single_link.click(force=True)
-                                log.info("  Clicked SINGLE link → /singles/new")
-                                page.wait_for_timeout(3000)
-                            else:
-                                # Strategy 3: Navigate directly
-                                log.info("  No buttons found — navigating to /singles/new")
-                                page.goto(f"{TUNECORE_BASE}/singles/new",
-                                          wait_until="domcontentloaded", timeout=30_000)
-                                page.wait_for_timeout(3000)
+                        # Navigate directly to /singles/new — simplest path
+                        log.info("  Navigating to /singles/new")
+                        page.goto(f"{TUNECORE_BASE}/singles/new",
+                                  wait_until="domcontentloaded", timeout=30_000)
+                        page.wait_for_timeout(3000)
+                        _dismiss_overlays(page)
 
                     # ── CHOOSE TYPE (Single) ──
                     elif state == 'choose_type':
