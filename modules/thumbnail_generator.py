@@ -254,9 +254,7 @@ def generate_thumbnail_and_cover(
     cover = base_image.crop((left, top, left + crop_size, top + crop_size))
     # Upscale to 1600x1600 (TuneCore minimum)
     cover = cover.resize((1600, 1600), Image.LANCZOS)
-    # Overlay artist name (above track name) + track name
-    if artist_name:
-        cover = _add_artist_name(cover, artist_name)
+    # Overlay track name only (TuneCore requires cover with song name only)
     cover = _add_track_name(cover, track_name)
 
     cover_path = OUTPUT_DIR / f"{safe_name}_cover.jpg"
@@ -294,9 +292,7 @@ def generate_cover_art(
     # Upscale to 1600x1600 (TuneCore minimum)
     image = image.resize((1600, 1600), Image.LANCZOS)
 
-    # Overlay artist name + track name
-    if artist_name:
-        image = _add_artist_name(image, artist_name)
+    # Overlay track name only (TuneCore requires cover with song name only)
     image = _add_track_name(image, track_name)
 
     output_path = OUTPUT_DIR / f"{safe_name}_cover.jpg"
