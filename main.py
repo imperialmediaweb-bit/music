@@ -300,14 +300,19 @@ def cmd_soundcloud_login(args):
         context = browser.new_context(
             viewport={"width": 1920, "height": 1080},
         )
+        # Close any blank tabs that Chrome opens by default
+        for existing_page in context.pages:
+            existing_page.close()
+
         page = context.new_page()
-        page.goto("https://soundcloud.com/signin", wait_until="domcontentloaded", timeout=60_000)
+        page.goto("https://soundcloud.com", wait_until="commit", timeout=60_000)
 
         log.info("=" * 60)
         log.info("Browser is open. Please:")
-        log.info("  1. Log into your SoundCloud account")
-        log.info("  2. Wait until you see the SoundCloud feed (logged in)")
-        log.info("  3. Come back here and press ENTER")
+        log.info("  1. Click 'Sign in' on SoundCloud")
+        log.info("  2. Log into your account (Google, Facebook, email, etc.)")
+        log.info("  3. Wait until you see the SoundCloud feed (logged in)")
+        log.info("  4. Come back here and press ENTER")
         log.info("=" * 60)
 
         input("\n>>> Press ENTER here after you've logged in... ")
