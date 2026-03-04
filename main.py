@@ -278,6 +278,83 @@ def cmd_tunecore_continue(args):
         sys.exit(1)
 
 
+def cmd_tunecore_latest(args):
+    """Find the most recently created WAV + cover art in output/ and upload to TuneCore.
+
+    No need to specify a track name — it auto-detects the latest files.
+    Usage: python main.py tunecore-latest
+    """
+    from config import OUTPUT_DIR
+    from modules.tunecore_uploader import upload_to_tunecore
+    from modules.concept_generator import MusicConcept
+
+    # Find latest WAV file
+    wav_files = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not wav_files:
+        log.error(f"No WAV files found in {OUTPUT_DIR}")
+        sys.exit(1)
+    wav_path = wav_files[0]
+    log.info(f"Latest WAV: {wav_path.name}")
+
+    # Derive track name from WAV filename (e.g. "Zyphara_Nelu.wav" -> "Zyphara Nelu")
+    track_name = wav_path.stem.replace("_", " ")
+
+    # Find matching cover art, or fall back to latest cover
+    cover_path = None
+    for suffix in ["_cover.jpg", "_cover.png"]:
+        candidate = OUTPUT_DIR / f"{wav_path.stem}{suffix}"
+        if candidate.exists():
+            cover_path = candidate
+            break
+
+    # If no matching cover, find the latest cover file
+    if not cover_path:
+        cover_files = sorted(
+            list(OUTPUT_DIR.glob("*_cover.jpg")) + list(OUTPUT_DIR.glob("*_cover.png")),
+            key=lambda f: f.stat().st_mtime, reverse=True,
+        )
+        if cover_files:
+            cover_path = cover_files[0]
+
+    # If still no cover, find the latest thumbnail as fallback
+    if not cover_path:
+        thumb_files = sorted(
+            list(OUTPUT_DIR.glob("*_thumbnail.jpg")) + list(OUTPUT_DIR.glob("*_thumbnail.png")),
+            key=lambda f: f.stat().st_mtime, reverse=True,
+        )
+        if thumb_files:
+            cover_path = thumb_files[0]
+
+    if not cover_path:
+        log.error(f"No cover art or thumbnail found in {OUTPUT_DIR}")
+        sys.exit(1)
+
+    log.info(f"Cover art: {cover_path.name}")
+    log.info(f"Track name: {track_name}")
+
+    # Build a minimal MusicConcept for the upload
+    concept = MusicConcept(
+        track_name=track_name,
+        genre="Afro House",
+        mood="",
+        description="",
+        music_prompt="",
+        hashtags=[],
+        thumbnail_prompt="",
+        youtube_title=track_name,
+        youtube_description="",
+        youtube_tags=[],
+        tiktok_caption="",
+    )
+
+    result = upload_to_tunecore(wav_path, cover_path, concept)
+    if result:
+        log.info(f"Done! TuneCore result: {result}")
+    else:
+        log.error("TuneCore upload failed — check logs and screenshots in output/")
+        sys.exit(1)
+
+
 def cmd_soundcloud_login(args):
     """Open browser to log into SoundCloud and save session state.
 
@@ -792,6 +869,12 @@ def main():
         help="Track name on TuneCore (e.g. 'Zyphara Nelu')",
     )
     tc_cont_parser.set_defaults(func=cmd_tunecore_continue)
+
+    # tunecore-latest - auto-find latest WAV + cover and upload
+    subparsers.add_parser(
+        "tunecore-latest",
+        help="Find latest WAV + cover art in output/ and upload to TuneCore",
+    ).set_defaults(func=cmd_tunecore_latest)
 
     # soundcloud-login - save SoundCloud session state
     soundcloud_login_parser = subparsers.add_parser(
