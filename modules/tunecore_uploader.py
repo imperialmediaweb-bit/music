@@ -1207,6 +1207,36 @@ def _detect_page(page) -> str:
     return 'unknown'
 
 
+def _dismiss_overlays(page):
+    """Hide the sticky TuneCore navbar and dismiss cookie banners.
+
+    The nav overlay (div.nav-nav85, #v2-nav-mountpoint) intercepts pointer
+    events on dashboard buttons.  Hide it via CSS so Playwright clicks land
+    on the actual elements underneath.
+    """
+    try:
+        page.evaluate("""() => {
+            // Hide sticky navbar that intercepts clicks
+            for (const sel of ['#v2-nav-mountpoint', '.nav-nav85', '[class*="nav-nav"]']) {
+                for (const el of document.querySelectorAll(sel)) {
+                    el.style.pointerEvents = 'none';
+                    el.style.position = 'relative';
+                    el.style.zIndex = '0';
+                }
+            }
+            // Click "Reject All" cookie banner if present
+            for (const btn of document.querySelectorAll('button')) {
+                if (btn.textContent.trim() === 'Reject All' && btn.offsetWidth > 0) {
+                    btn.click();
+                    break;
+                }
+            }
+        }""")
+        log.info("  Dismissed overlays (navbar + cookies)")
+    except Exception as e:
+        log.info(f"  Overlay dismiss failed (non-fatal): {e}")
+
+
 def _do_upload(
     wav_path: Path,
     cover_path: Path,
@@ -1250,6 +1280,9 @@ def _do_upload(
                 return None
             log.info(f"  Logged in: {page.url}")
 
+            # Dismiss cookie banner & hide sticky navbar that blocks clicks
+            _dismiss_overlays(page)
+
             # ── Adaptive loop: detect → act → repeat ──
             while step < MAX_STEPS:
                 step += 1
@@ -1257,6 +1290,7 @@ def _do_upload(
                     page.screenshot(path=f"output/tunecore_{step:02d}.png")
                 except Exception:
                     pass
+                _dismiss_overlays(page)
                 state = _detect_page(page)
                 page_visit_counts[state] = page_visit_counts.get(state, 0) + 1
                 log.info(f"{'='*50}")
@@ -1272,9 +1306,18 @@ def _do_upload(
                         _dump_page_state(page, f"STUCK on {state}")
                     except Exception:
                         pass
+                    # If stuck on dashboard, navigate directly to /singles/new
+                    if state == 'dashboard':
+                        log.info("  Stuck on dashboard — navigating directly to /singles/new")
+                        page.goto(f"{TUNECORE_BASE}/singles/new",
+                                  wait_until="domcontentloaded", timeout=30_000)
+                        page.wait_for_timeout(3000)
+                        _dismiss_overlays(page)
+                        continue
                     # Try to click Continue/Next to force-advance
+                    # (exclude SET UP PAYOUT and other unrelated .secondary-btn links)
                     skip_btn = _find_clickable(page, [
-                        "a.secondary-btn", "a:has-text('Continue')",
+                        "a:has-text('Continue')",
                         "button:has-text('Continue')", "button:has-text('Next')",
                         "button:has-text('Skip')",
                     ])
@@ -1297,30 +1340,48 @@ def _do_upload(
 
                         if draft:
                             log.info(f"  Found draft '{concept.track_name}' — clicking...")
-                            draft.click()
+                            draft.click(force=True)
                             page.wait_for_timeout(5000)
                         else:
                             log.info("  No draft found — creating new single...")
-                            # Try "Add Single" first (new TuneCore flow)
-                            btn = _find_clickable(page, [
-                                "text=Add Single", "button:has-text('Add Single')",
-                                "a:has-text('Add Single')",
+                            _dismiss_overlays(page)
+
+                            # Strategy 1: Click the "SINGLE" link directly
+                            #   (TuneCore shows "What would you like to release?"
+                            #    with SINGLE → /singles/new, ALBUM → /albums/new)
+                            single_link = _find_clickable(page, [
+                                "a[href*='/singles/new']",
+                                "a:has-text('SINGLE')", "a:has-text('Single')",
                             ])
-                            if btn:
-                                btn.click()
-                                log.info("  Clicked 'Add Single' — skipping type chooser")
+                            if single_link:
+                                single_link.click(force=True)
+                                log.info("  Clicked SINGLE link → /singles/new")
                                 page.wait_for_timeout(3000)
                             else:
-                                # Fallback: "Add Release" (old flow → will land on choose_type)
+                                # Strategy 2: Click "ADD RELEASE" to open type chooser
                                 btn = _find_clickable(page, [
-                                    "text=Add Release", "button:has-text('Add Release')",
-                                    "a:has-text('Add Release')", "text=Create New",
+                                    "button:has-text('ADD RELEASE')",
+                                    "button:has-text('Add Release')",
+                                    "a:has-text('Add Release')",
                                 ])
                                 if btn:
-                                    btn.click()
+                                    btn.click(force=True)
+                                    log.info("  Clicked ADD RELEASE")
                                     page.wait_for_timeout(3000)
+                                    # Now try SINGLE link again (popup should show)
+                                    _dismiss_overlays(page)
+                                    sl2 = _find_clickable(page, [
+                                        "a[href*='/singles/new']",
+                                        "a:has-text('SINGLE')", "a:has-text('Single')",
+                                    ])
+                                    if sl2:
+                                        sl2.click(force=True)
+                                        log.info("  Clicked SINGLE after ADD RELEASE")
+                                        page.wait_for_timeout(3000)
                                 else:
-                                    page.goto(f"{TUNECORE_BASE}/releases/new",
+                                    # Strategy 3: Navigate directly
+                                    log.info("  No buttons found — navigating to /singles/new")
+                                    page.goto(f"{TUNECORE_BASE}/singles/new",
                                               wait_until="domcontentloaded", timeout=30_000)
                                     page.wait_for_timeout(3000)
 
