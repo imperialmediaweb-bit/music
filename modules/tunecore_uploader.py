@@ -1055,9 +1055,23 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
     page.wait_for_timeout(3000)
 
     while time.time() - start < timeout:
-        # Check for success indicators
-        for text in ["Upload complete", "Uploaded", "Success", "100%",
-                      "Complete", "Done", "Ready"]:
+        # Check TuneCore-specific "X / Y Completed" pattern (e.g. "1 / 1 Completed")
+        try:
+            completed_status = page.evaluate("""() => {
+                const body = document.body?.innerText || '';
+                const match = body.match(/(\\d+)\\s*\\/\\s*(\\d+)\\s*Completed/i);
+                if (match) return { done: parseInt(match[1]), total: parseInt(match[2]) };
+                return null;
+            }""")
+            if completed_status and completed_status['total'] > 0:
+                if completed_status['done'] >= completed_status['total']:
+                    log.info(f"  Upload complete: {completed_status['done']}/{completed_status['total']} Completed")
+                    return
+        except Exception:
+            pass
+
+        # Check for generic success indicators (skip "Complete" — matches "0/1 Completed")
+        for text in ["Upload complete", "Uploaded", "Success", "100%"]:
             try:
                 if page.locator(f"text={text}").first.is_visible(timeout=500):
                     log.info(f"  Upload complete: found '{text}'")
@@ -1131,6 +1145,10 @@ def _detect_page(page) -> str:
             hasRoleField: has('input[name="role"]') || has('select[name="role"]')
                 || has('input[name="creativeRole"]') || has('select[name="creativeRole"]'),
             hasFileInput: has('input[type="file"]'),
+            // UPLOAD STEREO button (label.song-file-upload-button > div.stereo-asset-upload-btn)
+            hasStereoUploadBtn: visible('div.stereo-asset-upload-btn')
+                || has('input.song-file-upload-input')
+                || visible('label.song-file-upload-button'),
             hasArtworkBtn: visibleBtn('add artwork') || visibleBtn('upload artwork')
                 || visibleBtn('cover art') || visibleBtn('add image'),
             hasReviewBtn: visibleBtn('continue and review') || visibleBtn('continue & review'),
@@ -1167,6 +1185,9 @@ def _detect_page(page) -> str:
         return 'review'
     if state.get('hasArtworkBtn') and not state.get('hasAddTrackBtn'):
         return 'artwork'
+    # UPLOAD STEREO page: has the stereo upload button (even inside #songs_app)
+    if state.get('hasStereoUploadBtn') and not state.get('hasWriterField'):
+        return 'upload_wav'
     if state.get('hasFileInput') and not state.get('hasWriterField') and not state.get('hasSongsApp'):
         return 'upload_wav'
     # TuneCore React songs app on /singles/{id}/tracks or /albums/{id}/tracks
