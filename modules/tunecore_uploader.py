@@ -1119,7 +1119,7 @@ def _check_login(page) -> bool:
 def _detect_page(page) -> str:
     """Scan the DOM and determine which TuneCore step the current page is on.
 
-    Returns one of: dashboard, choose_type, start, release_details,
+    Returns one of: dashboard, choose_type, create_wizard, start, release_details,
     add_track, track_details, upload_wav, artwork, review, release, done, unknown
     """
     state = page.evaluate("""() => {
@@ -1143,6 +1143,9 @@ def _detect_page(page) -> str:
             hasAddReleaseBtn: visibleBtn('add release'),
             hasTypeChoice: visibleBtn('single') && (visibleBtn('album') || visibleBtn('ep') || visibleBtn('ringtone')),
             hasStartBtn: visibleBtn('start') || visibleBtn('begin'),
+            // "Create Single" wizard page with step sections (Progress 0/4)
+            isCreateWizard: (body.includes('create single') || body.includes('create album'))
+                && body.includes('progress'),
             hasLangField: has('input[name="languageCode"]'),
             hasGenreField: has('input[name="primaryGenreId"]'),
             hasAddTrackBtn: visibleBtn('add track'),
@@ -1212,6 +1215,9 @@ def _detect_page(page) -> str:
         return 'start'
     if state.get('hasTypeChoice'):
         return 'choose_type'
+    # "Create Single" wizard page — shows 4 steps with Progress counter
+    if state.get('isCreateWizard'):
+        return 'create_wizard'
     return 'unknown'
 
 
@@ -1488,6 +1494,55 @@ def _do_upload(
                             btn.click()
                             log.info("  Selected: Single")
                             page.wait_for_timeout(2000)
+
+                    # ── CREATE WIZARD (4-step overview: Progress 0/4) ──
+                    elif state == 'create_wizard':
+                        log.info("  Create Single wizard — clicking first step...")
+                        # Click on step 1 (basic info section) to expand it
+                        clicked = page.evaluate("""() => {
+                            // Try clicking numbered step sections, accordion headers,
+                            // or anything that looks like the first step
+                            const targets = [
+                                // Step 1 header/button/link — often an accordion or clickable div
+                                ...document.querySelectorAll('[class*="step"], [class*="accordion"], [class*="section"], [class*="panel"]'),
+                                ...document.querySelectorAll('button, a, [role="button"], div[role="tab"], li'),
+                            ];
+                            for (const el of targets) {
+                                const txt = (el.textContent || '').toLowerCase();
+                                // Match step 1 or "basic info" text
+                                if ((txt.includes('basic info') || txt.includes('step 1') || /^\\s*1\\s/.test(txt))
+                                    && el.offsetWidth > 0 && el.offsetHeight > 0) {
+                                    el.click();
+                                    return 'step1';
+                                }
+                            }
+                            // Fallback: click any visible "Start" or "Begin" or "Continue" button
+                            for (const el of document.querySelectorAll('button, a, [role="button"]')) {
+                                const txt = (el.textContent || '').trim().toLowerCase();
+                                if ((txt === 'start' || txt === 'begin' || txt === 'continue' || txt === 'get started')
+                                    && el.offsetWidth > 0 && el.offsetHeight > 0) {
+                                    el.click();
+                                    return txt;
+                                }
+                            }
+                            // Last fallback: click the first large clickable area on the page
+                            for (const el of document.querySelectorAll('div, section, li, a, button')) {
+                                const rect = el.getBoundingClientRect();
+                                const txt = (el.textContent || '').toLowerCase();
+                                if (rect.width > 200 && rect.height > 40 && rect.top > 100
+                                    && txt.includes('basic info') && el.offsetWidth > 0) {
+                                    el.click();
+                                    return 'basic-info-area';
+                                }
+                            }
+                            return null;
+                        }""")
+                        if clicked:
+                            log.info(f"  Clicked wizard element: {clicked}")
+                        else:
+                            log.warning("  Could not find wizard step to click — dumping page state")
+                            _dump_page_state(page, "create_wizard")
+                        page.wait_for_timeout(3000)
 
                     # ── START ──
                     elif state == 'start':
