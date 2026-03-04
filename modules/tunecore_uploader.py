@@ -1312,13 +1312,25 @@ def _do_upload(
                         _dump_page_state(page, f"STUCK on {state}")
                     except Exception:
                         pass
-                    # If stuck on dashboard, navigate directly to /singles/new
+                    # If stuck on dashboard, try clicking Add Release or navigate directly
                     if state == 'dashboard':
-                        log.info("  Stuck on dashboard — navigating directly to /singles/new")
-                        page.goto(f"{TUNECORE_BASE}/singles/new",
-                                  wait_until="domcontentloaded", timeout=30_000)
-                        page.wait_for_timeout(3000)
-                        _dismiss_overlays(page)
+                        log.info("  Stuck on dashboard — trying 'Add Release' button")
+                        add_rel = _find_clickable(page, [
+                            "button:has-text('Add Release')",
+                            "a:has-text('Add Release')",
+                            "[data-testid='add-release']",
+                        ])
+                        if add_rel:
+                            add_rel.click()
+                            log.info("  Clicked 'Add Release'")
+                            page.wait_for_timeout(3000)
+                            _dismiss_overlays(page)
+                        else:
+                            log.info("  Fallback — navigating directly to /singles/new")
+                            page.goto(f"{TUNECORE_BASE}/singles/new",
+                                      wait_until="domcontentloaded", timeout=30_000)
+                            page.wait_for_timeout(3000)
+                            _dismiss_overlays(page)
                         continue
                     # Try to click Continue/Next to force-advance
                     # (exclude SET UP PAYOUT and other unrelated .secondary-btn links)
@@ -1336,15 +1348,29 @@ def _do_upload(
                 try:
                     # ── DASHBOARD ──
                     if state == 'dashboard':
-                        log.info("  Creating new single...")
+                        log.info("  Creating new release...")
                         _dismiss_overlays(page)
 
-                        # Navigate directly to /singles/new — simplest path
-                        log.info("  Navigating to /singles/new")
-                        page.goto(f"{TUNECORE_BASE}/singles/new",
-                                  wait_until="domcontentloaded", timeout=30_000)
-                        page.wait_for_timeout(3000)
-                        _dismiss_overlays(page)
+                        # Click "Add Release" button on dashboard
+                        add_rel = _find_clickable(page, [
+                            "button:has-text('Add Release')",
+                            "a:has-text('Add Release')",
+                            "[data-testid='add-release']",
+                            "button:has-text('add release')",
+                            "a:has-text('add release')",
+                        ])
+                        if add_rel:
+                            add_rel.click()
+                            log.info("  Clicked 'Add Release'")
+                            page.wait_for_timeout(3000)
+                            _dismiss_overlays(page)
+                        else:
+                            # Fallback: navigate directly
+                            log.warning("  'Add Release' button not found — navigating to /singles/new")
+                            page.goto(f"{TUNECORE_BASE}/singles/new",
+                                      wait_until="domcontentloaded", timeout=30_000)
+                            page.wait_for_timeout(3000)
+                            _dismiss_overlays(page)
 
                     # ── CHOOSE TYPE (Single) ──
                     elif state == 'choose_type':
