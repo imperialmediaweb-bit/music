@@ -1341,38 +1341,40 @@ def _do_upload(
                         log.info("  Creating new single (fresh start)...")
                         _dismiss_overlays(page)
 
-                        # Strategy 1: Click the "SINGLE" link directly
-                        #   (TuneCore shows "What would you like to release?"
-                        #    with SINGLE → /singles/new, ALBUM → /albums/new)
-                        single_link = _find_clickable(page, [
-                            "a[href*='/singles/new']",
-                            "a:has-text('SINGLE')", "a:has-text('Single')",
+                        # Strategy 1: Click "Add Single" button first
+                        add_single_btn = _find_clickable(page, [
+                            "button:has-text('Add Single')",
+                            "button:has-text('ADD SINGLE')",
+                            "a:has-text('Add Single')",
+                            "a:has-text('ADD SINGLE')",
                         ])
-                        if single_link:
-                            single_link.click(force=True)
-                            log.info("  Clicked SINGLE link → /singles/new")
+                        if add_single_btn:
+                            add_single_btn.click(force=True)
+                            log.info("  Clicked ADD SINGLE")
                             page.wait_for_timeout(3000)
-                        else:
-                            # Strategy 2: Click "ADD RELEASE" to open type chooser
-                            btn = _find_clickable(page, [
-                                "button:has-text('ADD RELEASE')",
+                            _dismiss_overlays(page)
+
+                            # Then click "Add Release"
+                            add_release_btn = _find_clickable(page, [
                                 "button:has-text('Add Release')",
+                                "button:has-text('ADD RELEASE')",
                                 "a:has-text('Add Release')",
+                                "a:has-text('ADD RELEASE')",
                             ])
-                            if btn:
-                                btn.click(force=True)
-                                log.info("  Clicked ADD RELEASE")
+                            if add_release_btn:
+                                add_release_btn.click(force=True)
+                                log.info("  Clicked ADD RELEASE after ADD SINGLE")
                                 page.wait_for_timeout(3000)
-                                # Now try SINGLE link again (popup should show)
-                                _dismiss_overlays(page)
-                                sl2 = _find_clickable(page, [
-                                    "a[href*='/singles/new']",
-                                    "a:has-text('SINGLE')", "a:has-text('Single')",
-                                ])
-                                if sl2:
-                                    sl2.click(force=True)
-                                    log.info("  Clicked SINGLE after ADD RELEASE")
-                                    page.wait_for_timeout(3000)
+                        else:
+                            # Strategy 2: Try SINGLE link directly (older UI)
+                            single_link = _find_clickable(page, [
+                                "a[href*='/singles/new']",
+                                "a:has-text('SINGLE')", "a:has-text('Single')",
+                            ])
+                            if single_link:
+                                single_link.click(force=True)
+                                log.info("  Clicked SINGLE link → /singles/new")
+                                page.wait_for_timeout(3000)
                             else:
                                 # Strategy 3: Navigate directly
                                 log.info("  No buttons found — navigating to /singles/new")
