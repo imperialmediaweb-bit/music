@@ -1933,29 +1933,50 @@ def _do_upload(
                             log.info(f"  Uploading WAV: {wav_path.name}")
                             _dump_page_state(page, "Before WAV Upload")
 
-                            # Click "UPLOAD STEREO" button first to open file chooser
-                            stereo_btn = _find_clickable(page, [
-                                "text=UPLOAD STEREO",
-                                "text=Upload Stereo",
-                                "button:has-text('UPLOAD STEREO')",
-                                "button:has-text('Upload Stereo')",
-                                "a:has-text('UPLOAD STEREO')",
-                                "[class*='upload' i]:has-text('Stereo')",
-                            ])
-                            if stereo_btn:
-                                log.info("  Found 'UPLOAD STEREO' button — clicking...")
-                                try:
-                                    with page.expect_file_chooser(timeout=10000) as fc_info:
-                                        stereo_btn.click()
-                                    file_chooser = fc_info.value
-                                    file_chooser.set_files(str(wav_path))
-                                    log.info(f"  WAV selected via UPLOAD STEREO file chooser: {wav_path.name}")
+                            # Strategy 1: Set file directly on input.song-file-upload-input
+                            wav_ok = False
+                            try:
+                                file_input = page.locator("input.song-file-upload-input")
+                                if file_input.count() > 0:
+                                    file_input.first.set_input_files(str(wav_path), timeout=5000)
+                                    log.info(f"  WAV set directly on input.song-file-upload-input: {wav_path.name}")
                                     wav_ok = True
+                            except Exception as e:
+                                log.info(f"  Direct input.song-file-upload-input failed: {e}")
+
+                            # Strategy 2: Click the label.song-file-upload-button to open file chooser
+                            if not wav_ok:
+                                try:
+                                    stereo_label = page.locator("label.song-file-upload-button").first
+                                    if stereo_label.is_visible(timeout=3000):
+                                        log.info("  Clicking label.song-file-upload-button...")
+                                        with page.expect_file_chooser(timeout=10000) as fc_info:
+                                            stereo_label.click()
+                                        file_chooser = fc_info.value
+                                        file_chooser.set_files(str(wav_path))
+                                        log.info(f"  WAV selected via song-file-upload-button: {wav_path.name}")
+                                        wav_ok = True
                                 except Exception as e:
-                                    log.warning(f"  UPLOAD STEREO file chooser failed: {e} — falling back to _upload_file")
-                                    wav_ok = _upload_file(page, wav_path)
-                            else:
-                                log.info("  'UPLOAD STEREO' button not found — using generic _upload_file")
+                                    log.info(f"  label.song-file-upload-button failed: {e}")
+
+                            # Strategy 3: Click div.stereo-asset-upload-btn
+                            if not wav_ok:
+                                try:
+                                    stereo_div = page.locator("div.stereo-asset-upload-btn").first
+                                    if stereo_div.is_visible(timeout=3000):
+                                        log.info("  Clicking div.stereo-asset-upload-btn...")
+                                        with page.expect_file_chooser(timeout=10000) as fc_info:
+                                            stereo_div.click()
+                                        file_chooser = fc_info.value
+                                        file_chooser.set_files(str(wav_path))
+                                        log.info(f"  WAV selected via stereo-asset-upload-btn: {wav_path.name}")
+                                        wav_ok = True
+                                except Exception as e:
+                                    log.info(f"  div.stereo-asset-upload-btn failed: {e}")
+
+                            # Strategy 4: Fallback to generic _upload_file
+                            if not wav_ok:
+                                log.info("  TuneCore-specific selectors failed — trying generic _upload_file")
                                 wav_ok = _upload_file(page, wav_path)
                             if not wav_ok:
                                 log.warning(f"  WAV upload failed for '{wav_path.name}' — skipping...")
