@@ -137,8 +137,8 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     else:
         log.info(f"Skipping TikTok (--only {only})")
 
-    # Upload to TuneCore
-    if only in (None, "tunecore"):
+    # Upload to TuneCore (always runs with youtube/tiktok too)
+    if only in (None, "tunecore", "youtube", "tiktok"):
         # Files may use underscores instead of spaces (audio_merger convention)
         name_variants = [track_name, track_name.replace(" ", "_")]
         wav_file = None
