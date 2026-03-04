@@ -1318,9 +1318,21 @@ def _do_upload(
                         add_rel = _find_clickable(page, [
                             "button:has-text('Add Release')",
                             "a:has-text('Add Release')",
+                            "[role='button']:has-text('Add Release')",
+                            "div:has-text('Add Release')",
+                            "span:has-text('Add Release')",
                             "[data-testid='add-release']",
                         ])
+                        if not add_rel:
+                            add_rel = page.locator("text=Add Release").first
+                            try:
+                                if not add_rel.is_visible(timeout=3000):
+                                    add_rel = None
+                            except Exception:
+                                add_rel = None
                         if add_rel:
+                            add_rel.scroll_into_view_if_needed()
+                            page.wait_for_timeout(500)
                             add_rel.click()
                             log.info("  Clicked 'Add Release'")
                             page.wait_for_timeout(3000)
@@ -1351,19 +1363,45 @@ def _do_upload(
                         log.info("  Creating new release...")
                         _dismiss_overlays(page)
 
-                        # Click "Add Release" button on dashboard
+                        # Click "Add Release" — try broad selectors (any element type)
                         add_rel = _find_clickable(page, [
                             "button:has-text('Add Release')",
                             "a:has-text('Add Release')",
+                            "[role='button']:has-text('Add Release')",
+                            "div:has-text('Add Release')",
+                            "span:has-text('Add Release')",
                             "[data-testid='add-release']",
-                            "button:has-text('add release')",
-                            "a:has-text('add release')",
                         ])
+                        if not add_rel:
+                            # Last resort: find ANY element with "Add Release" text via JS
+                            add_rel = page.locator("text=Add Release").first
+                            try:
+                                if not add_rel.is_visible(timeout=3000):
+                                    add_rel = None
+                            except Exception:
+                                add_rel = None
                         if add_rel:
+                            add_rel.scroll_into_view_if_needed()
+                            page.wait_for_timeout(500)
                             add_rel.click()
                             log.info("  Clicked 'Add Release'")
                             page.wait_for_timeout(3000)
                             _dismiss_overlays(page)
+                            # After clicking "Add Release", a dropdown/popup may appear
+                            # with options like Single, Album, etc. — select Single.
+                            single_btn = _find_clickable(page, [
+                                "text=Single",
+                                "button:has-text('Single')",
+                                "a:has-text('Single')",
+                                "[role='menuitem']:has-text('Single')",
+                                "[role='option']:has-text('Single')",
+                                "li:has-text('Single')",
+                                "div:has-text('Single')",
+                            ])
+                            if single_btn:
+                                single_btn.click()
+                                log.info("  Selected 'Single' from dropdown")
+                                page.wait_for_timeout(3000)
                         else:
                             # Fallback: navigate directly
                             log.warning("  'Add Release' button not found — navigating to /singles/new")
