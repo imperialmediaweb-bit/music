@@ -806,22 +806,141 @@ def _fill_choose_sections(page, artist: str):
             desired_roles = _get_section_roles(section_text)
             log.info(f"  [{attempt}] Section: '{section_text}' → roles: {desired_roles}")
 
-            # Click the box to open the dropdown
+            # Click the dropdown CONTAINER (parent of "CHOOSE" text), not the
+            # text node itself.  Walk up to the nearest react-select control,
+            # combobox role, or any wrapper that acts as the click target.
+            dropdown_opened = False
             choose.scroll_into_view_if_needed(timeout=2000)
-            choose.click()
-            page.wait_for_timeout(1500)
+
+            # Try clicking the parent control first (react-select / MUI wrapper)
+            try:
+                parent = page.evaluate("""(el) => {
+                    // Walk up to the nearest clickable dropdown wrapper
+                    let cur = el;
+                    for (let i = 0; i < 6; i++) {
+                        cur = cur.parentElement;
+                        if (!cur) break;
+                        const role = cur.getAttribute('role') || '';
+                        const cls = cur.className || '';
+                        if (role === 'combobox' || role === 'listbox'
+                            || /control|select|dropdown|indicator/i.test(cls)) {
+                            cur.setAttribute('data-choose-click', 'true');
+                            return true;
+                        }
+                    }
+                    return false;
+                }""", choose.element_handle())
+
+                if parent:
+                    wrapper = page.locator("[data-choose-click='true']").first
+                    if wrapper.is_visible(timeout=1000):
+                        wrapper.click()
+                        page.wait_for_timeout(1000)
+                        # Check if dropdown actually opened
+                        if page.locator("[role='option'], [role='listbox'] [role='option']").first.is_visible(timeout=1500):
+                            dropdown_opened = True
+                            log.info(f"  [{attempt}] Dropdown opened via parent container")
+                    # Clean up marker
+                    page.evaluate("document.querySelectorAll('[data-choose-click]').forEach(el => el.removeAttribute('data-choose-click'))")
+            except Exception as e:
+                log.info(f"  [{attempt}] Parent click attempt: {e}")
+
+            # Fallback: click the CHOOSE text directly + dispatch mousedown
+            if not dropdown_opened:
+                try:
+                    choose.click()
+                    page.wait_for_timeout(800)
+                    if page.locator("[role='option']").first.is_visible(timeout=1500):
+                        dropdown_opened = True
+                        log.info(f"  [{attempt}] Dropdown opened via CHOOSE text click")
+                except Exception:
+                    pass
+
+            if not dropdown_opened:
+                try:
+                    choose.dispatch_event("mousedown")
+                    page.wait_for_timeout(800)
+                    if page.locator("[role='option']").first.is_visible(timeout=1500):
+                        dropdown_opened = True
+                        log.info(f"  [{attempt}] Dropdown opened via mousedown dispatch")
+                except Exception:
+                    pass
+
+            if not dropdown_opened:
+                log.warning(f"  [{attempt}] Could not open CHOOSE dropdown")
+                page.wait_for_timeout(500)
+                continue
+
+            page.wait_for_timeout(500)
 
             # Click each desired role option (dropdown stays open for multi-select)
             for role_name in desired_roles:
+                selected = False
                 try:
-                    opt = page.locator("[role='option']").filter(has_text=re.compile(
-                        f'^{re.escape(role_name)}$', re.IGNORECASE))
+                    # Strategy 1: flexible text match (contains, case-insensitive)
+                    opt = page.locator("[role='option']").filter(
+                        has_text=re.compile(re.escape(role_name), re.IGNORECASE))
                     if opt.first.is_visible(timeout=2000):
                         opt.first.click(timeout=3000)
                         log.info(f"  [{attempt}] Role: '{role_name}' clicked")
                         page.wait_for_timeout(800)
+                        selected = True
                 except Exception as e:
-                    log.warning(f"  [{attempt}] Role '{role_name}' click failed: {e}")
+                    log.info(f"  [{attempt}] Role '{role_name}' click attempt 1: {e}")
+
+                if not selected:
+                    # Strategy 2: broader selector (listbox li, menu div)
+                    try:
+                        broader = page.locator(
+                            "[role='option'], [role='listbox'] li, "
+                            "[class*='option'], [class*='Option']"
+                        ).filter(has_text=re.compile(re.escape(role_name), re.IGNORECASE))
+                        if broader.first.is_visible(timeout=1500):
+                            broader.first.click(timeout=3000)
+                            log.info(f"  [{attempt}] Role: '{role_name}' clicked (broader)")
+                            page.wait_for_timeout(800)
+                            selected = True
+                    except Exception as e:
+                        log.info(f"  [{attempt}] Role '{role_name}' click attempt 2: {e}")
+
+                if not selected:
+                    # Strategy 3: keyboard navigation — ArrowDown through
+                    # options and Enter on match
+                    try:
+                        log.info(f"  [{attempt}] Role '{role_name}': trying keyboard nav")
+                        # Find how many options exist
+                        option_count = page.locator("[role='option']").count()
+                        for idx in range(min(option_count, 15)):
+                            focused = page.locator(
+                                "[role='option'][aria-selected='true'], "
+                                "[role='option'][data-focused='true'], "
+                                "[role='option'].is-focused, "
+                                "[role='option']:focus"
+                            )
+                            # Check current highlighted option text
+                            try:
+                                focused_text = focused.first.inner_text(timeout=500)
+                            except Exception:
+                                focused_text = ""
+                            if role_name.lower() in focused_text.lower():
+                                page.keyboard.press("Enter")
+                                log.info(f"  [{attempt}] Role: '{role_name}' selected via Enter")
+                                page.wait_for_timeout(800)
+                                selected = True
+                                break
+                            page.keyboard.press("ArrowDown")
+                            page.wait_for_timeout(300)
+
+                        if not selected and option_count > 0:
+                            # Last resort: press Enter on whatever is highlighted
+                            page.keyboard.press("Enter")
+                            page.wait_for_timeout(500)
+                            log.info(f"  [{attempt}] Role '{role_name}': Enter pressed (keyboard last resort)")
+                    except Exception as e:
+                        log.warning(f"  [{attempt}] Role '{role_name}' keyboard nav: {e}")
+
+                if not selected:
+                    log.warning(f"  [{attempt}] Role '{role_name}' click failed — all strategies exhausted")
 
             # Click outside to close dropdown
             page.wait_for_timeout(500)
