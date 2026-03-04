@@ -65,6 +65,8 @@ IMPORTANT NAMING RULE:
 - The track_name MUST be 1-2 short, catchy, invented words that fit the {genre} vibe.
 - They should sound exotic and memorable but NOT be common English words.
 - Do NOT use generic or overused names.
+- CRITICAL: Vary the starting letter EVERY TIME. Use ALL letters of the alphabet — A, B, D, G, K, M, N, O, S, T, etc. Do NOT always start with Z.
+- Examples of good diverse names: Bakari, Djenné, Kisumu, Makossa, Ngoma, Safiri, Tabora, Owari, Gajani, Lumba, Echoro, Haruna, Fikiri.
 
 CRITICAL: Every track MUST have a COMPLETELY DIFFERENT youtube_title and youtube_description.
 - Do NOT reuse phrases from previous tracks.
@@ -111,7 +113,8 @@ def generate_concept(track_name: str = "", genre: str = "",
 
     user_msg = (
         f"Generate a fresh, original {genre} track concept. "
-        "The track name MUST be invented catchy words — NOT common English words. "
+        "The track name MUST be invented catchy African-sounding words — NOT common English words. "
+        "IMPORTANT: Start the name with a DIFFERENT letter each time — do NOT always use Z. Vary across the whole alphabet. "
         "Everything else (title, description, tags) must be in English."
     )
     if track_name:
