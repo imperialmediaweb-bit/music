@@ -279,58 +279,57 @@ def cmd_tunecore_continue(args):
 
 
 def cmd_tunecore_latest(args):
-    """Find the most recently created WAV + cover art in output/ and upload to TuneCore.
+    """Find the most recently created thumbnail/cover in output/ and upload to TuneCore.
 
-    No need to specify a track name — it auto-detects the latest files.
+    Starts from the latest thumbnail or cover art, then finds the matching WAV.
     Usage: python main.py tunecore-latest
     """
     from config import OUTPUT_DIR
     from modules.tunecore_uploader import upload_to_tunecore
     from modules.concept_generator import MusicConcept
 
-    # Find latest WAV file
-    wav_files = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda f: f.stat().st_mtime, reverse=True)
-    if not wav_files:
-        log.error(f"No WAV files found in {OUTPUT_DIR}")
+    # Find the latest cover or thumbnail (this is the starting point)
+    image_files = sorted(
+        list(OUTPUT_DIR.glob("*_cover.jpg")) + list(OUTPUT_DIR.glob("*_cover.png"))
+        + list(OUTPUT_DIR.glob("*_thumbnail.jpg")) + list(OUTPUT_DIR.glob("*_thumbnail.png")),
+        key=lambda f: f.stat().st_mtime, reverse=True,
+    )
+    if not image_files:
+        log.error(f"No cover art or thumbnails found in {OUTPUT_DIR}")
         sys.exit(1)
-    wav_path = wav_files[0]
-    log.info(f"Latest WAV: {wav_path.name}")
 
-    # Derive track name from WAV filename (e.g. "Zyphara_Nelu.wav" -> "Zyphara Nelu")
-    track_name = wav_path.stem.replace("_", " ")
+    cover_path = image_files[0]
+    log.info(f"Latest image: {cover_path.name}")
 
-    # Find matching cover art, or fall back to latest cover
-    cover_path = None
-    for suffix in ["_cover.jpg", "_cover.png"]:
-        candidate = OUTPUT_DIR / f"{wav_path.stem}{suffix}"
+    # Derive track name from image filename
+    # e.g. "FailTest_thumbnail.jpg" -> "FailTest", "Zanu_cover.jpg" -> "Zanu"
+    stem = cover_path.stem
+    for tag in ("_thumbnail", "_cover"):
+        stem = stem.replace(tag, "")
+    track_name = stem.replace("_", " ")
+    log.info(f"Track name: {track_name}")
+
+    # Find matching WAV file
+    wav_path = None
+    for name_variant in [stem, track_name.replace(" ", "_")]:
+        candidate = OUTPUT_DIR / f"{name_variant}.wav"
         if candidate.exists():
-            cover_path = candidate
+            wav_path = candidate
             break
 
-    # If no matching cover, find the latest cover file
-    if not cover_path:
-        cover_files = sorted(
-            list(OUTPUT_DIR.glob("*_cover.jpg")) + list(OUTPUT_DIR.glob("*_cover.png")),
-            key=lambda f: f.stat().st_mtime, reverse=True,
-        )
-        if cover_files:
-            cover_path = cover_files[0]
+    # If no matching WAV, use the latest WAV as fallback
+    if not wav_path:
+        wav_files = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if wav_files:
+            wav_path = wav_files[0]
+            log.warning(f"No WAV for '{track_name}', using latest: {wav_path.name}")
 
-    # If still no cover, find the latest thumbnail as fallback
-    if not cover_path:
-        thumb_files = sorted(
-            list(OUTPUT_DIR.glob("*_thumbnail.jpg")) + list(OUTPUT_DIR.glob("*_thumbnail.png")),
-            key=lambda f: f.stat().st_mtime, reverse=True,
-        )
-        if thumb_files:
-            cover_path = thumb_files[0]
-
-    if not cover_path:
-        log.error(f"No cover art or thumbnail found in {OUTPUT_DIR}")
+    if not wav_path:
+        log.error(f"No WAV files found in {OUTPUT_DIR}")
         sys.exit(1)
 
+    log.info(f"WAV file: {wav_path.name}")
     log.info(f"Cover art: {cover_path.name}")
-    log.info(f"Track name: {track_name}")
 
     # Build a minimal MusicConcept for the upload
     concept = MusicConcept(
