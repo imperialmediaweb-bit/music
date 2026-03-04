@@ -6,9 +6,8 @@ TuneCore requires:
   - Metadata: title, artist, genre, songwriter, etc.
 
 Flow (web.tunecore.com):
-  1. Header -> "Add Release"
-  2. Choose "Single"
-  3. Click "Start"
+  1. Dashboard -> "Add Single" (or "Add Release" -> Choose "Single")
+  2. Click "Start"
   4. Release details: track name, language=English, genre=Afro House,
      Previously Released=No -> Save
   5. Tracks -> "Add Track"
@@ -1132,6 +1131,8 @@ def _detect_page(page) -> str:
         return {
             url,
             isDashboard: url.includes('/dashboard'),
+            hasAddSingleBtn: visibleBtn('add single'),
+            hasAddReleaseBtn: visibleBtn('add release'),
             hasTypeChoice: visibleBtn('single') && (visibleBtn('album') || visibleBtn('ep') || visibleBtn('ringtone')),
             hasStartBtn: visibleBtn('start') || visibleBtn('begin'),
             hasLangField: has('input[name="languageCode"]'),
@@ -1299,18 +1300,29 @@ def _do_upload(
                             draft.click()
                             page.wait_for_timeout(5000)
                         else:
-                            log.info("  No draft found — creating new release...")
+                            log.info("  No draft found — creating new single...")
+                            # Try "Add Single" first (new TuneCore flow)
                             btn = _find_clickable(page, [
-                                "text=Add Release", "button:has-text('Add Release')",
-                                "a:has-text('Add Release')", "text=Create New",
+                                "text=Add Single", "button:has-text('Add Single')",
+                                "a:has-text('Add Single')",
                             ])
                             if btn:
                                 btn.click()
+                                log.info("  Clicked 'Add Single' — skipping type chooser")
                                 page.wait_for_timeout(3000)
                             else:
-                                page.goto(f"{TUNECORE_BASE}/releases/new",
-                                          wait_until="domcontentloaded", timeout=30_000)
-                                page.wait_for_timeout(3000)
+                                # Fallback: "Add Release" (old flow → will land on choose_type)
+                                btn = _find_clickable(page, [
+                                    "text=Add Release", "button:has-text('Add Release')",
+                                    "a:has-text('Add Release')", "text=Create New",
+                                ])
+                                if btn:
+                                    btn.click()
+                                    page.wait_for_timeout(3000)
+                                else:
+                                    page.goto(f"{TUNECORE_BASE}/releases/new",
+                                              wait_until="domcontentloaded", timeout=30_000)
+                                    page.wait_for_timeout(3000)
 
                     # ── CHOOSE TYPE (Single) ──
                     elif state == 'choose_type':
