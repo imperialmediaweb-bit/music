@@ -147,6 +147,14 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
             if candidate.exists():
                 wav_file = candidate
                 break
+        # Fallback: pick the most recently modified WAV in output/
+        if not wav_file:
+            all_wavs = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda f: f.stat().st_mtime, reverse=True)
+            all_wavs += sorted(OUTPUT_DIR.glob("*.WAV"), key=lambda f: f.stat().st_mtime, reverse=True)
+            if all_wavs:
+                wav_file = all_wavs[0]
+                log.info(f"WAV not found by name — using latest: {wav_file}")
+
         # Look for existing cover art
         cover_file = None
         for name in name_variants:
@@ -159,7 +167,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
                 break
 
         if not wav_file:
-            log.warning(f"WAV file not found in {OUTPUT_DIR} (tried {track_name}.wav / {track_name.replace(' ', '_')}.wav) — skipping TuneCore")
+            log.warning(f"WAV file not found in {OUTPUT_DIR} — skipping TuneCore")
             result["errors"].append(f"tunecore: WAV not found in {OUTPUT_DIR}")
         elif not cover_file:
             # Generate cover art if missing

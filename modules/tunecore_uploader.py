@@ -224,17 +224,25 @@ def continue_tunecore_draft(
         except Exception as e:
             log.warning(f"Could not generate cover art: {e}")
 
-    # Look for local WAV
+    # Look for local WAV — by track name first, then latest in output/
     wav_path = None
     for name in name_variants:
         for ext in [".wav", ".WAV"]:
             candidate = OUTPUT_DIR / f"{name}{ext}"
             if candidate.exists():
                 wav_path = candidate
-                log.info(f"Found existing WAV: {wav_path}")
+                log.info(f"Found WAV by name: {wav_path}")
                 break
         if wav_path:
             break
+
+    # Fallback: pick the most recently modified WAV in output/
+    if not wav_path:
+        all_wavs = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda f: f.stat().st_mtime, reverse=True)
+        all_wavs += sorted(OUTPUT_DIR.glob("*.WAV"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if all_wavs:
+            wav_path = all_wavs[0]
+            log.info(f"WAV not found by name — using latest: {wav_path}")
 
     return _do_upload(
         wav_path=wav_path or Path("/dev/null"),
@@ -1330,60 +1338,47 @@ def _do_upload(
                 try:
                     # ── DASHBOARD ──
                     if state == 'dashboard':
-                        draft = None
-                        try:
-                            draft = page.locator(f"a:has-text('{concept.track_name}')").first
-                            if not draft.is_visible(timeout=2000):
-                                draft = None
-                        except Exception:
-                            draft = None
+                        log.info("  Creating new single (fresh start)...")
+                        _dismiss_overlays(page)
 
-                        if draft:
-                            log.info(f"  Found draft '{concept.track_name}' — clicking...")
-                            draft.click(force=True)
-                            page.wait_for_timeout(5000)
+                        # Strategy 1: Click the "SINGLE" link directly
+                        #   (TuneCore shows "What would you like to release?"
+                        #    with SINGLE → /singles/new, ALBUM → /albums/new)
+                        single_link = _find_clickable(page, [
+                            "a[href*='/singles/new']",
+                            "a:has-text('SINGLE')", "a:has-text('Single')",
+                        ])
+                        if single_link:
+                            single_link.click(force=True)
+                            log.info("  Clicked SINGLE link → /singles/new")
+                            page.wait_for_timeout(3000)
                         else:
-                            log.info("  No draft found — creating new single...")
-                            _dismiss_overlays(page)
-
-                            # Strategy 1: Click the "SINGLE" link directly
-                            #   (TuneCore shows "What would you like to release?"
-                            #    with SINGLE → /singles/new, ALBUM → /albums/new)
-                            single_link = _find_clickable(page, [
-                                "a[href*='/singles/new']",
-                                "a:has-text('SINGLE')", "a:has-text('Single')",
+                            # Strategy 2: Click "ADD RELEASE" to open type chooser
+                            btn = _find_clickable(page, [
+                                "button:has-text('ADD RELEASE')",
+                                "button:has-text('Add Release')",
+                                "a:has-text('Add Release')",
                             ])
-                            if single_link:
-                                single_link.click(force=True)
-                                log.info("  Clicked SINGLE link → /singles/new")
+                            if btn:
+                                btn.click(force=True)
+                                log.info("  Clicked ADD RELEASE")
                                 page.wait_for_timeout(3000)
-                            else:
-                                # Strategy 2: Click "ADD RELEASE" to open type chooser
-                                btn = _find_clickable(page, [
-                                    "button:has-text('ADD RELEASE')",
-                                    "button:has-text('Add Release')",
-                                    "a:has-text('Add Release')",
+                                # Now try SINGLE link again (popup should show)
+                                _dismiss_overlays(page)
+                                sl2 = _find_clickable(page, [
+                                    "a[href*='/singles/new']",
+                                    "a:has-text('SINGLE')", "a:has-text('Single')",
                                 ])
-                                if btn:
-                                    btn.click(force=True)
-                                    log.info("  Clicked ADD RELEASE")
+                                if sl2:
+                                    sl2.click(force=True)
+                                    log.info("  Clicked SINGLE after ADD RELEASE")
                                     page.wait_for_timeout(3000)
-                                    # Now try SINGLE link again (popup should show)
-                                    _dismiss_overlays(page)
-                                    sl2 = _find_clickable(page, [
-                                        "a[href*='/singles/new']",
-                                        "a:has-text('SINGLE')", "a:has-text('Single')",
-                                    ])
-                                    if sl2:
-                                        sl2.click(force=True)
-                                        log.info("  Clicked SINGLE after ADD RELEASE")
-                                        page.wait_for_timeout(3000)
-                                else:
-                                    # Strategy 3: Navigate directly
-                                    log.info("  No buttons found — navigating to /singles/new")
-                                    page.goto(f"{TUNECORE_BASE}/singles/new",
-                                              wait_until="domcontentloaded", timeout=30_000)
-                                    page.wait_for_timeout(3000)
+                            else:
+                                # Strategy 3: Navigate directly
+                                log.info("  No buttons found — navigating to /singles/new")
+                                page.goto(f"{TUNECORE_BASE}/singles/new",
+                                          wait_until="domcontentloaded", timeout=30_000)
+                                page.wait_for_timeout(3000)
 
                     # ── CHOOSE TYPE (Single) ──
                     elif state == 'choose_type':
@@ -2150,8 +2145,43 @@ def _do_upload(
                         ])
                         if btn:
                             btn.click()
-                            page.wait_for_timeout(5000)
                             log.info("  Clicked Release Music")
+                            page.wait_for_timeout(5000)
+
+                            # Check if release succeeded or failed
+                            post_release = _detect_page(page)
+                            if post_release == 'done':
+                                log.info("  Release succeeded!")
+                            else:
+                                log.warning(f"  Release may have failed (page={post_release})")
+                                log.info("  Attempting to save as draft instead...")
+                                try:
+                                    page.screenshot(path="output/tunecore_release_fail.png")
+                                except Exception:
+                                    pass
+                                # Try to save as draft
+                                draft_btn = _find_clickable(page, [
+                                    "button:has-text('Save as Draft')",
+                                    "button:has-text('Save Draft')",
+                                    "button:has-text('Save')",
+                                    "a:has-text('Save as Draft')",
+                                    "a:has-text('Save Draft')",
+                                ])
+                                if draft_btn:
+                                    draft_btn.click()
+                                    page.wait_for_timeout(3000)
+                                    log.info("  Saved as draft (fallback)")
+                        else:
+                            log.warning("  Release button not found — saving as draft...")
+                            draft_btn = _find_clickable(page, [
+                                "button:has-text('Save as Draft')",
+                                "button:has-text('Save Draft')",
+                                "button:has-text('Save')",
+                            ])
+                            if draft_btn:
+                                draft_btn.click()
+                                page.wait_for_timeout(3000)
+                                log.info("  Saved as draft (no release button)")
 
                     # ── DONE ──
                     elif state == 'done':
