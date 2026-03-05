@@ -1498,46 +1498,26 @@ def _do_upload(
                     # ── CREATE WIZARD (4-step overview: Progress 0/4) ──
                     elif state == 'create_wizard':
                         log.info("  Create Single wizard — clicking Start button...")
-                        # Scroll to top and hide any sticky banner covering the Start button
-                        page.evaluate("""() => {
-                            window.scrollTo(0, 0);
-                            // Hide any fixed/sticky elements at the top that could cover Start
-                            for (const el of document.querySelectorAll('*')) {
-                                const style = getComputedStyle(el);
-                                if ((style.position === 'fixed' || style.position === 'sticky')
-                                    && el.getBoundingClientRect().top < 80
-                                    && el.offsetHeight > 0 && el.offsetHeight < 200) {
-                                    el.style.display = 'none';
-                                }
-                            }
-                        }""")
+                        page.evaluate("() => window.scrollTo(0, 0)")
                         page.wait_for_timeout(500)
-                        # Click Start button — MUI button with text "Start >" and aria-label
-                        clicked = page.evaluate("""() => {
-                            // Priority 1: exact aria-label match
-                            const byLabel = document.querySelector('button[aria-label="Link to Release Details"]');
-                            if (byLabel && byLabel.offsetWidth > 0) { byLabel.click(); return 'aria-label'; }
-                            // Priority 2: button whose text starts with 'start'
-                            for (const el of document.querySelectorAll('button, a, [role="button"]')) {
-                                const txt = (el.textContent || '').trim().toLowerCase();
-                                if (txt.startsWith('start') && el.offsetWidth > 0 && el.offsetHeight > 0) {
-                                    el.click();
-                                    return txt;
+                        # Click "Start >" button by aria-label (exact MUI button)
+                        btn = _find_clickable(page, [
+                            "button[aria-label='Link to Release Details']",
+                        ])
+                        if btn:
+                            btn.click(force=True)
+                            clicked = 'Start (aria-label)'
+                        else:
+                            # JS fallback — click directly, skip offsetWidth check
+                            clicked = page.evaluate("""() => {
+                                const byLabel = document.querySelector('button[aria-label="Link to Release Details"]');
+                                if (byLabel) { byLabel.click(); return 'aria-label-js'; }
+                                for (const el of document.querySelectorAll('button, a, [role="button"]')) {
+                                    const txt = (el.textContent || '').trim().toLowerCase();
+                                    if (txt.startsWith('start')) { el.click(); return txt; }
                                 }
-                            }
-                            // Priority 3: any visible element with text starting with 'start' and pointer cursor
-                            for (const el of document.querySelectorAll('div, span, label')) {
-                                const txt = (el.textContent || '').trim().toLowerCase();
-                                const style = getComputedStyle(el);
-                                if (txt.startsWith('start') && txt.length < 30
-                                    && el.offsetWidth > 0 && el.offsetHeight > 0
-                                    && style.cursor === 'pointer') {
-                                    el.click();
-                                    return txt;
-                                }
-                            }
-                            return null;
-                        }""")
+                                return null;
+                            }""")
                         if clicked:
                             log.info(f"  Clicked wizard element: {clicked}")
                         else:
@@ -1547,24 +1527,11 @@ def _do_upload(
 
                     # ── START ──
                     elif state == 'start':
-                        # Scroll to top and hide sticky banners before clicking Start
-                        page.evaluate("""() => {
-                            window.scrollTo(0, 0);
-                            for (const el of document.querySelectorAll('*')) {
-                                const style = getComputedStyle(el);
-                                if ((style.position === 'fixed' || style.position === 'sticky')
-                                    && el.getBoundingClientRect().top < 80
-                                    && el.offsetHeight > 0 && el.offsetHeight < 200) {
-                                    el.style.display = 'none';
-                                }
-                            }
-                        }""")
+                        page.evaluate("() => window.scrollTo(0, 0)")
                         page.wait_for_timeout(500)
-                        # Click "Start >" MUI button via aria-label or text
+                        # Click "Start >" MUI button by aria-label
                         btn = _find_clickable(page, [
                             "button[aria-label='Link to Release Details']",
-                            "button:has-text('Start')", "a:has-text('Start')",
-                            "button:has-text('Begin')", "button:has-text('Continue')",
                         ])
                         if btn:
                             btn.click(force=True)
@@ -1572,13 +1539,10 @@ def _do_upload(
                         else:
                             clicked = page.evaluate("""() => {
                                 const byLabel = document.querySelector('button[aria-label="Link to Release Details"]');
-                                if (byLabel && byLabel.offsetWidth > 0) { byLabel.click(); return 'aria-label'; }
+                                if (byLabel) { byLabel.click(); return 'aria-label-js'; }
                                 for (const el of document.querySelectorAll('button, a, [role="button"]')) {
                                     const txt = (el.textContent || '').trim().toLowerCase();
-                                    if (txt.startsWith('start') && el.offsetWidth > 0 && el.offsetHeight > 0) {
-                                        el.click();
-                                        return txt;
-                                    }
+                                    if (txt.startsWith('start')) { el.click(); return txt; }
                                 }
                                 return null;
                             }""")
