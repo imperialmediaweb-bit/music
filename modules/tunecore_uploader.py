@@ -1498,9 +1498,7 @@ def _do_upload(
                     # ── CREATE WIZARD (4-step overview: Progress 0/4) ──
                     elif state == 'create_wizard':
                         log.info("  Create Single wizard — clicking Start button...")
-                        page.evaluate("() => window.scrollTo(0, 0)")
-                        page.wait_for_timeout(500)
-                        # Click "Start >" button by aria-label (exact MUI button)
+                        # Click "Start >" button by aria-label (exact MUI button) — NO scroll
                         btn = _find_clickable(page, [
                             "button[aria-label='Link to Release Details']",
                         ])
@@ -1527,9 +1525,7 @@ def _do_upload(
 
                     # ── START ──
                     elif state == 'start':
-                        page.evaluate("() => window.scrollTo(0, 0)")
-                        page.wait_for_timeout(500)
-                        # Click "Start >" MUI button by aria-label
+                        # Click "Start >" MUI button by aria-label — NO scroll
                         btn = _find_clickable(page, [
                             "button[aria-label='Link to Release Details']",
                         ])
