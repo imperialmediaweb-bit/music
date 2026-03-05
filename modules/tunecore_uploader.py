@@ -1553,7 +1553,6 @@ def _do_upload(
                         ])
                         if btn:
                             try:
-                                btn.scroll_into_view_if_needed()
                                 btn.click(force=True)
                                 log.info("  Clicked Start")
                             except Exception:
@@ -1564,7 +1563,6 @@ def _do_upload(
                                         const txt = (el.textContent || '').trim().toLowerCase();
                                         if ((txt === 'start' || txt === 'begin' || txt === 'continue' || txt === 'get started')
                                             && el.offsetWidth > 0 && el.offsetHeight > 0) {
-                                            el.scrollIntoView({block: 'center'});
                                             el.click();
                                             return true;
                                         }
@@ -1580,7 +1578,6 @@ def _do_upload(
                                     const txt = (el.textContent || '').trim().toLowerCase();
                                     if ((txt === 'start' || txt === 'begin' || txt === 'continue' || txt === 'get started')
                                         && el.offsetWidth > 0 && el.offsetHeight > 0) {
-                                        el.scrollIntoView({block: 'center'});
                                         el.click();
                                         return txt;
                                     }
@@ -1591,7 +1588,6 @@ def _do_upload(
                                     const style = getComputedStyle(el);
                                     if (txt.includes('start') && el.offsetWidth > 0 && el.offsetHeight > 0
                                         && (el.tagName === 'BUTTON' || el.tagName === 'A' || style.cursor === 'pointer')) {
-                                        el.scrollIntoView({block: 'center'});
                                         el.click();
                                         return txt;
                                     }
