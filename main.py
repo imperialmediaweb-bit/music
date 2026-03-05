@@ -17,9 +17,9 @@ from utils.logger import log
 # Supported music platforms
 PLATFORMS = ["aimusicfactory", "suno", "udio", "musicgen"]
 
-# Default: 4 clips per day (one per scheduled slot)
-DEFAULT_CLIPS_PER_DAY = 4
-# Total MP3s per day: 2 + 4 + 6 + 8 = 20 MP3s → 4 merged clips
+# Default: 3 clips per day (one per scheduled slot)
+DEFAULT_CLIPS_PER_DAY = 3
+# Total MP3s per day: 2 + 4 + 8 = 14 MP3s → 3 merged clips
 MP3S_PER_CLIP = 8
 
 
@@ -757,10 +757,9 @@ def cmd_schedule(args):
 
     # (hour, minute, gen_count) — gen_count × 2 MP3s merged into one clip
     SCHEDULE_SLOTS = [
-        (9,  50, 1),   #  9:50 → 1 gen = 2 MP3s
-        (14, 0,  1),   # 14:00 → 1 gen = 2 MP3s
-        (18, 0,  2),   # 18:00 → 2 gen = 4 MP3s
-        (20, 0,  4),   # 20:00 → 4 gen = 8 MP3s
+        (13, 0,  1),   # 13:00 → 1 gen = 2 MP3s (ready ~13:15, before 15:00 peak)
+        (16, 0,  2),   # 16:00 → 2 gen = 4 MP3s (ready ~16:15, before 18:00 peak)
+        (19, 0,  4),   # 19:00 → 4 gen = 8 MP3s (ready ~19:15, before 21:00 peak)
     ]
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
