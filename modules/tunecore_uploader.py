@@ -36,6 +36,15 @@ MAX_RETRIES = 2
 DEFAULT_ARTIST = "GrooveGenix"
 
 
+def _strip_emojis(text: str) -> str:
+    """Remove emoji characters from text (TuneCore rejects them)."""
+    return re.sub(
+        r'[\U00010000-\U0010ffff\u2600-\u27BF\u2300-\u23FF'
+        r'\u2B50\u2B55\u25AA-\u25FE\u2934-\u2935\u3030\u303D'
+        r'\uFE0F\u200D]+', '', text
+    ).strip()
+
+
 def _dump_page_state(page, step_label: str):
     """Log all visible interactive elements on the page for debugging.
 
@@ -1572,8 +1581,9 @@ def _do_upload(
                             try:
                                 el = page.locator(sel).first
                                 if el.is_visible(timeout=1500):
-                                    el.fill(concept.track_name)
-                                    log.info(f"  Title: {concept.track_name}")
+                                    clean_name = _strip_emojis(concept.track_name)
+                                    el.fill(clean_name)
+                                    log.info(f"  Title: {clean_name}")
                                     break
                             except Exception:
                                 continue
@@ -1690,8 +1700,9 @@ def _do_upload(
                                     if current:
                                         log.info(f"  Song Title: already '{current}', skipping")
                                     else:
-                                        el.fill(concept.track_name)
-                                        log.info(f"  Song Title: '{concept.track_name}'")
+                                        clean_name = _strip_emojis(concept.track_name)
+                                        el.fill(clean_name)
+                                        log.info(f"  Song Title: '{clean_name}'")
                                     break
                             except Exception:
                                 continue
