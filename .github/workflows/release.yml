@@ -46,7 +46,7 @@ jobs:
           New-Item -ItemType Directory -Path dist\LUTH\cookies -Force
 
       - name: Copy .env.example
-        run: copy .env.example dist\LUTH\.env.example
+        run: Copy-Item .env.example dist\LUTH\.env.example
 
       - name: Build installer with Inno Setup
         run: |
