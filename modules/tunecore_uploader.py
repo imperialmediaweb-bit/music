@@ -1230,7 +1230,20 @@ def _dismiss_overlays(page):
     """
     try:
         page.evaluate("""() => {
-            // Completely hide sticky navbar that intercepts clicks
+            // Inject persistent CSS to hide navbar (survives scroll/re-render)
+            if (!document.getElementById('tc-overlay-fix')) {
+                var style = document.createElement('style');
+                style.id = 'tc-overlay-fix';
+                style.textContent = `
+                    #v2-nav-mountpoint, .nav-nav85, [class*="nav-nav"],
+                    [class*="sticky-nav"], [class*="stickyNav"] {
+                        display: none !important;
+                        pointer-events: none !important;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+            // Also hide via inline style for immediate effect
             for (const sel of ['#v2-nav-mountpoint', '.nav-nav85', '[class*="nav-nav"]']) {
                 for (const el of document.querySelectorAll(sel)) {
                     el.style.display = 'none';
@@ -1495,58 +1508,74 @@ def _do_upload(
                             log.info("  Selected: Single")
                             page.wait_for_timeout(2000)
 
-                    # ── CREATE WIZARD (4-step overview: Progress 0/4) ──
-                    elif state == 'create_wizard':
-                        log.info("  Create Single wizard — clicking Start button...")
-                        # Click "Start >" button by aria-label (exact MUI button) — NO scroll
-                        btn = _find_clickable(page, [
-                            "button[aria-label='Link to Release Details']",
-                        ])
-                        if btn:
-                            btn.click(force=True)
-                            clicked = 'Start (aria-label)'
-                        else:
-                            # JS fallback — click directly, skip offsetWidth check
-                            clicked = page.evaluate("""() => {
-                                const byLabel = document.querySelector('button[aria-label="Link to Release Details"]');
-                                if (byLabel) { byLabel.click(); return 'aria-label-js'; }
-                                for (const el of document.querySelectorAll('button, a, [role="button"]')) {
-                                    const txt = (el.textContent || '').trim().toLowerCase();
-                                    if (txt.startsWith('start')) { el.click(); return txt; }
+                    # ── CREATE WIZARD / START ──
+                    elif state in ('create_wizard', 'start'):
+                        log.info(f"  [{state}] Clicking Start button...")
+                        _dismiss_overlays(page)
+                        clicked = page.evaluate("""() => {
+                            // Strategy 1: aria-label selector
+                            var btn = document.querySelector('button[aria-label="Link to Release Details"]');
+                            if (btn) { btn.click(); return 'aria-label'; }
+                            // Strategy 2: any link/button pointing to release details
+                            var links = document.querySelectorAll('a[href*="release"], a[href*="details"], a[href*="step"]');
+                            for (var i = 0; i < links.length; i++) {
+                                if (links[i].offsetWidth > 0) { links[i].click(); return 'link:' + links[i].href; }
+                            }
+                            // Strategy 3: button with "start" text
+                            var all = document.querySelectorAll('button, a, [role="button"]');
+                            for (var i = 0; i < all.length; i++) {
+                                var txt = (all[i].textContent || '').trim().toLowerCase();
+                                if (txt.startsWith('start') || txt === 'begin') {
+                                    all[i].click(); return txt;
                                 }
-                                return null;
-                            }""")
+                            }
+                            // Strategy 4: clickable element inside the first step/section header
+                            var sections = document.querySelectorAll('[class*="step"], [class*="section"], [class*="accordion"], [class*="panel"]');
+                            for (var i = 0; i < sections.length; i++) {
+                                var s = sections[i];
+                                var clickable = s.querySelector('button, a, [role="button"], [class*="edit"], [class*="start"]');
+                                if (clickable && clickable.offsetWidth > 0) {
+                                    clickable.click(); return 'section-btn:' + (clickable.textContent || '').trim();
+                                }
+                            }
+                            // Strategy 5: click the first section header itself (accordion expand)
+                            for (var i = 0; i < sections.length; i++) {
+                                if (sections[i].offsetWidth > 0) {
+                                    sections[i].click(); return 'section-click:' + i;
+                                }
+                            }
+                            // Strategy 6: any small icon-button in the top-right area of the page
+                            var btns = document.querySelectorAll('button, [role="button"], a');
+                            for (var i = 0; i < btns.length; i++) {
+                                var rect = btns[i].getBoundingClientRect();
+                                if (rect.right > window.innerWidth * 0.6 && rect.top < 200 && rect.width > 0 && rect.width < 200) {
+                                    btns[i].click(); return 'top-right-btn:' + (btns[i].textContent || btns[i].className || '').trim().substring(0, 50);
+                                }
+                            }
+                            return null;
+                        }""")
                         if clicked:
-                            log.info(f"  Clicked wizard element: {clicked}")
+                            log.info(f"  Clicked Start: {clicked}")
                         else:
-                            log.warning("  Could not find wizard step to click — dumping page state")
-                            _dump_page_state(page, "create_wizard")
-                        page.wait_for_timeout(3000)
-
-                    # ── START ──
-                    elif state == 'start':
-                        # Click "Start >" MUI button by aria-label — NO scroll
-                        btn = _find_clickable(page, [
-                            "button[aria-label='Link to Release Details']",
-                        ])
-                        if btn:
-                            btn.click(force=True)
-                            log.info("  Clicked Start")
-                        else:
-                            clicked = page.evaluate("""() => {
-                                const byLabel = document.querySelector('button[aria-label="Link to Release Details"]');
-                                if (byLabel) { byLabel.click(); return 'aria-label-js'; }
-                                for (const el of document.querySelectorAll('button, a, [role="button"]')) {
-                                    const txt = (el.textContent || '').trim().toLowerCase();
-                                    if (txt.startsWith('start')) { el.click(); return txt; }
-                                }
-                                return null;
-                            }""")
-                            if clicked:
-                                log.info(f"  Clicked Start via JS fallback: '{clicked}'")
-                            else:
-                                log.warning("  Could not find Start button — dumping page state")
-                                _dump_page_state(page, "start")
+                            log.warning("  Could not find Start button — trying direct navigation")
+                            _dump_page_state(page, state)
+                            # Fallback: navigate directly to the release details page
+                            current_url = page.url
+                            if '/singles/' in current_url:
+                                # Extract the release ID and go directly to details
+                                import re as _re
+                                m = _re.search(r'/singles/(\d+)', current_url)
+                                if m:
+                                    page.goto(f"{TUNECORE_BASE}/singles/{m.group(1)}/details",
+                                              wait_until="domcontentloaded", timeout=30_000)
+                                    log.info(f"  Navigated directly to release details")
+                                    page.wait_for_timeout(3000)
+                                    _dismiss_overlays(page)
+                                    continue
+                            # Last resort: go to /singles/new
+                            page.goto(f"{TUNECORE_BASE}/singles/new",
+                                      wait_until="domcontentloaded", timeout=30_000)
+                            _dismiss_overlays(page)
                         page.wait_for_timeout(3000)
 
                     # ── RELEASE DETAILS (title, language, genre) ──
