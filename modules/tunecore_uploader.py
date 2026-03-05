@@ -1132,14 +1132,8 @@ def _detect_page(page) -> str:
         };
         const anyVisible = (...sels) => sels.some(s => visible(s));
         const visibleBtn = (text) => {
-            return [...document.querySelectorAll('button, a, label, [role="button"], div, span')]
-                .some(el => {
-                    const t = (el.textContent || '').trim().toLowerCase();
-                    const style = getComputedStyle(el);
-                    return el.offsetWidth > 0 && (t === text || t.includes(text))
-                        && (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'LABEL'
-                            || el.getAttribute('role') === 'button' || style.cursor === 'pointer');
-                });
+            return [...document.querySelectorAll('button, a, label, [role="button"]')]
+                .some(el => el.offsetWidth > 0 && el.textContent.toLowerCase().includes(text));
         };
 
         return {
@@ -1503,10 +1497,24 @@ def _do_upload(
 
                     # ── CREATE WIZARD (4-step overview: Progress 0/4) ──
                     elif state == 'create_wizard':
-                        log.info("  Create Single wizard — looking for Start button...")
-                        # FIRST: click Start/Begin button (visible at top, NO scroll!)
+                        log.info("  Create Single wizard — clicking Start button...")
+                        # Scroll to top and hide any sticky banner covering the Start button
+                        page.evaluate("""() => {
+                            window.scrollTo(0, 0);
+                            // Hide any fixed/sticky elements at the top that could cover Start
+                            for (const el of document.querySelectorAll('*')) {
+                                const style = getComputedStyle(el);
+                                if ((style.position === 'fixed' || style.position === 'sticky')
+                                    && el.getBoundingClientRect().top < 80
+                                    && el.offsetHeight > 0 && el.offsetHeight < 200) {
+                                    el.style.display = 'none';
+                                }
+                            }
+                        }""")
+                        page.wait_for_timeout(500)
+                        # Click Start button directly
                         clicked = page.evaluate("""() => {
-                            // Priority 1: click the Start / Begin button — NO scrolling
+                            // Find and click Start / Begin button — exact text match
                             for (const el of document.querySelectorAll('button, a, [role="button"], div, span, label')) {
                                 const txt = (el.textContent || '').trim().toLowerCase();
                                 if ((txt === 'start' || txt === 'begin' || txt === 'get started')
@@ -1515,27 +1523,15 @@ def _do_upload(
                                     return txt;
                                 }
                             }
-                            // Priority 2: element containing 'start' with pointer cursor (but not paragraph text)
+                            // Broader: any clickable element with short text containing 'start'
                             for (const el of document.querySelectorAll('button, a, [role="button"], div, span')) {
                                 const txt = (el.textContent || '').trim().toLowerCase();
                                 const style = getComputedStyle(el);
-                                if (txt.includes('start') && !txt.includes('let') && el.offsetWidth > 0 && el.offsetHeight > 0
+                                if (txt.includes('start') && txt.length < 30
+                                    && el.offsetWidth > 0 && el.offsetHeight > 0
                                     && (el.tagName === 'BUTTON' || el.tagName === 'A' || style.cursor === 'pointer')) {
                                     el.click();
                                     return txt;
-                                }
-                            }
-                            // Priority 3: click step sections (accordion headers) — NO scroll
-                            const targets = [
-                                ...document.querySelectorAll('[class*="step"], [class*="accordion"], [class*="section"], [class*="panel"]'),
-                                ...document.querySelectorAll('button, a, [role="button"], div[role="tab"], li'),
-                            ];
-                            for (const el of targets) {
-                                const txt = (el.textContent || '').toLowerCase();
-                                if ((txt.includes('basic info') || txt.includes('step 1') || /^\\s*1\\s/.test(txt))
-                                    && el.offsetWidth > 0 && el.offsetHeight > 0) {
-                                    el.click();
-                                    return 'step1';
                                 }
                             }
                             return null;
@@ -1549,48 +1545,33 @@ def _do_upload(
 
                     # ── START ──
                     elif state == 'start':
+                        # Scroll to top and hide sticky banners before clicking Start
+                        page.evaluate("""() => {
+                            window.scrollTo(0, 0);
+                            for (const el of document.querySelectorAll('*')) {
+                                const style = getComputedStyle(el);
+                                if ((style.position === 'fixed' || style.position === 'sticky')
+                                    && el.getBoundingClientRect().top < 80
+                                    && el.offsetHeight > 0 && el.offsetHeight < 200) {
+                                    el.style.display = 'none';
+                                }
+                            }
+                        }""")
+                        page.wait_for_timeout(500)
                         btn = _find_clickable(page, [
                             "button:has-text('Start')", "a:has-text('Start')",
                             "button:has-text('Begin')", "button:has-text('Continue')",
                             "button:has-text('Get Started')", "a:has-text('Get Started')",
                         ])
                         if btn:
-                            try:
-                                btn.click(force=True)
-                                log.info("  Clicked Start")
-                            except Exception:
-                                log.warning("  Normal click failed on Start — trying JS click")
-                                page.evaluate("""() => {
-                                    const btns = [...document.querySelectorAll('button, a, [role="button"], div[role="button"], span[role="button"]')];
-                                    for (const el of btns) {
-                                        const txt = (el.textContent || '').trim().toLowerCase();
-                                        if ((txt === 'start' || txt === 'begin' || txt === 'continue' || txt === 'get started')
-                                            && el.offsetWidth > 0 && el.offsetHeight > 0) {
-                                            el.click();
-                                            return true;
-                                        }
-                                    }
-                                    return false;
-                                }""")
-                                log.info("  Clicked Start via JS fallback")
+                            btn.click(force=True)
+                            log.info("  Clicked Start")
                         else:
-                            # Playwright selectors didn't find it — try pure JS click
                             clicked = page.evaluate("""() => {
-                                const btns = [...document.querySelectorAll('button, a, [role="button"], div, span, label')];
-                                for (const el of btns) {
+                                for (const el of document.querySelectorAll('button, a, [role="button"], div, span, label')) {
                                     const txt = (el.textContent || '').trim().toLowerCase();
-                                    if ((txt === 'start' || txt === 'begin' || txt === 'continue' || txt === 'get started')
+                                    if ((txt === 'start' || txt === 'begin' || txt === 'get started')
                                         && el.offsetWidth > 0 && el.offsetHeight > 0) {
-                                        el.click();
-                                        return txt;
-                                    }
-                                }
-                                // Broader match: any element containing 'start' that looks clickable
-                                for (const el of btns) {
-                                    const txt = (el.textContent || '').trim().toLowerCase();
-                                    const style = getComputedStyle(el);
-                                    if (txt.includes('start') && el.offsetWidth > 0 && el.offsetHeight > 0
-                                        && (el.tagName === 'BUTTON' || el.tagName === 'A' || style.cursor === 'pointer')) {
                                         el.click();
                                         return txt;
                                     }
