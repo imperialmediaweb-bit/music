@@ -1132,8 +1132,14 @@ def _detect_page(page) -> str:
         };
         const anyVisible = (...sels) => sels.some(s => visible(s));
         const visibleBtn = (text) => {
-            return [...document.querySelectorAll('button, a, label, [role="button"]')]
-                .some(el => el.offsetWidth > 0 && el.textContent.toLowerCase().includes(text));
+            return [...document.querySelectorAll('button, a, label, [role="button"], div, span')]
+                .some(el => {
+                    const t = (el.textContent || '').trim().toLowerCase();
+                    const style = getComputedStyle(el);
+                    return el.offsetWidth > 0 && (t === text || t.includes(text))
+                        && (el.tagName === 'BUTTON' || el.tagName === 'A' || el.tagName === 'LABEL'
+                            || el.getAttribute('role') === 'button' || style.cursor === 'pointer');
+                });
         };
 
         return {
@@ -1497,42 +1503,39 @@ def _do_upload(
 
                     # ── CREATE WIZARD (4-step overview: Progress 0/4) ──
                     elif state == 'create_wizard':
-                        log.info("  Create Single wizard — clicking first step...")
-                        # Click on step 1 (basic info section) to expand it
+                        log.info("  Create Single wizard — looking for Start button...")
+                        # FIRST: click Start/Begin button (visible at top, NO scroll!)
                         clicked = page.evaluate("""() => {
-                            // Try clicking numbered step sections, accordion headers,
-                            // or anything that looks like the first step
-                            const targets = [
-                                // Step 1 header/button/link — often an accordion or clickable div
-                                ...document.querySelectorAll('[class*="step"], [class*="accordion"], [class*="section"], [class*="panel"]'),
-                                ...document.querySelectorAll('button, a, [role="button"], div[role="tab"], li'),
-                            ];
-                            for (const el of targets) {
-                                const txt = (el.textContent || '').toLowerCase();
-                                // Match step 1 or "basic info" text
-                                if ((txt.includes('basic info') || txt.includes('step 1') || /^\\s*1\\s/.test(txt))
-                                    && el.offsetWidth > 0 && el.offsetHeight > 0) {
-                                    el.click();
-                                    return 'step1';
-                                }
-                            }
-                            // Fallback: click any visible "Start" or "Begin" or "Continue" button
-                            for (const el of document.querySelectorAll('button, a, [role="button"]')) {
+                            // Priority 1: click the Start / Begin button — NO scrolling
+                            for (const el of document.querySelectorAll('button, a, [role="button"], div, span, label')) {
                                 const txt = (el.textContent || '').trim().toLowerCase();
-                                if ((txt === 'start' || txt === 'begin' || txt === 'continue' || txt === 'get started')
+                                if ((txt === 'start' || txt === 'begin' || txt === 'get started')
                                     && el.offsetWidth > 0 && el.offsetHeight > 0) {
                                     el.click();
                                     return txt;
                                 }
                             }
-                            // Last fallback: click the first large clickable area on the page
-                            for (const el of document.querySelectorAll('div, section, li, a, button')) {
-                                const rect = el.getBoundingClientRect();
-                                const txt = (el.textContent || '').toLowerCase();
-                                if (rect.width > 200 && rect.height > 40 && rect.top > 100
-                                    && txt.includes('basic info') && el.offsetWidth > 0) {
+                            // Priority 2: element containing 'start' with pointer cursor (but not paragraph text)
+                            for (const el of document.querySelectorAll('button, a, [role="button"], div, span')) {
+                                const txt = (el.textContent || '').trim().toLowerCase();
+                                const style = getComputedStyle(el);
+                                if (txt.includes('start') && !txt.includes('let') && el.offsetWidth > 0 && el.offsetHeight > 0
+                                    && (el.tagName === 'BUTTON' || el.tagName === 'A' || style.cursor === 'pointer')) {
                                     el.click();
-                                    return 'basic-info-area';
+                                    return txt;
+                                }
+                            }
+                            // Priority 3: click step sections (accordion headers) — NO scroll
+                            const targets = [
+                                ...document.querySelectorAll('[class*="step"], [class*="accordion"], [class*="section"], [class*="panel"]'),
+                                ...document.querySelectorAll('button, a, [role="button"], div[role="tab"], li'),
+                            ];
+                            for (const el of targets) {
+                                const txt = (el.textContent || '').toLowerCase();
+                                if ((txt.includes('basic info') || txt.includes('step 1') || /^\\s*1\\s/.test(txt))
+                                    && el.offsetWidth > 0 && el.offsetHeight > 0) {
+                                    el.click();
+                                    return 'step1';
                                 }
                             }
                             return null;
