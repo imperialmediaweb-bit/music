@@ -1230,20 +1230,7 @@ def _dismiss_overlays(page):
     """
     try:
         page.evaluate("""() => {
-            // Inject persistent CSS to hide navbar (survives scroll/re-render)
-            if (!document.getElementById('tc-overlay-fix')) {
-                var style = document.createElement('style');
-                style.id = 'tc-overlay-fix';
-                style.textContent = `
-                    #v2-nav-mountpoint, .nav-nav85, [class*="nav-nav"],
-                    [class*="sticky-nav"], [class*="stickyNav"] {
-                        display: none !important;
-                        pointer-events: none !important;
-                    }
-                `;
-                document.head.appendChild(style);
-            }
-            // Also hide via inline style for immediate effect
+            // Completely hide sticky navbar that intercepts clicks
             for (const sel of ['#v2-nav-mountpoint', '.nav-nav85', '[class*="nav-nav"]']) {
                 for (const el of document.querySelectorAll(sel)) {
                     el.style.display = 'none';
@@ -1336,8 +1323,6 @@ def _do_upload(
                         log.info("  Stuck on dashboard — restoring nav & trying 'Add Release'")
                         # Restore navbar so Add Release button is visible
                         page.evaluate("""() => {
-                            var fix = document.getElementById('tc-overlay-fix');
-                            if (fix) fix.remove();
                             for (const sel of ['#v2-nav-mountpoint', '.nav-nav85', '[class*="nav-nav"]']) {
                                 for (const el of document.querySelectorAll(sel)) {
                                     el.style.display = '';
@@ -1414,10 +1399,7 @@ def _do_upload(
                         log.info("  Creating new release...")
 
                         # Restore navbar first — "Add Release" button lives inside it
-                        # Remove persistent CSS fix so navbar becomes visible again
                         page.evaluate("""() => {
-                            var fix = document.getElementById('tc-overlay-fix');
-                            if (fix) fix.remove();
                             for (const sel of ['#v2-nav-mountpoint', '.nav-nav85', '[class*="nav-nav"]']) {
                                 for (const el of document.querySelectorAll(sel)) {
                                     el.style.display = '';
