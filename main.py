@@ -659,14 +659,15 @@ def cmd_autostart(args):
         f'WshShell.CurrentDirectory = "{project_dir}"\n'
     )
     # Activate venv if it exists, then run the scheduler (PowerShell, no CMD)
+    sq = "'"  # single quote — can't use backslash escapes inside f-strings
     venv_activate = Path(project_dir) / "venv" / "Scripts" / "Activate.ps1"
     venv2_activate = Path(project_dir) / ".venv" / "Scripts" / "Activate.ps1"
     if venv_activate.exists():
-        vbs_content += f'WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& venv\\Scripts\\Activate.ps1; & \''{python}\'' main.py schedule""", 0, False\n'
+        vbs_content += f'WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& venv\\Scripts\\Activate.ps1; & {sq}{python}{sq} main.py schedule""", 0, False\n'
     elif venv2_activate.exists():
-        vbs_content += f'WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& .venv\\Scripts\\Activate.ps1; & \''{python}\'' main.py schedule""", 0, False\n'
+        vbs_content += f'WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& .venv\\Scripts\\Activate.ps1; & {sq}{python}{sq} main.py schedule""", 0, False\n'
     else:
-        vbs_content += f'WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& \''{python}\'' main.py schedule""", 0, False\n'
+        vbs_content += f'WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& {sq}{python}{sq} main.py schedule""", 0, False\n'
     vbs_path.write_text(vbs_content, encoding="utf-8")
     log.info(f"Created silent launcher: {vbs_path}")
 
