@@ -1512,24 +1512,26 @@ def _do_upload(
                             }
                         }""")
                         page.wait_for_timeout(500)
-                        # Click Start button directly
+                        # Click Start button — MUI button with text "Start >" and aria-label
                         clicked = page.evaluate("""() => {
-                            // Find and click Start / Begin button — exact text match
-                            for (const el of document.querySelectorAll('button, a, [role="button"], div, span, label')) {
+                            // Priority 1: exact aria-label match
+                            const byLabel = document.querySelector('button[aria-label="Link to Release Details"]');
+                            if (byLabel && byLabel.offsetWidth > 0) { byLabel.click(); return 'aria-label'; }
+                            // Priority 2: button whose text starts with 'start'
+                            for (const el of document.querySelectorAll('button, a, [role="button"]')) {
                                 const txt = (el.textContent || '').trim().toLowerCase();
-                                if ((txt === 'start' || txt === 'begin' || txt === 'get started')
-                                    && el.offsetWidth > 0 && el.offsetHeight > 0) {
+                                if (txt.startsWith('start') && el.offsetWidth > 0 && el.offsetHeight > 0) {
                                     el.click();
                                     return txt;
                                 }
                             }
-                            // Broader: any clickable element with short text containing 'start'
-                            for (const el of document.querySelectorAll('button, a, [role="button"], div, span')) {
+                            // Priority 3: any visible element with text starting with 'start' and pointer cursor
+                            for (const el of document.querySelectorAll('div, span, label')) {
                                 const txt = (el.textContent || '').trim().toLowerCase();
                                 const style = getComputedStyle(el);
-                                if (txt.includes('start') && txt.length < 30
+                                if (txt.startsWith('start') && txt.length < 30
                                     && el.offsetWidth > 0 && el.offsetHeight > 0
-                                    && (el.tagName === 'BUTTON' || el.tagName === 'A' || style.cursor === 'pointer')) {
+                                    && style.cursor === 'pointer') {
                                     el.click();
                                     return txt;
                                 }
@@ -1558,20 +1560,22 @@ def _do_upload(
                             }
                         }""")
                         page.wait_for_timeout(500)
+                        # Click "Start >" MUI button via aria-label or text
                         btn = _find_clickable(page, [
+                            "button[aria-label='Link to Release Details']",
                             "button:has-text('Start')", "a:has-text('Start')",
                             "button:has-text('Begin')", "button:has-text('Continue')",
-                            "button:has-text('Get Started')", "a:has-text('Get Started')",
                         ])
                         if btn:
                             btn.click(force=True)
                             log.info("  Clicked Start")
                         else:
                             clicked = page.evaluate("""() => {
-                                for (const el of document.querySelectorAll('button, a, [role="button"], div, span, label')) {
+                                const byLabel = document.querySelector('button[aria-label="Link to Release Details"]');
+                                if (byLabel && byLabel.offsetWidth > 0) { byLabel.click(); return 'aria-label'; }
+                                for (const el of document.querySelectorAll('button, a, [role="button"]')) {
                                     const txt = (el.textContent || '').trim().toLowerCase();
-                                    if ((txt === 'start' || txt === 'begin' || txt === 'get started')
-                                        && el.offsetWidth > 0 && el.offsetHeight > 0) {
+                                    if (txt.startsWith('start') && el.offsetWidth > 0 && el.offsetHeight > 0) {
                                         el.click();
                                         return txt;
                                     }
