@@ -1549,11 +1549,61 @@ def _do_upload(
                         btn = _find_clickable(page, [
                             "button:has-text('Start')", "a:has-text('Start')",
                             "button:has-text('Begin')", "button:has-text('Continue')",
+                            "button:has-text('Get Started')", "a:has-text('Get Started')",
                         ])
                         if btn:
-                            btn.click()
-                            log.info("  Clicked Start")
-                            page.wait_for_timeout(3000)
+                            try:
+                                btn.scroll_into_view_if_needed()
+                                btn.click(force=True)
+                                log.info("  Clicked Start")
+                            except Exception:
+                                log.warning("  Normal click failed on Start — trying JS click")
+                                page.evaluate("""() => {
+                                    const btns = [...document.querySelectorAll('button, a, [role="button"], div[role="button"], span[role="button"]')];
+                                    for (const el of btns) {
+                                        const txt = (el.textContent || '').trim().toLowerCase();
+                                        if ((txt === 'start' || txt === 'begin' || txt === 'continue' || txt === 'get started')
+                                            && el.offsetWidth > 0 && el.offsetHeight > 0) {
+                                            el.scrollIntoView({block: 'center'});
+                                            el.click();
+                                            return true;
+                                        }
+                                    }
+                                    return false;
+                                }""")
+                                log.info("  Clicked Start via JS fallback")
+                        else:
+                            # Playwright selectors didn't find it — try pure JS click
+                            clicked = page.evaluate("""() => {
+                                const btns = [...document.querySelectorAll('button, a, [role="button"], div, span, label')];
+                                for (const el of btns) {
+                                    const txt = (el.textContent || '').trim().toLowerCase();
+                                    if ((txt === 'start' || txt === 'begin' || txt === 'continue' || txt === 'get started')
+                                        && el.offsetWidth > 0 && el.offsetHeight > 0) {
+                                        el.scrollIntoView({block: 'center'});
+                                        el.click();
+                                        return txt;
+                                    }
+                                }
+                                // Broader match: any element containing 'start' that looks clickable
+                                for (const el of btns) {
+                                    const txt = (el.textContent || '').trim().toLowerCase();
+                                    const style = getComputedStyle(el);
+                                    if (txt.includes('start') && el.offsetWidth > 0 && el.offsetHeight > 0
+                                        && (el.tagName === 'BUTTON' || el.tagName === 'A' || style.cursor === 'pointer')) {
+                                        el.scrollIntoView({block: 'center'});
+                                        el.click();
+                                        return txt;
+                                    }
+                                }
+                                return null;
+                            }""")
+                            if clicked:
+                                log.info(f"  Clicked Start via JS fallback: '{clicked}'")
+                            else:
+                                log.warning("  Could not find Start button — dumping page state")
+                                _dump_page_state(page, "start")
+                        page.wait_for_timeout(3000)
 
                     # ── RELEASE DETAILS (title, language, genre) ──
                     elif state == 'release_details':
