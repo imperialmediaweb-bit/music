@@ -612,48 +612,56 @@ def cmd_reupload(args):
 
 
 def cmd_autostart(args):
-    """Set up Windows Task Scheduler to auto-start the APScheduler on user login.
+    """Place a silent VBS launcher in the Windows Startup folder.
 
-    Creates ONE task that runs 'python main.py schedule' when the user logs in.
-    This way, the scheduler starts automatically even after a reboot — no need
-    to manually open PowerShell.
+    The launcher runs 'python main.py schedule' when the user logs in.
+    No administrator privileges required — uses the per-user Startup folder.
     """
     import platform as plat
     import subprocess
 
     if plat.system() != "Windows":
-        log.error("Autostart is only supported on Windows (Task Scheduler)")
+        log.error("Autostart is only supported on Windows")
         log.info("On Linux/macOS, use crontab or systemd instead.")
         sys.exit(1)
 
-    task_name = "MusicPipelineScheduler"
     python = sys.executable
     project_dir = str(Path(__file__).parent.resolve())
+    startup_dir = Path(os.path.expandvars(
+        r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+    ))
+    vbs_name = "music_pipeline_schedule_silent.vbs"
+    vbs_path = startup_dir / vbs_name
+    # Legacy paths from old Task Scheduler approach
+    legacy_task = "MusicPipelineScheduler"
+    legacy_vbs = Path(project_dir) / "schedule_silent.vbs"
 
-    if args.remove:
-        result = subprocess.run(
-            ["schtasks", "/Delete", "/TN", task_name, "/F"],
+    def _cleanup_legacy():
+        """Remove old Task Scheduler task and project-dir VBS if present."""
+        subprocess.run(
+            ["schtasks", "/Delete", "/TN", legacy_task, "/F"],
             capture_output=True, text=True,
         )
-        if result.returncode == 0:
-            log.info(f"Removed autostart task: {task_name}")
-        else:
-            log.info("No autostart task found to remove")
-        # Clean up the silent launcher VBS file
-        vbs_path = Path(project_dir) / "schedule_silent.vbs"
+        if legacy_vbs.exists():
+            legacy_vbs.unlink()
+            log.info("Removed legacy schedule_silent.vbs from project folder")
+
+    if args.remove:
         if vbs_path.exists():
             vbs_path.unlink()
-            log.info("Removed schedule_silent.vbs")
+            log.info(f"Removed autostart launcher: {vbs_path}")
+        else:
+            log.info("No autostart launcher found to remove")
+        _cleanup_legacy()
         return
 
-    # Remove old task if exists
-    subprocess.run(
-        ["schtasks", "/Delete", "/TN", task_name, "/F"],
-        capture_output=True, text=True,
-    )
+    if not startup_dir.is_dir():
+        log.error(f"Startup folder not found: {startup_dir}")
+        sys.exit(1)
 
-    # Create a silent VBS launcher so no CMD/PowerShell window appears
-    vbs_path = Path(project_dir) / "schedule_silent.vbs"
+    _cleanup_legacy()
+
+    # Build a silent VBS launcher so no CMD/PowerShell window appears
     vbs_content = (
         f'Set WshShell = CreateObject("WScript.Shell")\n'
         f'WshShell.CurrentDirectory = "{project_dir}"\n'
@@ -669,30 +677,13 @@ def cmd_autostart(args):
     else:
         vbs_content += f'WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& {sq}{python}{sq} main.py schedule""", 0, False\n'
     vbs_path.write_text(vbs_content, encoding="utf-8")
-    log.info(f"Created silent launcher: {vbs_path}")
 
-    # Create task that runs the VBS silently on user login (no visible window)
-    result = subprocess.run(
-        [
-            "schtasks", "/Create",
-            "/TN", task_name,
-            "/TR", f'wscript.exe "{vbs_path}"',
-            "/SC", "ONLOGON",
-            "/F",
-        ],
-        capture_output=True, text=True,
-    )
-
-    if result.returncode == 0:
-        log.info(f"Autostart task created: {task_name}")
-        log.info("The scheduler will run SILENTLY (no CMD/PowerShell window).")
-        log.info("It starts automatically when you log in.")
-        log.info("")
-        log.info("To verify: open Task Scheduler (taskschd.msc)")
-        log.info("To remove: python main.py autostart --remove")
-    else:
-        log.error(f"Failed to create autostart task: {result.stderr}")
-        log.info("Try running as Administrator (right-click → Run as administrator)")
+    log.info(f"Autostart launcher installed: {vbs_path}")
+    log.info("The scheduler will run SILENTLY (no CMD/PowerShell window).")
+    log.info("It starts automatically when you log in — no admin required.")
+    log.info("")
+    log.info(f"To verify: check your Startup folder")
+    log.info("To remove: python main.py autostart --remove")
 
 
 def cmd_schedule(args):
@@ -978,7 +969,7 @@ def main():
     # autostart - start scheduler automatically on Windows login
     autostart_parser = subparsers.add_parser(
         "autostart",
-        help="Auto-start the scheduler on Windows login (Task Scheduler)",
+        help="Auto-start the scheduler on Windows login (Startup folder, no admin needed)",
     )
     autostart_parser.add_argument(
         "--remove", action="store_true",
