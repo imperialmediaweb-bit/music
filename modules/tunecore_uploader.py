@@ -1202,10 +1202,10 @@ def _detect_page(page) -> str:
         if not state.get('hasUnuploadedFile'):
             return 'review'  # all files uploaded → Continue to Review
         # else: fall through to add_track (need to upload WAV first)
-    if state.get('hasReviewBtn') and not state.get('hasAddTrackBtn'):
-        return 'review'
     if state.get('hasArtworkBtn') and not state.get('hasAddTrackBtn'):
         return 'artwork'
+    if state.get('hasReviewBtn') and not state.get('hasAddTrackBtn'):
+        return 'review'
     # UPLOAD STEREO page: has the stereo upload button (even inside #songs_app)
     if state.get('hasStereoUploadBtn') and not state.get('hasWriterField'):
         return 'upload_wav'
