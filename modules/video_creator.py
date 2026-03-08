@@ -55,7 +55,7 @@ def _analyze_beats(audio_path: Path) -> list[float] | None:
         if len(beat_times) < 2:
             log.warning("Too few beats detected, skipping beat sync")
             return None
-        tempo_val = float(tempo) if hasattr(tempo, '__float__') else float(tempo[0])
+        tempo_val = float(tempo[0]) if hasattr(tempo, '__len__') else float(tempo)
         log.info(f"Detected {len(beat_times)} beats at ~{tempo_val:.0f} BPM")
         return beat_times
     except ImportError:

@@ -271,6 +271,9 @@ def _check_missing_packages():
         "google-auth-oauthlib": "google_auth_oauthlib",
         "google-auth-httplib2": "google_auth_httplib2",
         "packaging": "packaging",
+        "librosa": "librosa",
+        "numpy": "numpy",
+        "soundfile": "soundfile",
     }
     missing = []
     for pip_name, import_name in package_import_map.items():
