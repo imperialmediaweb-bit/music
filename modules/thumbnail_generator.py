@@ -5,7 +5,7 @@ import requests
 from io import BytesIO
 from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from config import OPENAI_API_KEY, OUTPUT_DIR
+from config import OPENAI_API_KEY, OUTPUT_DIR, THUMBNAIL_TEXT_STYLE
 from utils.logger import log
 
 
@@ -22,35 +22,13 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
-def _add_text_with_shadow(
-    image: Image.Image,
-    text: str,
-    y_ratio: float,
-    font_size_ratio: float,
-    color: str = "#FFD700",
-) -> Image.Image:
-    """Overlay text with a drop shadow for readability.
-
-    Args:
-        image: PIL Image to draw on.
-        text: Text to render (will be uppercased).
-        y_ratio: Vertical position as ratio of image height (0.0 = top, 1.0 = bottom).
-        font_size_ratio: Font size as ratio of image height.
-        color: Text color (hex or name).
-    """
-    draw = ImageDraw.Draw(image)
-    width, height = image.size
-
-    font_size = int(height * font_size_ratio)
+def _measure_and_scale_text(draw, text, font_size, width, height):
+    """Measure text and auto-scale font if too wide. Returns (font, text_w, text_h)."""
     font = _get_font(font_size)
-    text = text.upper()
-
-    # Measure text
     bbox = draw.textbbox((0, 0), text, font=font)
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
 
-    # Scale down font if text is wider than image (with padding)
     max_width = int(width * 0.9)
     if text_w > max_width:
         font_size = int(font_size * max_width / text_w)
@@ -59,32 +37,173 @@ def _add_text_with_shadow(
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
-    # Center horizontally, position vertically by ratio
+    return font, text_w, text_h
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    """Convert hex color string to RGB tuple."""
+    hex_color = hex_color.lstrip("#")
+    return (int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16))
+
+
+def _add_text_classic(
+    image: Image.Image,
+    text: str,
+    y_ratio: float,
+    font_size_ratio: float,
+    color: str = "#FFD700",
+) -> Image.Image:
+    """Original text overlay with hard black outline (classic style)."""
+    draw = ImageDraw.Draw(image)
+    width, height = image.size
+
+    font_size = int(height * font_size_ratio)
+    text = text.upper()
+    font, text_w, text_h = _measure_and_scale_text(draw, text, font_size, width, height)
+
     x = (width - text_w) // 2
     y = int(height * y_ratio) - text_h // 2
 
-    # Draw black outline for readability (circular outline)
     outline_width = max(3, font_size // 12)
     for dx in range(-outline_width, outline_width + 1):
         for dy in range(-outline_width, outline_width + 1):
             if dx * dx + dy * dy <= outline_width * outline_width:
                 draw.text((x + dx, y + dy), text, font=font, fill="black")
 
-    # Draw main text
     draw.text((x, y), text, font=font, fill=color)
-
     return image
 
 
+def _add_stylized_text(
+    image: Image.Image,
+    text: str,
+    y_ratio: float,
+    font_size_ratio: float,
+    color_top: str = "#FFD700",
+    color_bottom: str = "#FFFFFF",
+    glow: bool = True,
+    divider: bool = False,
+) -> Image.Image:
+    """Premium text overlay with soft shadow, neon glow, and gradient fill.
+
+    Composites multiple RGBA layers for a professional album-cover look.
+    """
+    width, height = image.size
+    image = image.convert("RGBA")
+
+    font_size = int(height * font_size_ratio)
+    text = text.upper()
+
+    # Measure text on a temp draw
+    tmp = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
+    tmp_draw = ImageDraw.Draw(tmp)
+    font, text_w, text_h = _measure_and_scale_text(tmp_draw, text, font_size, width, height)
+
+    x = (width - text_w) // 2
+    y = int(height * y_ratio) - text_h // 2
+
+    # --- Layer 1: Soft drop shadow ---
+    shadow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    shadow_draw = ImageDraw.Draw(shadow)
+    shadow_offset_x, shadow_offset_y = 4, 6
+    shadow_draw.text(
+        (x + shadow_offset_x, y + shadow_offset_y), text,
+        font=font, fill=(0, 0, 0, 180),
+    )
+    shadow = shadow.filter(ImageFilter.GaussianBlur(radius=8))
+    image = Image.alpha_composite(image, shadow)
+
+    # --- Layer 2: Neon glow ---
+    if glow:
+        glow_color = _hex_to_rgb(color_top)
+        glow_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        glow_draw = ImageDraw.Draw(glow_layer)
+        # Wide dim glow
+        glow_draw.text(
+            (x, y), text, font=font,
+            fill=(*glow_color, 40),
+            stroke_width=6, stroke_fill=(*glow_color, 30),
+        )
+        # Medium glow
+        glow_draw.text(
+            (x, y), text, font=font,
+            fill=(*glow_color, 70),
+            stroke_width=3, stroke_fill=(*glow_color, 50),
+        )
+        glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(radius=4))
+        image = Image.alpha_composite(image, glow_layer)
+
+    # --- Layer 3: Gradient-filled text ---
+    # Create vertical gradient strip the size of the text
+    top_rgb = _hex_to_rgb(color_top)
+    bot_rgb = _hex_to_rgb(color_bottom)
+    gradient = Image.new("RGBA", (text_w, text_h), (0, 0, 0, 0))
+    for row in range(text_h):
+        ratio = row / max(text_h - 1, 1)
+        r = int(top_rgb[0] + (bot_rgb[0] - top_rgb[0]) * ratio)
+        g = int(top_rgb[1] + (bot_rgb[1] - top_rgb[1]) * ratio)
+        b = int(top_rgb[2] + (bot_rgb[2] - top_rgb[2]) * ratio)
+        for col in range(text_w):
+            gradient.putpixel((col, row), (r, g, b, 255))
+
+    # Create text mask
+    mask = Image.new("L", (text_w, text_h), 0)
+    mask_draw = ImageDraw.Draw(mask)
+    mask_draw.text((0, 0), text, font=font, fill=255)
+
+    # Apply mask to gradient
+    gradient.putalpha(mask)
+
+    # Paste gradient text onto image
+    image.paste(gradient, (x, y), gradient)
+
+    # --- Layer 4: Decorative divider line ---
+    if divider and text_w > 20:
+        div_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        div_draw = ImageDraw.Draw(div_layer)
+        line_w = int(text_w * 0.6)
+        line_y = y + text_h + int(text_h * 0.3)
+        line_x1 = (width - line_w) // 2
+        line_x2 = line_x1 + line_w
+        glow_rgb = _hex_to_rgb(color_top)
+        div_draw.line(
+            [(line_x1, line_y), (line_x2, line_y)],
+            fill=(*glow_rgb, 120), width=2,
+        )
+        # Small dots at each end
+        dot_r = 3
+        div_draw.ellipse(
+            [line_x1 - dot_r, line_y - dot_r, line_x1 + dot_r, line_y + dot_r],
+            fill=(*glow_rgb, 160),
+        )
+        div_draw.ellipse(
+            [line_x2 - dot_r, line_y - dot_r, line_x2 + dot_r, line_y + dot_r],
+            fill=(*glow_rgb, 160),
+        )
+        image = Image.alpha_composite(image, div_layer)
+
+    return image.convert("RGB")
+
+
 def _add_track_name(image: Image.Image, track_name: str) -> Image.Image:
-    """Overlay the track name in bold gold text in the lower third."""
-    return _add_text_with_shadow(image, track_name, y_ratio=0.78, font_size_ratio=0.12)
+    """Overlay the track name in bold stylized text in the lower third."""
+    if THUMBNAIL_TEXT_STYLE == "classic":
+        return _add_text_classic(image, track_name, y_ratio=0.78, font_size_ratio=0.12)
+    return _add_stylized_text(
+        image, track_name, y_ratio=0.78, font_size_ratio=0.12,
+        color_top="#FFD700", color_bottom="#FFFFFF", glow=True, divider=True,
+    )
 
 
 def _add_artist_name(image: Image.Image, artist_name: str) -> Image.Image:
-    """Overlay the artist name in white text above the track name."""
-    return _add_text_with_shadow(
-        image, artist_name, y_ratio=0.62, font_size_ratio=0.06, color="#FFFFFF"
+    """Overlay the artist name above the track name."""
+    if THUMBNAIL_TEXT_STYLE == "classic":
+        return _add_text_classic(
+            image, artist_name, y_ratio=0.62, font_size_ratio=0.06, color="#FFFFFF"
+        )
+    return _add_stylized_text(
+        image, artist_name, y_ratio=0.62, font_size_ratio=0.06,
+        color_top="#FFFFFF", color_bottom="#C0C0C0", glow=False, divider=False,
     )
 
 

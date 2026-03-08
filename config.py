@@ -38,6 +38,13 @@ SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "false").lower() == "true"
 # Skip SoundCloud upload in the pipeline (set to "true" to disable)
 SKIP_SOUNDCLOUD = os.getenv("SKIP_SOUNDCLOUD", "false").lower() == "true"
 
+# Beat-synced video: zoom/brightness pulses on detected beats (requires librosa)
+BEAT_SYNC_VIDEO = os.getenv("BEAT_SYNC_VIDEO", "true").lower() == "true"
+VIDEO_FPS = int(os.getenv("VIDEO_FPS", "24"))
+
+# Thumbnail text style: "stylized" (glow + gradient) or "classic" (plain outline)
+THUMBNAIL_TEXT_STYLE = os.getenv("THUMBNAIL_TEXT_STYLE", "stylized")
+
 # Ensure directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 INPUT_DIR.mkdir(parents=True, exist_ok=True)
