@@ -1172,7 +1172,7 @@ def _detect_page(page) -> str:
                 || visible('label.song-file-upload-button'),
             hasArtworkBtn: visibleBtn('add artwork') || visibleBtn('upload artwork')
                 || visibleBtn('cover art') || visibleBtn('add image'),
-            hasReviewBtn: visibleBtn('continue and review') || visibleBtn('continue & review'),
+            hasReviewBtn: visibleBtn('continue and review') || visibleBtn('continue & review') || visibleBtn('continue to review'),
             hasReleaseBtn: visibleBtn('release music'),
             hasConfirm: body.includes('congrat') || body.includes('submitted your release')
                 || body.includes('in review'),
@@ -2304,23 +2304,68 @@ def _do_upload(
                         btn = _find_clickable(page, [
                             "button:has-text('Continue and Review')",
                             "button:has-text('Continue & Review')",
-                            "button:has-text('Review')", "button:has-text('Continue')",
+                            "a:has-text('Continue and Review')",
+                            "a:has-text('Continue & Review')",
+                            "a:has-text('Continue to Review')",
+                            "[role='button']:has-text('Continue')",
+                            "button:has-text('Review')",
+                            "a:has-text('Review')",
+                            "button:has-text('Continue')",
+                            "a.secondary-btn",
                         ])
                         if btn:
+                            btn.scroll_into_view_if_needed()
+                            page.wait_for_timeout(500)
                             btn.click()
-                            page.wait_for_timeout(5000)
+                            page.wait_for_timeout(8000)
                             log.info("  Clicked Continue and Review")
+                        else:
+                            log.warning("  Review button not found — dumping page state...")
+                            _dump_page_state(page, "review step — no button found")
+                            try:
+                                cont = page.locator("text=Continue").first
+                                if cont.is_visible(timeout=3000):
+                                    cont.scroll_into_view_if_needed()
+                                    page.wait_for_timeout(500)
+                                    cont.click()
+                                    page.wait_for_timeout(8000)
+                                    log.info("  Clicked fallback 'Continue' text")
+                            except Exception:
+                                pass
 
                     # ── RELEASE ──
                     elif state == 'release':
                         btn = _find_clickable(page, [
-                            "button:has-text('Release Music')", "button:has-text('Release')",
-                            "button:has-text('Submit')", "button:has-text('Distribute')",
+                            "button:has-text('Release Music')",
+                            "a:has-text('Release Music')",
+                            "[role='button']:has-text('Release Music')",
+                            "button:has-text('Release')",
+                            "a:has-text('Release')",
+                            "button:has-text('Submit')",
+                            "a:has-text('Submit')",
+                            "button:has-text('Distribute')",
+                            "a:has-text('Distribute')",
                         ])
                         if btn:
+                            btn.scroll_into_view_if_needed()
+                            page.wait_for_timeout(500)
                             btn.click()
                             log.info("  Clicked Release Music")
                             page.wait_for_timeout(5000)
+
+                            # Handle confirmation dialog/modal if one appears
+                            confirm = _find_clickable(page, [
+                                "button:has-text('Confirm')",
+                                "button:has-text('Yes')",
+                                "button:has-text('OK')",
+                                "button:has-text('Submit')",
+                                "button:has-text('Release')",
+                                "a:has-text('Confirm')",
+                            ])
+                            if confirm:
+                                confirm.click()
+                                page.wait_for_timeout(5000)
+                                log.info("  Confirmed release dialog")
 
                             # Check if release succeeded or failed
                             post_release = _detect_page(page)
@@ -2346,11 +2391,14 @@ def _do_upload(
                                     page.wait_for_timeout(3000)
                                     log.info("  Saved as draft (fallback)")
                         else:
-                            log.warning("  Release button not found — saving as draft...")
+                            log.warning("  Release button not found — dumping page state...")
+                            _dump_page_state(page, "release step — no button found")
                             draft_btn = _find_clickable(page, [
                                 "button:has-text('Save as Draft')",
                                 "button:has-text('Save Draft')",
                                 "button:has-text('Save')",
+                                "a:has-text('Save as Draft')",
+                                "a:has-text('Save Draft')",
                             ])
                             if draft_btn:
                                 draft_btn.click()
