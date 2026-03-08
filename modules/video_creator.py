@@ -27,6 +27,20 @@ def _check_ffmpeg():
         )
 
 
+def _get_audio_duration(audio_path: Path) -> float:
+    """Get audio duration in seconds using ffprobe."""
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(audio_path),
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    if result.returncode != 0:
+        raise RuntimeError(f"ffprobe failed: {result.stderr}")
+    return float(result.stdout.strip())
+
+
 def _run_ffmpeg(args: list[str], label: str):
     """Run an FFmpeg command and handle errors."""
     cmd = ["ffmpeg", "-y"] + args
@@ -66,7 +80,7 @@ def _analyze_beats(audio_path: Path) -> list[float] | None:
         return None
 
 
-def _build_beat_filter(beat_times: list[float], fps: int = 24) -> str:
+def _build_beat_filter(beat_times: list[float], duration: float, fps: int = 24) -> str:
     """Build FFmpeg filter chain with zoom pulses, brightness flashes, and slow drift.
 
     Uses a periodic expression based on the median beat interval so the filter
@@ -95,7 +109,7 @@ def _build_beat_filter(beat_times: list[float], fps: int = 24) -> str:
         f"zoompan=z={zoom_expr}"
         f":x='{drift_x}'"
         f":y='{center_y}'"
-        f":d=1:s=1920x1080:fps={fps}"
+        f":d={int(duration * fps)}:s=1920x1080:fps={fps}"
     )
 
     # --- Brightness pulse: flash +15% brightness on each beat ---
@@ -143,7 +157,8 @@ def _create_beat_synced_video(
 ):
     """Create a beat-synced video with zoom pulses, brightness flashes, and slow drift."""
     log.info(f"Creating beat-synced video (1920x1080, {fps}fps)...")
-    vf = _build_beat_filter(beat_times, fps)
+    duration = _get_audio_duration(audio_path)
+    vf = _build_beat_filter(beat_times, duration, fps)
 
     _run_ffmpeg(
         [
