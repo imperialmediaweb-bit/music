@@ -1,4 +1,5 @@
 import json
+import re
 import time
 from dataclasses import dataclass
 from openai import OpenAI
@@ -157,6 +158,8 @@ def generate_concept(track_name: str = "", genre: str = "",
     if track_name:
         data["track_name"] = track_name
     final_name = data.get("track_name", "Tribal Pulse")
+    # Strip hashtags that AI sometimes appends (e.g. "Gaharé #Afrohouse" → "Gaharé")
+    final_name = re.sub(r'\s*#\S+', '', final_name).strip()
     log.info(f"Generated concept: {final_name}")
 
     # Build music generation prompt
