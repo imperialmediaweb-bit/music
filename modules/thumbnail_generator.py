@@ -64,6 +64,19 @@ def _add_text_classic(
     x = (width - text_w) // 2
     y = int(height * y_ratio) - text_h // 2
 
+    # Semi-transparent dark band behind text for readability
+    pad_v = int(text_h * 0.3)
+    band = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    band_draw = ImageDraw.Draw(band)
+    band_draw.rectangle(
+        [0, y - pad_v, width, y + text_h + pad_v],
+        fill=(0, 0, 0, 150),
+    )
+    image = image.convert("RGBA")
+    image = Image.alpha_composite(image, band)
+    image = image.convert("RGB")
+    draw = ImageDraw.Draw(image)
+
     outline_width = max(3, font_size // 12)
     for dx in range(-outline_width, outline_width + 1):
         for dy in range(-outline_width, outline_width + 1):
@@ -101,6 +114,16 @@ def _add_stylized_text(
 
     x = (width - text_w) // 2
     y = int(height * y_ratio) - text_h // 2
+
+    # --- Layer 0: Semi-transparent dark band for readability ---
+    pad_v = int(text_h * 0.3)
+    band = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    band_draw = ImageDraw.Draw(band)
+    band_draw.rectangle(
+        [0, y - pad_v, width, y + text_h + pad_v],
+        fill=(0, 0, 0, 150),
+    )
+    image = Image.alpha_composite(image, band)
 
     # --- Layer 1: Soft drop shadow ---
     shadow = Image.new("RGBA", (width, height), (0, 0, 0, 0))

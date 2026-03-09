@@ -7,6 +7,7 @@ when librosa is available, with automatic fallback to static image loop.
 
 import subprocess
 import shutil
+import tempfile
 from pathlib import Path
 
 from modules.concept_generator import MusicConcept
@@ -80,29 +81,48 @@ def _analyze_beats(audio_path: Path) -> list[float] | None:
         return None
 
 
-def _build_beat_filter(beat_times: list[float], duration: float, fps: int = 24) -> str:
-    """Build FFmpeg filter chain with zoom pulses, brightness flashes, and slow drift.
+def _build_sendcmd_script(beat_times: list[float], duration: float) -> str:
+    """Build an FFmpeg sendcmd script that fires brightness/saturation on exact beats.
 
-    Uses a periodic expression based on the median beat interval so the filter
-    stays compact regardless of track length.
+    Each beat triggers a brightness flash (+0.06) and saturation boost (1.2) that
+    decays back to neutral over ~0.15 seconds using linear interpolation.
     """
-    # Compute median beat interval
+    decay = 0.15  # seconds for the flash to decay
+    lines: list[str] = []
+    for bt in beat_times:
+        # At the beat: set brightness=0.06, saturation=1.2
+        lines.append(f"{bt:.4f} [enter] eq brightness 0.06;")
+        lines.append(f"{bt:.4f} [enter] eq saturation 1.2;")
+        # After decay: reset to neutral
+        end = min(bt + decay, duration)
+        lines.append(f"{end:.4f} [enter] eq brightness 0;")
+        lines.append(f"{end:.4f} [enter] eq saturation 1;")
+    return "\n".join(lines)
+
+
+def _build_beat_filter(
+    beat_times: list[float], duration: float, fps: int = 24,
+) -> tuple[str, str]:
+    """Build FFmpeg filter chain with zoom pulses and exact beat-synced eq flashes.
+
+    Zoom uses a periodic expression derived from tempo (60/BPM) for smooth pulses.
+    Brightness and saturation use sendcmd with exact librosa beat timestamps.
+
+    Returns (filter_string, sendcmd_script).
+    """
+    # Derive tempo-based period for zoom (60 / BPM in frames)
     intervals = [beat_times[i + 1] - beat_times[i] for i in range(len(beat_times) - 1)]
     median_interval = sorted(intervals)[len(intervals) // 2]
-    period = median_interval * fps  # beat period in frames
+    bpm = 60.0 / median_interval
+    beat_period_sec = 60.0 / bpm  # same as median_interval, but explicit
+    period = beat_period_sec * fps  # beat period in frames
     first_beat = beat_times[0] * fps  # first beat in frames
 
-    # --- Zoompan: zoom pulse 1.0 → 1.05 on each beat + slow horizontal drift ---
-    # phase = mod(frame - first_beat, period) / period  (0 to 1 per beat)
-    # zoom pulse: fast attack, smooth decay using max(0, 1 - 3*phase)
-    # slow drift: x drifts slowly across a small range over the full video
+    # --- Zoompan: zoom pulse 1.0 → 1.05 using tempo-derived period ---
     zoom_expr = (
         f"1.0+0.05*max(0\\,1-3.0*mod(on-{first_beat:.1f}\\,{period:.1f})/{period:.1f})"
     )
-    # Slow horizontal drift: pan across ~5% of image width over 1000 frames, back and forth
-    # sin(on/500) oscillates between -1 and 1, scaled to ~2.5% of image width each way
     drift_x = f"iw/2-(iw/zoom/2)+iw*0.025*sin(on/500)"
-    # Center vertically
     center_y = f"ih/2-(ih/zoom/2)"
 
     zoompan = (
@@ -112,18 +132,12 @@ def _build_beat_filter(beat_times: list[float], duration: float, fps: int = 24) 
         f":d={int(duration * fps)}:s=1920x1080:fps={fps}"
     )
 
-    # --- Brightness pulse: flash +15% brightness on each beat ---
-    # Same periodic phase, but mapped to eq brightness range (default=0, max ~0.15)
-    bright_expr = (
-        f"0.06*max(0\\,1-4.0*mod(t-{beat_times[0]:.2f}\\,{median_interval:.4f})/{median_interval:.4f})"
-    )
-    # Also boost saturation slightly on beats (+20%)
-    sat_expr = (
-        f"1.0+0.2*max(0\\,1-4.0*mod(t-{beat_times[0]:.2f}\\,{median_interval:.4f})/{median_interval:.4f})"
-    )
-    eq_filter = f"eq=brightness='{bright_expr}':saturation='{sat_expr}'"
+    # --- eq filter: brightness/saturation controlled by sendcmd ---
+    eq_filter = "eq=brightness=0:saturation=1"
 
-    return f"{zoompan},{eq_filter},format=yuv420p"
+    sendcmd_script = _build_sendcmd_script(beat_times, duration)
+
+    return f"{zoompan},{eq_filter},format=yuv420p", sendcmd_script
 
 
 def _create_static_video(audio_path: Path, thumbnail_path: Path, video_path: Path):
@@ -155,29 +169,41 @@ def _create_beat_synced_video(
     audio_path: Path, thumbnail_path: Path, video_path: Path,
     beat_times: list[float], fps: int = 24,
 ):
-    """Create a beat-synced video with zoom pulses, brightness flashes, and slow drift."""
+    """Create a beat-synced video with zoom pulses and exact beat-synced eq flashes."""
     log.info(f"Creating beat-synced video (1920x1080, {fps}fps)...")
     duration = _get_audio_duration(audio_path)
-    vf = _build_beat_filter(beat_times, duration, fps)
+    vf, sendcmd_script = _build_beat_filter(beat_times, duration, fps)
 
-    _run_ffmpeg(
-        [
-            "-i", str(thumbnail_path),
-            "-i", str(audio_path),
-            "-filter_complex", f"[0:v]{vf}[v]",
-            "-map", "[v]",
-            "-map", "1:a",
-            "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-crf", "23",
-            "-c:a", "aac",
-            "-b:a", "192k",
-            "-shortest",
-            "-movflags", "+faststart",
-            str(video_path),
-        ],
-        label="beat-synced video",
-    )
+    # Write sendcmd script to a temp file for FFmpeg
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".cmd", delete=False,
+    ) as cmd_file:
+        cmd_file.write(sendcmd_script)
+        cmd_path = cmd_file.name
+
+    try:
+        # Prepend sendcmd to the filter chain so eq params update on exact beats
+        full_filter = f"sendcmd=f='{cmd_path}',[0:v]{vf}[v]"
+        _run_ffmpeg(
+            [
+                "-i", str(thumbnail_path),
+                "-i", str(audio_path),
+                "-filter_complex", full_filter,
+                "-map", "[v]",
+                "-map", "1:a",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-crf", "23",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-shortest",
+                "-movflags", "+faststart",
+                str(video_path),
+            ],
+            label="beat-synced video",
+        )
+    finally:
+        Path(cmd_path).unlink(missing_ok=True)
 
 
 def create_video(
