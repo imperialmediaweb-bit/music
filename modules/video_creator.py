@@ -182,8 +182,10 @@ def _create_beat_synced_video(
         cmd_path = cmd_file.name
 
     try:
-        # Prepend sendcmd to the filter chain so eq params update on exact beats
-        full_filter = f"sendcmd=f='{cmd_path}',[0:v]{vf}[v]"
+        # Normalize path to forward slashes so FFmpeg doesn't treat \ as escapes
+        cmd_path_safe = cmd_path.replace("\\", "/").replace("'", "'\\''")
+        # Chain sendcmd after [0:v] input pad so the filter graph is connected
+        full_filter = f"[0:v]sendcmd=f='{cmd_path_safe}',{vf}[v]"
         _run_ffmpeg(
             [
                 "-i", str(thumbnail_path),
