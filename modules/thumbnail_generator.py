@@ -23,7 +23,11 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 
 
 def _measure_and_scale_text(draw, text, font_size, width, height):
-    """Measure text and auto-scale font if too wide. Returns (font, text_w, text_h)."""
+    """Measure text and auto-scale font if too wide.
+
+    Returns (font, text_w, text_h, offset_x, offset_y) where offset_x/y are
+    the bbox origin offsets needed to correctly position text.
+    """
     font = _get_font(font_size)
     bbox = draw.textbbox((0, 0), text, font=font)
     text_w = bbox[2] - bbox[0]
@@ -37,7 +41,7 @@ def _measure_and_scale_text(draw, text, font_size, width, height):
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
-    return font, text_w, text_h
+    return font, text_w, text_h, bbox[0], bbox[1]
 
 
 def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
@@ -59,17 +63,22 @@ def _add_text_classic(
 
     font_size = int(height * font_size_ratio)
     text = text.upper()
-    font, text_w, text_h = _measure_and_scale_text(draw, text, font_size, width, height)
+    font, text_w, text_h, off_x, off_y = _measure_and_scale_text(draw, text, font_size, width, height)
 
-    x = (width - text_w) // 2
-    y = int(height * y_ratio) - text_h // 2
+    # bbox_left is where we want the text bbox to start
+    bbox_left = (width - text_w) // 2
+    bbox_top = int(height * y_ratio) - text_h // 2
+
+    # draw.text origin must be shifted by the bbox offsets
+    x = bbox_left - off_x
+    y = bbox_top - off_y
 
     # Semi-transparent dark band behind text for readability
     pad_v = int(text_h * 0.3)
     band = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     band_draw = ImageDraw.Draw(band)
     band_draw.rectangle(
-        [0, y - pad_v, width, y + text_h + pad_v],
+        [0, bbox_top - pad_v, width, bbox_top + text_h + pad_v],
         fill=(0, 0, 0, 150),
     )
     image = image.convert("RGBA")
@@ -110,17 +119,22 @@ def _add_stylized_text(
     # Measure text on a temp draw
     tmp = Image.new("RGBA", (1, 1), (0, 0, 0, 0))
     tmp_draw = ImageDraw.Draw(tmp)
-    font, text_w, text_h = _measure_and_scale_text(tmp_draw, text, font_size, width, height)
+    font, text_w, text_h, off_x, off_y = _measure_and_scale_text(tmp_draw, text, font_size, width, height)
 
-    x = (width - text_w) // 2
-    y = int(height * y_ratio) - text_h // 2
+    # bbox_left/bbox_top = where we want the text bounding box placed
+    bbox_left = (width - text_w) // 2
+    bbox_top = int(height * y_ratio) - text_h // 2
+
+    # draw.text origin must be shifted by the bbox offsets
+    draw_x = bbox_left - off_x
+    draw_y = bbox_top - off_y
 
     # --- Layer 0: Semi-transparent dark band for readability ---
     pad_v = int(text_h * 0.3)
     band = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     band_draw = ImageDraw.Draw(band)
     band_draw.rectangle(
-        [0, y - pad_v, width, y + text_h + pad_v],
+        [0, bbox_top - pad_v, width, bbox_top + text_h + pad_v],
         fill=(0, 0, 0, 150),
     )
     image = Image.alpha_composite(image, band)
@@ -130,7 +144,7 @@ def _add_stylized_text(
     shadow_draw = ImageDraw.Draw(shadow)
     shadow_offset_x, shadow_offset_y = 4, 6
     shadow_draw.text(
-        (x + shadow_offset_x, y + shadow_offset_y), text,
+        (draw_x + shadow_offset_x, draw_y + shadow_offset_y), text,
         font=font, fill=(0, 0, 0, 180),
     )
     shadow = shadow.filter(ImageFilter.GaussianBlur(radius=8))
@@ -143,13 +157,13 @@ def _add_stylized_text(
         glow_draw = ImageDraw.Draw(glow_layer)
         # Wide dim glow
         glow_draw.text(
-            (x, y), text, font=font,
+            (draw_x, draw_y), text, font=font,
             fill=(*glow_color, 40),
             stroke_width=6, stroke_fill=(*glow_color, 30),
         )
         # Medium glow
         glow_draw.text(
-            (x, y), text, font=font,
+            (draw_x, draw_y), text, font=font,
             fill=(*glow_color, 70),
             stroke_width=3, stroke_fill=(*glow_color, 50),
         )
@@ -169,23 +183,23 @@ def _add_stylized_text(
         for col in range(text_w):
             gradient.putpixel((col, row), (r, g, b, 255))
 
-    # Create text mask
+    # Create text mask — draw at (-off_x, -off_y) so the full glyph fits
     mask = Image.new("L", (text_w, text_h), 0)
     mask_draw = ImageDraw.Draw(mask)
-    mask_draw.text((0, 0), text, font=font, fill=255)
+    mask_draw.text((-off_x, -off_y), text, font=font, fill=255)
 
     # Apply mask to gradient
     gradient.putalpha(mask)
 
-    # Paste gradient text onto image
-    image.paste(gradient, (x, y), gradient)
+    # Paste gradient text onto image at the bbox position
+    image.paste(gradient, (bbox_left, bbox_top), gradient)
 
     # --- Layer 4: Decorative divider line ---
     if divider and text_w > 20:
         div_layer = Image.new("RGBA", (width, height), (0, 0, 0, 0))
         div_draw = ImageDraw.Draw(div_layer)
         line_w = int(text_w * 0.6)
-        line_y = y + text_h + int(text_h * 0.3)
+        line_y = bbox_top + text_h + int(text_h * 0.3)
         line_x1 = (width - line_w) // 2
         line_x2 = line_x1 + line_w
         glow_rgb = _hex_to_rgb(color_top)
