@@ -7,7 +7,6 @@ when librosa is available, with automatic fallback to static image loop.
 
 import subprocess
 import shutil
-import tempfile
 from pathlib import Path
 
 from modules.concept_generator import MusicConcept
@@ -81,34 +80,16 @@ def _analyze_beats(audio_path: Path) -> list[float] | None:
         return None
 
 
-def _build_sendcmd_script(beat_times: list[float], duration: float) -> str:
-    """Build an FFmpeg sendcmd script that fires brightness/saturation on exact beats.
-
-    Each beat triggers a brightness flash (+0.06) and saturation boost (1.2) that
-    decays back to neutral over ~0.15 seconds using linear interpolation.
-    """
-    decay = 0.15  # seconds for the flash to decay
-    lines: list[str] = []
-    for bt in beat_times:
-        # At the beat: set brightness=0.06, saturation=1.2
-        lines.append(f"{bt:.4f} [enter] eq brightness 0.06;")
-        lines.append(f"{bt:.4f} [enter] eq saturation 1.2;")
-        # After decay: reset to neutral
-        end = min(bt + decay, duration)
-        lines.append(f"{end:.4f} [enter] eq brightness 0;")
-        lines.append(f"{end:.4f} [enter] eq saturation 1;")
-    return "\n".join(lines)
-
-
 def _build_beat_filter(
     beat_times: list[float], duration: float, fps: int = 24,
-) -> tuple[str, str]:
-    """Build FFmpeg filter chain with zoom pulses and exact beat-synced eq flashes.
+) -> str:
+    """Build FFmpeg filter chain with zoom pulses and beat-synced eq flashes.
 
-    Zoom uses a periodic expression derived from tempo (60/BPM) for smooth pulses.
-    Brightness and saturation use sendcmd with exact librosa beat timestamps.
+    Both zoom and brightness/saturation use periodic mathematical expressions
+    derived from tempo, avoiding the need for sendcmd temp files (which break
+    on Windows due to path escaping issues).
 
-    Returns (filter_string, sendcmd_script).
+    Returns the complete filter string.
     """
     # Derive tempo-based period for zoom (60 / BPM in frames)
     intervals = [beat_times[i + 1] - beat_times[i] for i in range(len(beat_times) - 1)]
@@ -132,12 +113,16 @@ def _build_beat_filter(
         f":d={int(duration * fps)}:s=1920x1080:fps={fps}"
     )
 
-    # --- eq filter: brightness/saturation controlled by sendcmd ---
-    eq_filter = "eq=brightness=0:saturation=1"
+    # --- eq filter: brightness/saturation pulse using same BPM period ---
+    # Uses the same periodic decay as zoom: flash on beat, decay over ~1/3 period
+    beat_fn = f"max(0\\,1-3.0*mod(n-{first_beat:.1f}\\,{period:.1f})/{period:.1f})"
+    eq_filter = (
+        f"eq=brightness='0.06*{beat_fn}'"
+        f":saturation='1+0.2*{beat_fn}'"
+        f":eval=frame"
+    )
 
-    sendcmd_script = _build_sendcmd_script(beat_times, duration)
-
-    return f"{zoompan},{eq_filter},format=yuv420p", sendcmd_script
+    return f"{zoompan},{eq_filter},format=yuv420p"
 
 
 def _create_static_video(audio_path: Path, thumbnail_path: Path, video_path: Path):
@@ -169,43 +154,30 @@ def _create_beat_synced_video(
     audio_path: Path, thumbnail_path: Path, video_path: Path,
     beat_times: list[float], fps: int = 24,
 ):
-    """Create a beat-synced video with zoom pulses and exact beat-synced eq flashes."""
+    """Create a beat-synced video with zoom pulses and brightness/saturation flashes."""
     log.info(f"Creating beat-synced video (1920x1080, {fps}fps)...")
     duration = _get_audio_duration(audio_path)
-    vf, sendcmd_script = _build_beat_filter(beat_times, duration, fps)
+    vf = _build_beat_filter(beat_times, duration, fps)
 
-    # Write sendcmd script to a temp file for FFmpeg
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".cmd", delete=False,
-    ) as cmd_file:
-        cmd_file.write(sendcmd_script)
-        cmd_path = cmd_file.name
-
-    try:
-        # Normalize path to forward slashes so FFmpeg doesn't treat \ as escapes
-        cmd_path_safe = cmd_path.replace("\\", "/").replace("'", "'\\''")
-        # Chain sendcmd after [0:v] input pad so the filter graph is connected
-        full_filter = f"[0:v]sendcmd=f='{cmd_path_safe}',{vf}[v]"
-        _run_ffmpeg(
-            [
-                "-i", str(thumbnail_path),
-                "-i", str(audio_path),
-                "-filter_complex", full_filter,
-                "-map", "[v]",
-                "-map", "1:a",
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-crf", "23",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                "-shortest",
-                "-movflags", "+faststart",
-                str(video_path),
-            ],
-            label="beat-synced video",
-        )
-    finally:
-        Path(cmd_path).unlink(missing_ok=True)
+    full_filter = f"[0:v]{vf}[v]"
+    _run_ffmpeg(
+        [
+            "-i", str(thumbnail_path),
+            "-i", str(audio_path),
+            "-filter_complex", full_filter,
+            "-map", "[v]",
+            "-map", "1:a",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-crf", "23",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            "-shortest",
+            "-movflags", "+faststart",
+            str(video_path),
+        ],
+        label="beat-synced video",
+    )
 
 
 def create_video(
