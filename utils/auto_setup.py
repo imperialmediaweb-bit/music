@@ -313,6 +313,10 @@ def _remove_obsolete_packages():
     These were replaced by direct FFmpeg usage. Leaving them installed
     causes 'No package metadata found for imageio' errors on Windows.
     """
+    # Skip in frozen apps — pip doesn't work on bundled packages
+    if getattr(sys, "frozen", False):
+        return
+
     obsolete = ["moviepy", "imageio", "imageio-ffmpeg"]
     to_remove = []
     for pkg in obsolete:

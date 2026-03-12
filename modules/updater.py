@@ -2,10 +2,13 @@
 LUTH Auto-Updater
 Checks GitHub for new versions in two ways:
   1. GitHub Releases (formal versioned releases + latest pre-release)
-  2. Latest commit on main branch (any push triggers update)
+  2. Latest commit on branch (any push triggers lightweight source update)
 
-For frozen (EXE) apps: downloads pre-built ZIP and applies via restart.
-For source installs: downloads source zipball and overwrites .py files.
+For frozen (EXE) apps:
+  - Full update: downloads pre-built ZIP and applies via restart batch script.
+  - Lightweight update: downloads source zipball and patches .py files in _internal/.
+For source installs:
+  - Downloads source zipball and overwrites .py files.
 """
 
 import io
@@ -16,9 +19,12 @@ import shutil
 import zipfile
 import tempfile
 import subprocess
+import logging
 import requests
 from pathlib import Path
 from packaging import version as pkg_version
+
+log = logging.getLogger("updater")
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -88,7 +94,8 @@ def check_for_update(current_version: str):
 
     Checks in two ways:
       1. GitHub Releases — formal releases + "latest" pre-release builds
-      2. Latest commit on branch — any code push (source installs only)
+      2. Latest commit on branch — lightweight source update (works for both
+         frozen and source installs)
 
     Returns:
         (has_update, latest_info, download_url) or (False, current_version, None)
@@ -98,9 +105,9 @@ def check_for_update(current_version: str):
 
     # --- Method 1: Check releases (including pre-releases for EXE builds) ---
     try:
-        # Get all releases (including pre-releases)
         resp = requests.get(GITHUB_API_RELEASES, timeout=10, headers=headers,
                             params={"per_page": 5})
+        log.debug(f"Releases API: HTTP {resp.status_code}")
         if resp.status_code == 200:
             releases = resp.json()
             for data in releases:
@@ -108,11 +115,9 @@ def check_for_update(current_version: str):
 
                 # For frozen apps, also accept "latest" pre-release
                 if is_frozen and tag == "latest":
-                    # Check if we already have this build
                     for asset in data.get("assets", []):
                         name = asset.get("name", "").lower()
                         if name.endswith(".zip"):
-                            # Compare the published_at date or asset updated_at
                             asset_updated = asset.get("updated_at", "")
                             last_update = _get_last_release_date()
                             if asset_updated and asset_updated != last_update:
@@ -125,7 +130,6 @@ def check_for_update(current_version: str):
                 if latest and pkg_version.parse(latest) > pkg_version.parse(current_version):
                     download_url = None
 
-                    # For frozen apps, prefer a pre-built release asset (.zip)
                     if is_frozen:
                         for asset in data.get("assets", []):
                             name = asset.get("name", "").lower()
@@ -133,30 +137,34 @@ def check_for_update(current_version: str):
                                 download_url = asset.get("browser_download_url")
                                 break
 
-                    # Fallback to source zipball (only useful for non-frozen)
                     if not download_url:
                         if is_frozen:
-                            continue  # Skip — no usable asset for EXE
+                            continue
                         download_url = data.get("zipball_url", "")
 
                     return True, f"v{latest}", download_url
-    except Exception:
-        pass
+        elif resp.status_code in (403, 404):
+            log.warning(f"Releases API returned {resp.status_code} — repo may be private")
+    except Exception as e:
+        log.warning(f"Release check failed: {e}")
 
-    # --- Method 2: Check latest commit (source installs only) ---
-    if not is_frozen:
-        try:
-            resp = requests.get(GITHUB_API_COMMITS, timeout=10, headers=headers)
-            if resp.status_code == 200:
-                data = resp.json()
-                remote_sha = data.get("sha", "")[:12]
-                local_sha = _get_current_commit()
+    # --- Method 2: Check latest commit (lightweight source update) ---
+    # Works for BOTH frozen and source installs
+    try:
+        resp = requests.get(GITHUB_API_COMMITS, timeout=10, headers=headers)
+        log.debug(f"Commits API: HTTP {resp.status_code}")
+        if resp.status_code == 200:
+            data = resp.json()
+            remote_sha = data.get("sha", "")[:12]
+            local_sha = _get_current_commit()
 
-                if remote_sha and remote_sha != local_sha:
-                    commit_msg = data.get("commit", {}).get("message", "").split("\n")[0][:60]
-                    return True, f"new: {commit_msg}", GITHUB_ZIPBALL
-        except Exception:
-            pass
+            if remote_sha and remote_sha != local_sha:
+                commit_msg = data.get("commit", {}).get("message", "").split("\n")[0][:60]
+                return True, f"new: {commit_msg}", GITHUB_ZIPBALL
+        elif resp.status_code in (403, 404):
+            log.warning(f"Commits API returned {resp.status_code} — repo may be private")
+    except Exception as e:
+        log.warning(f"Commit check failed: {e}")
 
     return False, current_version, None
 
@@ -177,12 +185,46 @@ def _save_last_release_date(date_str: str):
         pass
 
 
+def _download_to_file(url: str, progress_callback=None) -> Path | None:
+    """Download URL to a temp file on disk (avoids loading into memory)."""
+    def _log(msg):
+        if progress_callback:
+            progress_callback(msg)
+
+    try:
+        resp = requests.get(url, timeout=600, stream=True,
+                            headers={"Accept": "application/octet-stream"})
+        if resp.status_code != 200:
+            _log(f"Download failed (HTTP {resp.status_code})")
+            return None
+
+        total = int(resp.headers.get("content-length", 0))
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip", prefix="luth_update_")
+        downloaded = 0
+
+        for chunk in resp.iter_content(chunk_size=1024 * 256):
+            if chunk:
+                tmp.write(chunk)
+                downloaded += len(chunk)
+                if total > 0:
+                    pct = int(downloaded * 100 / total)
+                    mb = downloaded / (1024 * 1024)
+                    _log(f"Downloading... {mb:.1f}MB ({pct}%)")
+
+        tmp.close()
+        return Path(tmp.name)
+
+    except Exception as e:
+        _log(f"Download error: {e}")
+        return None
+
+
 def download_and_apply_update(download_url: str, progress_callback=None):
     """Download the update and apply it.
 
     For frozen (EXE) apps:
-        Downloads pre-built ZIP, extracts to temp, creates a batch script
-        that replaces files after the app exits, then signals restart.
+        If the URL is a release asset (.zip build), uses full replacement via batch script.
+        If the URL is a source zipball, patches .py files in _internal/.
 
     For source installs:
         Downloads source zipball, overwrites .py files in-place.
@@ -195,34 +237,119 @@ def download_and_apply_update(download_url: str, progress_callback=None):
         True on success, False on failure.
     """
 
-    def log(msg):
+    def _log(msg):
         if progress_callback:
             progress_callback(msg)
 
     is_frozen = getattr(sys, "frozen", False)
+    is_source_zipball = "/zipball/" in download_url
 
     try:
-        log("Downloading update...")
-        resp = requests.get(download_url, timeout=300, stream=True,
-                            headers={"Accept": "application/octet-stream"})
-        if resp.status_code != 200:
-            log(f"Download failed (HTTP {resp.status_code})")
+        # Download to disk instead of memory
+        tmp_file = _download_to_file(download_url, progress_callback)
+        if not tmp_file:
             return False
 
-        data = io.BytesIO(resp.content)
-        log("Extracting update...")
+        _log("Extracting update...")
 
-        if is_frozen:
-            return _apply_frozen_update(data, download_url, log)
-        else:
-            return _apply_source_update(data, log)
+        try:
+            if is_frozen and not is_source_zipball:
+                # Full EXE replacement from release asset
+                with open(tmp_file, "rb") as f:
+                    data = io.BytesIO(f.read())
+                return _apply_frozen_update(data, download_url, _log)
+            elif is_frozen and is_source_zipball:
+                # Lightweight: patch .py files in _internal/
+                with open(tmp_file, "rb") as f:
+                    data = io.BytesIO(f.read())
+                return _apply_frozen_source_update(data, _log)
+            else:
+                # Source install
+                with open(tmp_file, "rb") as f:
+                    data = io.BytesIO(f.read())
+                return _apply_source_update(data, _log)
+        finally:
+            try:
+                tmp_file.unlink()
+            except Exception:
+                pass
 
     except Exception as e:
-        log(f"Update failed: {e}")
+        _log(f"Update failed: {e}")
+        log.exception("Update failed")
         return False
 
 
-def _apply_frozen_update(data, download_url, log):
+def _apply_frozen_source_update(data, log_fn):
+    """Lightweight update for frozen apps: patch .py files in _internal/.
+
+    Downloads the source zipball and copies .py files into the _internal/
+    directory structure so they override the bundled bytecode.
+    """
+    with zipfile.ZipFile(data) as zf:
+        members = zf.namelist()
+        if not members:
+            log_fn("Empty archive — update aborted.")
+            return False
+
+        prefix = members[0].split("/")[0] + "/"
+
+        # Extract commit SHA from folder name
+        folder_name = prefix.rstrip("/")
+        parts = folder_name.rsplit("-", 1)
+        commit_sha = parts[-1] if len(parts) > 1 else ""
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="luth_update_"))
+
+        try:
+            zf.extractall(tmp_dir)
+            extracted_root = tmp_dir / prefix.rstrip("/")
+
+            if not extracted_root.is_dir():
+                extracted_root = tmp_dir
+
+            internal_dir = BASE_DIR / "_internal"
+            if not internal_dir.is_dir():
+                # Fallback: if no _internal, treat like regular source update
+                log_fn("No _internal directory found, updating root...")
+                internal_dir = BASE_DIR
+
+            # Copy .py files to the right places in _internal/
+            updated = 0
+            for src_path in extracted_root.rglob("*.py"):
+                rel = src_path.relative_to(extracted_root)
+
+                top_level = str(rel).split(os.sep)[0]
+                if top_level in PRESERVE:
+                    continue
+
+                dest = internal_dir / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_path, dest)
+                updated += 1
+
+            # Also copy non-.py config files that matter
+            for config_file in ["requirements.txt", ".env.example", "LUTH.spec"]:
+                src = extracted_root / config_file
+                if src.is_file():
+                    shutil.copy2(src, BASE_DIR / config_file)
+
+            # Clear __pycache__ so Python uses the new .py files
+            for cache_dir in internal_dir.rglob("__pycache__"):
+                shutil.rmtree(cache_dir, ignore_errors=True)
+
+            log_fn(f"Updated {updated} files successfully!")
+
+            if commit_sha:
+                _save_commit(commit_sha)
+
+            return True
+
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def _apply_frozen_update(data, download_url, log_fn):
     """Apply update to a frozen (PyInstaller) app via restart batch script."""
     # Extract ZIP to a persistent temp directory
     update_dir = BASE_DIR / "_update_staging"
@@ -232,10 +359,38 @@ def _apply_frozen_update(data, download_url, log):
 
     try:
         with zipfile.ZipFile(data) as zf:
+            # Check if ZIP has a single top-level folder or files at root
+            members = zf.namelist()
+            if not members:
+                log_fn("Empty archive — update aborted.")
+                return False
+
             zf.extractall(update_dir)
-        log("Update downloaded! Preparing restart...")
+
+            # If all files are under a single folder, move them up
+            top_items = set()
+            for m in members:
+                top = m.split("/")[0]
+                if top:
+                    top_items.add(top)
+
+            if len(top_items) == 1:
+                subfolder = update_dir / top_items.pop()
+                if subfolder.is_dir():
+                    # Move contents up one level
+                    for item in subfolder.iterdir():
+                        dest = update_dir / item.name
+                        if dest.exists():
+                            if dest.is_dir():
+                                shutil.rmtree(dest, ignore_errors=True)
+                            else:
+                                dest.unlink()
+                        shutil.move(str(item), str(dest))
+                    subfolder.rmdir()
+
+        log_fn("Update downloaded! Preparing restart...")
     except Exception as e:
-        log(f"Extract failed: {e}")
+        log_fn(f"Extract failed: {e}")
         shutil.rmtree(update_dir, ignore_errors=True)
         return False
 
@@ -275,7 +430,7 @@ del "%~f0"
     try:
         bat_path.write_text(bat_content, encoding="utf-8")
     except Exception as e:
-        log(f"Could not create update script: {e}")
+        log_fn(f"Could not create update script: {e}")
         shutil.rmtree(update_dir, ignore_errors=True)
         return False
 
@@ -286,22 +441,22 @@ del "%~f0"
             creationflags=0x00000008,  # DETACHED_PROCESS
         )
     except Exception as e:
-        log(f"Could not launch update script: {e}")
+        log_fn(f"Could not launch update script: {e}")
         shutil.rmtree(update_dir, ignore_errors=True)
         bat_path.unlink(missing_ok=True)
         return False
 
-    log("Restarting to apply update...")
+    log_fn("Restarting to apply update...")
     return True  # Caller should exit the app
 
 
-def _apply_source_update(data, log):
+def _apply_source_update(data, log_fn):
     """Apply update to a source (non-frozen) install by overwriting .py files."""
     with zipfile.ZipFile(data) as zf:
         # GitHub zipball has a top-level folder like "user-repo-abc1234/"
         members = zf.namelist()
         if not members:
-            log("Empty archive — update aborted.")
+            log_fn("Empty archive — update aborted.")
             return False
 
         prefix = members[0].split("/")[0] + "/"
@@ -341,7 +496,7 @@ def _apply_source_update(data, log):
             for cache_dir in BASE_DIR.rglob("__pycache__"):
                 shutil.rmtree(cache_dir, ignore_errors=True)
 
-            log(f"Updated {updated} files successfully!")
+            log_fn(f"Updated {updated} files successfully!")
 
             if commit_sha:
                 _save_commit(commit_sha)
@@ -349,15 +504,15 @@ def _apply_source_update(data, log):
             # Install any new dependencies
             req_file = BASE_DIR / "requirements.txt"
             if req_file.exists():
-                log("Installing updated dependencies...")
+                log_fn("Installing updated dependencies...")
                 try:
                     subprocess.run(
                         [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
                         capture_output=True, text=True, timeout=300,
                     )
-                    log("Dependencies updated!")
+                    log_fn("Dependencies updated!")
                 except Exception:
-                    log("Could not auto-install dependencies — run install.bat")
+                    log_fn("Could not auto-install dependencies — run install.bat")
 
             return True
 

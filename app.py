@@ -66,6 +66,9 @@ for _cache_dir in Path(__file__).parent.rglob("__pycache__"):
 # These cause "No package metadata found for imageio" on Windows
 # ---------------------------------------------------------------------------
 def _cleanup_obsolete_packages():
+    # Skip in frozen apps — pip doesn't work on bundled packages
+    if getattr(sys, "frozen", False):
+        return
     try:
         __import__("moviepy")
     except ImportError:
@@ -269,6 +272,10 @@ class MusicFactoryApp(tk.Tk):
 
         ttk.Label(hdr, text="LUTH", style="Header.TLabel").pack(side="left")
         ttk.Label(hdr, text=f"v{APP_VERSION}", style="Dim.TLabel").pack(side="left", padx=(10, 0))
+        # Show last update commit info
+        self._version_detail_label = ttk.Label(hdr, text="", style="Dim.TLabel")
+        self._version_detail_label.pack(side="left", padx=(6, 0))
+        self._load_version_detail()
         ttk.Label(hdr, text="Music Automation Pipeline", style="Dim.TLabel").pack(side="left", padx=(10, 0))
 
         # Update button (right side of header)
@@ -1128,6 +1135,16 @@ class MusicFactoryApp(tk.Tk):
     # ------------------------------------------------------------------
     # Update actions
     # ------------------------------------------------------------------
+    def _load_version_detail(self):
+        """Show the last applied commit SHA in the header."""
+        try:
+            from modules.updater import _get_current_commit
+            sha = _get_current_commit()
+            if sha:
+                self._version_detail_label.config(text=f"({sha})")
+        except Exception:
+            pass
+
     def _auto_check_update(self):
         """Silently check for updates in the background on startup."""
         def check():
@@ -1137,8 +1154,8 @@ class MusicFactoryApp(tk.Tk):
                 if has_update:
                     self._pending_update_url = url
                     self.after(0, lambda: self._show_update_available(latest))
-            except Exception:
-                pass
+            except Exception as e:
+                _log_queue.put(f"[UPDATE] Auto-check failed: {e}")
 
         threading.Thread(target=check, daemon=True).start()
 
@@ -1173,8 +1190,10 @@ class MusicFactoryApp(tk.Tk):
                         text="Up to date!", foreground=SUCCESS_COLOR))
                     self.after(5000, lambda: self.update_label.config(text=""))
             except Exception as e:
+                err_msg = str(e)[:50]
+                _log_queue.put(f"[UPDATE] Check failed: {e}")
                 self.after(0, lambda: self.update_label.config(
-                    text="Check failed", foreground=ERROR_COLOR))
+                    text=f"Check failed: {err_msg}", foreground=ERROR_COLOR))
             finally:
                 self.after(0, lambda: self.btn_update.config(state="normal"))
 
@@ -1221,6 +1240,7 @@ class MusicFactoryApp(tk.Tk):
         """Prompt user to restart after successful update."""
         self.update_label.config(text="Updated!", foreground=SUCCESS_COLOR)
         self._pending_update_url = None
+        self._load_version_detail()
         _log_queue.put("[UPDATE] Update applied successfully! Restart to use the new version.")
 
         restart = messagebox.askyesno(
