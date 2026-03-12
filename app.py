@@ -1089,7 +1089,7 @@ class MusicFactoryApp(tk.Tk):
     # Update actions
     # ------------------------------------------------------------------
     def _load_version_detail(self):
-        """Show the last applied commit SHA in the header."""
+        """Show the last applied commit SHA and fetch recent changes."""
         try:
             from modules.updater import _get_current_commit
             sha = _get_current_commit()
@@ -1097,6 +1097,29 @@ class MusicFactoryApp(tk.Tk):
                 self._version_detail_label.config(text=f"({sha})")
         except Exception:
             pass
+
+        # Fetch recent changes in background and log them to console
+        def fetch_changelog():
+            try:
+                import requests
+                from modules.updater import GITHUB_API_COMMITS, GITHUB_REPO
+                headers = {"Accept": "application/vnd.github+json"}
+                url = f"https://api.github.com/repos/{GITHUB_REPO}/commits"
+                resp = requests.get(url, timeout=10, headers=headers,
+                                    params={"sha": "claude/luth-software-sS5KD", "per_page": 5})
+                if resp.status_code == 200:
+                    commits = resp.json()
+                    if commits:
+                        _log_queue.put("--- Recent changes ---")
+                        for c in commits:
+                            msg = c.get("commit", {}).get("message", "").split("\n")[0][:80]
+                            sha = c.get("sha", "")[:7]
+                            _log_queue.put(f"  {sha}: {msg}")
+                        _log_queue.put("----------------------")
+            except Exception:
+                pass
+
+        threading.Thread(target=fetch_changelog, daemon=True).start()
 
     def _auto_check_update(self):
         """Silently check for updates in the background on startup."""
@@ -1196,9 +1219,15 @@ class MusicFactoryApp(tk.Tk):
         self._load_version_detail()
         _log_queue.put("[UPDATE] Update applied successfully! Restart to use the new version.")
 
+        # Show what changed
+        changes = self._get_recent_changes()
+        change_text = ""
+        if changes:
+            change_text = "\n\nRecent changes:\n" + "\n".join(f"- {c}" for c in changes[:5])
+
         restart = messagebox.askyesno(
             "Update Complete",
-            "LUTH has been updated successfully!\n\n"
+            f"LUTH has been updated successfully!{change_text}\n\n"
             "Restart now to use the new version?",
         )
         if restart:
@@ -1206,6 +1235,22 @@ class MusicFactoryApp(tk.Tk):
         else:
             self.btn_update.config(text="Restart to Apply", style="Accent.TButton",
                                     state="normal", command=self._restart_app)
+
+    def _get_recent_changes(self):
+        """Fetch recent commit messages from GitHub."""
+        try:
+            import requests
+            from modules.updater import GITHUB_REPO
+            headers = {"Accept": "application/vnd.github+json"}
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/commits"
+            resp = requests.get(url, timeout=5, headers=headers,
+                                params={"sha": "claude/luth-software-sS5KD", "per_page": 5})
+            if resp.status_code == 200:
+                return [c.get("commit", {}).get("message", "").split("\n")[0][:60]
+                        for c in resp.json()]
+        except Exception:
+            pass
+        return []
 
     def _restart_app(self):
         """Restart the application."""
