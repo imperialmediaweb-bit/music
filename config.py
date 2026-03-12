@@ -20,7 +20,7 @@ OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "output"))
 INPUT_DIR = Path(os.getenv("INPUT_DIR", BASE_DIR / "input"))
 HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
 
-# Default music platform: "aimusicfactory", "suno", "udio", or "musicgen"
+# Default music platform: "aimusicfactory", "suno", or "udio"
 MUSIC_PLATFORM = os.getenv("MUSIC_PLATFORM", "aimusicfactory")
 # Default number of songs to generate per clip (2, 4, 6, 8)
 SONGS_PER_CLIP = int(os.getenv("SONGS_PER_CLIP", "2"))
