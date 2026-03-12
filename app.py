@@ -40,6 +40,7 @@ FONT_HEADER = (FONT_FAMILY, 18, "bold")
 FONT_MONO = ("Consolas", 9)
 
 
+
 # ---------------------------------------------------------------------------
 # Log queue — captures pipeline logs and sends them to the GUI
 # ---------------------------------------------------------------------------
@@ -224,6 +225,10 @@ class MusicFactoryApp(tk.Tk):
 
         ttk.Label(hdr, text="LUTH", style="Header.TLabel").pack(side="left")
         ttk.Label(hdr, text=f"v{APP_VERSION}", style="Dim.TLabel").pack(side="left", padx=(10, 0))
+        # Show last update commit info
+        self._version_detail_label = ttk.Label(hdr, text="", style="Dim.TLabel")
+        self._version_detail_label.pack(side="left", padx=(6, 0))
+        self._load_version_detail()
         ttk.Label(hdr, text="Music Automation Pipeline", style="Dim.TLabel").pack(side="left", padx=(10, 0))
 
         # Update button (right side of header)
@@ -877,6 +882,11 @@ class MusicFactoryApp(tk.Tk):
     # Pipeline actions
     # ------------------------------------------------------------------
     def _on_run_pipeline(self):
+        # Save current GUI settings to .env and reload into os.environ
+        try:
+            self._save_settings()
+        except Exception:
+            pass
         count = self.clip_count.get()
         platform = self.platform_var.get()
         songs = self.songs_var.get()
@@ -1078,6 +1088,39 @@ class MusicFactoryApp(tk.Tk):
     # ------------------------------------------------------------------
     # Update actions
     # ------------------------------------------------------------------
+    def _load_version_detail(self):
+        """Show the last applied commit SHA and fetch recent changes."""
+        try:
+            from modules.updater import _get_current_commit
+            sha = _get_current_commit()
+            if sha:
+                self._version_detail_label.config(text=f"({sha})")
+        except Exception:
+            pass
+
+        # Fetch recent changes in background and log them to console
+        def fetch_changelog():
+            try:
+                import requests
+                from modules.updater import GITHUB_API_COMMITS, GITHUB_REPO
+                headers = {"Accept": "application/vnd.github+json"}
+                url = f"https://api.github.com/repos/{GITHUB_REPO}/commits"
+                resp = requests.get(url, timeout=10, headers=headers,
+                                    params={"sha": "claude/luth-software-sS5KD", "per_page": 5})
+                if resp.status_code == 200:
+                    commits = resp.json()
+                    if commits:
+                        _log_queue.put("--- Recent changes ---")
+                        for c in commits:
+                            msg = c.get("commit", {}).get("message", "").split("\n")[0][:80]
+                            sha = c.get("sha", "")[:7]
+                            _log_queue.put(f"  {sha}: {msg}")
+                        _log_queue.put("----------------------")
+            except Exception:
+                pass
+
+        threading.Thread(target=fetch_changelog, daemon=True).start()
+
     def _auto_check_update(self):
         """Silently check for updates in the background on startup."""
         def check():
@@ -1087,8 +1130,8 @@ class MusicFactoryApp(tk.Tk):
                 if has_update:
                     self._pending_update_url = url
                     self.after(0, lambda: self._show_update_available(latest))
-            except Exception:
-                pass
+            except Exception as e:
+                _log_queue.put(f"[UPDATE] Auto-check failed: {e}")
 
         threading.Thread(target=check, daemon=True).start()
 
@@ -1123,8 +1166,10 @@ class MusicFactoryApp(tk.Tk):
                         text="Up to date!", foreground=SUCCESS_COLOR))
                     self.after(5000, lambda: self.update_label.config(text=""))
             except Exception as e:
+                err_msg = str(e)[:50]
+                _log_queue.put(f"[UPDATE] Check failed: {e}")
                 self.after(0, lambda: self.update_label.config(
-                    text="Check failed", foreground=ERROR_COLOR))
+                    text=f"Check failed: {err_msg}", foreground=ERROR_COLOR))
             finally:
                 self.after(0, lambda: self.btn_update.config(state="normal"))
 
@@ -1171,11 +1216,18 @@ class MusicFactoryApp(tk.Tk):
         """Prompt user to restart after successful update."""
         self.update_label.config(text="Updated!", foreground=SUCCESS_COLOR)
         self._pending_update_url = None
+        self._load_version_detail()
         _log_queue.put("[UPDATE] Update applied successfully! Restart to use the new version.")
+
+        # Show what changed
+        changes = self._get_recent_changes()
+        change_text = ""
+        if changes:
+            change_text = "\n\nRecent changes:\n" + "\n".join(f"- {c}" for c in changes[:5])
 
         restart = messagebox.askyesno(
             "Update Complete",
-            "LUTH has been updated successfully!\n\n"
+            f"LUTH has been updated successfully!{change_text}\n\n"
             "Restart now to use the new version?",
         )
         if restart:
@@ -1183,6 +1235,22 @@ class MusicFactoryApp(tk.Tk):
         else:
             self.btn_update.config(text="Restart to Apply", style="Accent.TButton",
                                     state="normal", command=self._restart_app)
+
+    def _get_recent_changes(self):
+        """Fetch recent commit messages from GitHub."""
+        try:
+            import requests
+            from modules.updater import GITHUB_REPO
+            headers = {"Accept": "application/vnd.github+json"}
+            url = f"https://api.github.com/repos/{GITHUB_REPO}/commits"
+            resp = requests.get(url, timeout=5, headers=headers,
+                                params={"sha": "claude/luth-software-sS5KD", "per_page": 5})
+            if resp.status_code == 200:
+                return [c.get("commit", {}).get("message", "").split("\n")[0][:60]
+                        for c in resp.json()]
+        except Exception:
+            pass
+        return []
 
     def _restart_app(self):
         """Restart the application."""
