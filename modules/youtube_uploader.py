@@ -327,8 +327,11 @@ def upload_to_youtube(
     # Clean any existing hashtags from end of AI description to avoid duplication
     clean_desc = re.sub(r'(\s*#\w+)+\s*$', '', concept.youtube_description).rstrip()
 
-    # Append exactly 3 hashtags at end (YouTube shows last 3 above the title)
-    description = f"{clean_desc}\n\n#afrohouse #deephouse #tribalhouse"
+    # Append exactly 3 hashtags at end (YouTube shows the FIRST 3 hashtags above the title)
+    # These are prime real estate — use the most searched, clickable hashtags
+    # Place them at the TOP of the description so they display above the video title
+    genre_tag = concept.genre.lower().replace(" ", "")
+    description = f"#{genre_tag} #deephouse #tribalhouse\n\n{clean_desc}"
 
     # Upload the video
     body = {

@@ -45,34 +45,19 @@ def is_ffmpeg_installed() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
-def _browser_search_paths():
-    """Yield directories where Playwright Chromium might be installed."""
-    # 1. Env-var override
-    env_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
-    if env_path:
-        yield Path(env_path)
-
-    # 2. Standard per-user location
-    if sys.platform == "win32":
-        yield Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
-    else:
-        yield Path.home() / ".cache" / "ms-playwright"
-
-    # 3. Frozen app .local-browsers (PyInstaller)
-    if getattr(sys, "frozen", False):
-        exe_dir = Path(sys.executable).parent
-        for sub in ("_internal", "."):
-            yield exe_dir / sub / "playwright" / "driver" / "package" / ".local-browsers"
-
-
 def is_chromium_installed() -> bool:
     """Check if Playwright Chromium browser is downloaded."""
-    for bp in _browser_search_paths():
-        if bp.exists() and any(
-            d.name.startswith("chromium") for d in bp.iterdir() if d.is_dir()
-        ):
-            return True
-    return False
+    env_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env_path:
+        bp = Path(env_path)
+    elif sys.platform == "win32":
+        bp = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+    else:
+        bp = Path.home() / ".cache" / "ms-playwright"
+
+    if not bp.exists():
+        return False
+    return any(d.name.startswith("chromium-") for d in bp.iterdir() if d.is_dir())
 
 
 def download_ffmpeg(progress_callback=None):
@@ -202,17 +187,6 @@ def install_playwright_chromium(progress_callback=None):
     if progress_callback:
         progress_callback("Installing Playwright Chromium (~280 MB)...")
 
-    # Ensure PLAYWRIGHT_BROWSERS_PATH is set so install goes to a known location
-    if not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
-        if sys.platform == "win32":
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
-                Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
-            )
-        else:
-            os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
-                Path.home() / ".cache" / "ms-playwright"
-            )
-
     try:
         result = None
 
@@ -307,39 +281,8 @@ def _check_missing_packages():
     return missing
 
 
-def _remove_obsolete_packages():
-    """Remove packages that are no longer needed (moviepy, imageio).
-
-    These were replaced by direct FFmpeg usage. Leaving them installed
-    causes 'No package metadata found for imageio' errors on Windows.
-    """
-    # Skip in frozen apps — pip doesn't work on bundled packages
-    if getattr(sys, "frozen", False):
-        return
-
-    obsolete = ["moviepy", "imageio", "imageio-ffmpeg"]
-    to_remove = []
-    for pkg in obsolete:
-        try:
-            __import__(pkg.replace("-", "_"))
-            to_remove.append(pkg)
-        except ImportError:
-            pass
-    if to_remove:
-        log.info(f"Removing obsolete packages: {', '.join(to_remove)}")
-        try:
-            subprocess.run(
-                [sys.executable, "-m", "pip", "uninstall", "-y"] + to_remove,
-                capture_output=True, text=True, timeout=120,
-            )
-            log.info("Obsolete packages removed OK")
-        except Exception:
-            pass
-
-
 def install_missing_packages(progress_callback=None):
     """Auto-install any missing Python packages from requirements.txt."""
-    _remove_obsolete_packages()
     missing = _check_missing_packages()
     if not missing:
         return True

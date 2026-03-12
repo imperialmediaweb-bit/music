@@ -39,11 +39,6 @@ jobs:
           Copy-Item ffmpeg_tmp\ffmpeg-master-latest-win64-gpl\bin\ffmpeg.exe dist\LUTH\bin\
           Copy-Item ffmpeg_tmp\ffmpeg-master-latest-win64-gpl\bin\ffprobe.exe dist\LUTH\bin\
 
-      - name: Install Playwright Chromium into build
-        run: |
-          $env:PLAYWRIGHT_BROWSERS_PATH = "${{ github.workspace }}\dist\LUTH\_internal\playwright\driver\package\.local-browsers"
-          python -m playwright install chromium
-
       - name: Create output directories
         run: |
           New-Item -ItemType Directory -Path dist\LUTH\output -Force

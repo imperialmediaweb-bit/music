@@ -40,53 +40,6 @@ FONT_HEADER = (FONT_FAMILY, 18, "bold")
 FONT_MONO = ("Consolas", 9)
 
 
-# ---------------------------------------------------------------------------
-# Ensure Playwright finds installed browsers (frozen PyInstaller builds look
-# in .local-browsers by default which may be empty — redirect to standard path)
-# ---------------------------------------------------------------------------
-if not os.environ.get("PLAYWRIGHT_BROWSERS_PATH"):
-    if sys.platform == "win32":
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
-            Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
-        )
-    else:
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(
-            Path.home() / ".cache" / "ms-playwright"
-        )
-
-# ---------------------------------------------------------------------------
-# Clear stale __pycache__ so Python uses updated .py files after an update
-# ---------------------------------------------------------------------------
-import shutil as _shutil
-for _cache_dir in Path(__file__).parent.rglob("__pycache__"):
-    _shutil.rmtree(_cache_dir, ignore_errors=True)
-
-# ---------------------------------------------------------------------------
-# One-time cleanup: remove moviepy/imageio (replaced by FFmpeg)
-# These cause "No package metadata found for imageio" on Windows
-# ---------------------------------------------------------------------------
-def _cleanup_obsolete_packages():
-    # Skip in frozen apps — pip doesn't work on bundled packages
-    if getattr(sys, "frozen", False):
-        return
-    try:
-        __import__("moviepy")
-    except ImportError:
-        return  # not installed, nothing to do
-    except Exception:
-        pass  # installed but broken — still need to remove it
-    import subprocess
-    try:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "uninstall", "-y",
-             "moviepy", "imageio", "imageio-ffmpeg"],
-            capture_output=True, text=True, timeout=120,
-        )
-    except Exception:
-        pass
-
-_cleanup_obsolete_packages()
-
 
 # ---------------------------------------------------------------------------
 # Log queue — captures pipeline logs and sends them to the GUI
