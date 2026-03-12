@@ -5,7 +5,8 @@ import requests
 from io import BytesIO
 from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-from config import OPENAI_API_KEY, OUTPUT_DIR, THUMBNAIL_TEXT_STYLE
+import os as _os
+from config import OUTPUT_DIR, THUMBNAIL_TEXT_STYLE
 from utils.logger import log
 
 
@@ -385,9 +386,10 @@ def generate_thumbnail_and_cover(
 
     # Try DALL-E first, fall back to local generation
     try:
-        if not OPENAI_API_KEY:
+        _api_key = _os.environ.get("OPENAI_API_KEY", "")
+        if not _api_key:
             raise RuntimeError("OPENAI_API_KEY not set")
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        client = OpenAI(api_key=_api_key)
         base_image = _dall_e_generate(client, thumbnail_prompt, "1792x1024")
         log.info("DALL-E image ready — deriving thumbnail + cover from single image")
     except Exception as e:
@@ -436,9 +438,10 @@ def generate_cover_art(
     safe_name = _safe_filename(track_name)
 
     try:
-        if not OPENAI_API_KEY:
+        _api_key = _os.environ.get("OPENAI_API_KEY", "")
+        if not _api_key:
             raise RuntimeError("OPENAI_API_KEY not set")
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        client = OpenAI(api_key=_api_key)
         image = _dall_e_generate(client, thumbnail_prompt, "1024x1024")
     except Exception as e:
         log.warning(f"DALL-E cover art failed: {e}")
@@ -467,9 +470,10 @@ def generate_thumbnail(thumbnail_prompt: str, track_name: str) -> Path:
     safe_name = _safe_filename(track_name)
 
     try:
-        if not OPENAI_API_KEY:
+        _api_key = _os.environ.get("OPENAI_API_KEY", "")
+        if not _api_key:
             raise RuntimeError("OPENAI_API_KEY not set")
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        client = OpenAI(api_key=_api_key)
         image = _dall_e_generate(client, thumbnail_prompt, "1792x1024")
     except Exception as e:
         log.warning(f"DALL-E thumbnail failed: {e}")

@@ -1,9 +1,10 @@
 import json
+import os
 import re
 import time
 from dataclasses import dataclass
 from openai import OpenAI
-from config import OPENAI_API_KEY, MUSIC_GENRE, MUSIC_STYLE_PROMPT, THUMBNAIL_STYLE_PROMPT
+from config import MUSIC_GENRE, MUSIC_STYLE_PROMPT, THUMBNAIL_STYLE_PROMPT
 from utils.logger import log
 
 
@@ -108,7 +109,7 @@ def generate_concept(track_name: str = "", genre: str = "",
 
     log.info(f"Generating {genre} music concept...")
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
     system_prompt = _build_system_prompt(genre, music_style)
 

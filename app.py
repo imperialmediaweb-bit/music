@@ -497,7 +497,11 @@ class MusicFactoryApp(tk.Tk):
         thumb_prompt = self.text_thumbnail_prompt.get("1.0", "end-1c").strip()
         env["THUMBNAIL_STYLE_PROMPT"] = thumb_prompt
         write_env(env)
-        # Reload dotenv
+        # Push values into os.environ so running modules pick them up
+        import os as _os
+        for k, v in env.items():
+            _os.environ[k] = v
+        # Also reload dotenv for completeness
         try:
             from dotenv import load_dotenv
             load_dotenv(override=True)
