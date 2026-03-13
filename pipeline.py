@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 from utils.logger import log
+from utils.subprocess_utils import _no_window_kwargs
 from utils.auto_setup import ensure_path
 from modules.concept_generator import generate_concept
 from modules.thumbnail_generator import generate_thumbnail, generate_cover_art, generate_thumbnail_and_cover
@@ -74,6 +75,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
                 ["ffprobe", "-v", "quiet", "-print_format", "json",
                  "-show_format", str(mp3_file)],
                 capture_output=True, text=True,
+                **_no_window_kwargs(),
             )
             duration_sec = float(json.loads(probe.stdout)["format"]["duration"])
             result["duration"] = _format_duration(duration_sec)
@@ -300,6 +302,7 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
                 "-show_format", str(audio_path),
             ],
             capture_output=True, text=True,
+            **_no_window_kwargs(),
         )
         duration_sec = float(json.loads(probe.stdout)["format"]["duration"])
         duration_str = _format_duration(duration_sec)

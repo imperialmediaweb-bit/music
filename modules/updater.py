@@ -16,6 +16,7 @@ import zipfile
 import tempfile
 import subprocess
 import requests
+from utils.subprocess_utils import _no_window_kwargs
 from pathlib import Path
 from packaging import version as pkg_version
 
@@ -61,6 +62,7 @@ def _get_current_commit() -> str | None:
             ["git", "rev-parse", "HEAD"],
             capture_output=True, text=True, timeout=5,
             cwd=str(BASE_DIR),
+            **_no_window_kwargs(),
         )
         if result.returncode == 0:
             return result.stdout.strip()[:12]
@@ -226,6 +228,7 @@ def download_and_apply_update(download_url: str, progress_callback=None):
                         subprocess.run(
                             [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
                             capture_output=True, text=True, timeout=300,
+                            **_no_window_kwargs(),
                         )
                         log("Dependencies updated!")
                     except Exception:

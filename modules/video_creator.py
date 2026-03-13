@@ -12,6 +12,7 @@ from pathlib import Path
 from modules.concept_generator import MusicConcept
 from config import OUTPUT_DIR, BEAT_SYNC_VIDEO, VIDEO_FPS
 from utils.logger import log
+from utils.subprocess_utils import _no_window_kwargs
 
 
 def _check_ffmpeg():
@@ -35,7 +36,7 @@ def _get_audio_duration(audio_path: Path) -> float:
         "-of", "default=noprint_wrappers=1:nokey=1",
         str(audio_path),
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, **_no_window_kwargs())
     if result.returncode != 0:
         raise RuntimeError(f"ffprobe failed: {result.stderr}")
     return float(result.stdout.strip())
@@ -50,6 +51,7 @@ def _run_ffmpeg(args: list[str], label: str):
         capture_output=True,
         text=True,
         timeout=600,  # 10 min max
+        **_no_window_kwargs(),
     )
     if result.returncode != 0:
         log.error(f"FFmpeg stderr: {result.stderr[-500:]}")

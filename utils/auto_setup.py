@@ -9,6 +9,8 @@ import tempfile
 from pathlib import Path
 from urllib.request import urlretrieve
 
+from utils.subprocess_utils import _no_window_kwargs
+
 from utils.logger import log
 
 # FFmpeg static build for Windows (BtbN/FFmpeg-Builds on GitHub)
@@ -198,6 +200,7 @@ def install_playwright_chromium(progress_callback=None):
                 result = subprocess.run(
                     [driver, "install", "chromium"],
                     capture_output=True, text=True, timeout=600,
+                    **_no_window_kwargs(),
                 )
             else:
                 log.error(
@@ -215,6 +218,7 @@ def install_playwright_chromium(progress_callback=None):
                     result = subprocess.run(
                         [exe, "-m", "playwright", "install", "chromium"],
                         capture_output=True, text=True, timeout=600,
+                        **_no_window_kwargs(),
                     )
                     break
                 except FileNotFoundError:
@@ -229,6 +233,7 @@ def install_playwright_chromium(progress_callback=None):
                     result = subprocess.run(
                         [driver, "install", "chromium"],
                         capture_output=True, text=True, timeout=600,
+                        **_no_window_kwargs(),
                     )
                 else:
                     log.error(
@@ -295,6 +300,7 @@ def install_missing_packages(progress_callback=None):
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install"] + missing,
             capture_output=True, text=True, timeout=300,
+            **_no_window_kwargs(),
         )
         if result.returncode == 0:
             log.info(f"Successfully installed: {', '.join(missing)}")

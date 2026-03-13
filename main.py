@@ -636,9 +636,11 @@ def cmd_autostart(args):
 
     def _cleanup_legacy():
         """Remove old Task Scheduler task and project-dir VBS if present."""
+        from utils.subprocess_utils import _no_window_kwargs
         subprocess.run(
             ["schtasks", "/Delete", "/TN", legacy_task, "/F"],
             capture_output=True, text=True,
+            **_no_window_kwargs(),
         )
         if legacy_vbs.exists():
             legacy_vbs.unlink()

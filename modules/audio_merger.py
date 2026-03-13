@@ -7,6 +7,7 @@ from pathlib import Path
 
 from config import OUTPUT_DIR
 from utils.logger import log
+from utils.subprocess_utils import _no_window_kwargs
 
 
 def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
@@ -35,6 +36,7 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
                 ["ffmpeg", "-y", "-i", str(single),
                  "-acodec", "pcm_s16le", str(wav_path)],
                 capture_output=True, text=True, timeout=600,
+                **_no_window_kwargs(),
             )
             if wav_result.returncode == 0:
                 log.info(f"WAV saved: {wav_path}")
@@ -77,6 +79,7 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
             capture_output=True,
             text=True,
             timeout=600,
+            **_no_window_kwargs(),
         )
 
         if result.returncode != 0:
@@ -89,6 +92,7 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
                 ["ffprobe", "-v", "quiet", "-print_format", "json",
                  "-show_format", str(output_path)],
                 capture_output=True, text=True, timeout=30,
+                **_no_window_kwargs(),
             )
             import json
             duration = float(json.loads(probe.stdout)["format"]["duration"])
@@ -105,6 +109,7 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
             ["ffmpeg", "-y", "-i", str(output_path),
              "-acodec", "pcm_s16le", str(wav_path)],
             capture_output=True, text=True, timeout=600,
+            **_no_window_kwargs(),
         )
         if wav_result.returncode == 0:
             log.info(f"WAV saved: {wav_path}")
