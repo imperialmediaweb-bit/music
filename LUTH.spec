@@ -43,7 +43,9 @@ a = Analysis(
         ('assets/luth_logo.png', 'assets'),
         ('.env.example', '.'),
         (_pw_driver_dir, 'playwright/driver'),
-    ] + _extra_datas,
+    ] + _extra_datas
+    # Bundle client_secrets.json if present so YouTube works out of the box
+    + ([('client_secrets.json', '.')] if os.path.isfile(os.path.join(ROOT, 'client_secrets.json')) else []),
     hiddenimports=[
         # App modules
         'modules',

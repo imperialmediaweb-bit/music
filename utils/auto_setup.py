@@ -333,7 +333,18 @@ def auto_setup(progress_callback=None):
             all_ok = False
 
     if not is_chromium_installed():
-        if not install_playwright_chromium(progress_callback):
+        # Retry up to 3 times with backoff — download can be flaky
+        import time as _time
+        for _attempt in range(3):
+            if install_playwright_chromium(progress_callback):
+                break
+            if _attempt < 2:
+                wait = 2 ** (_attempt + 1)
+                log.warning(f"Chromium install failed, retrying in {wait}s...")
+                if progress_callback:
+                    progress_callback(f"Chromium install retry in {wait}s...")
+                _time.sleep(wait)
+        else:
             all_ok = False
 
     return all_ok

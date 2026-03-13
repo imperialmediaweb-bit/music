@@ -124,6 +124,11 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     # Upload to TikTok
     if only in (None, "tiktok"):
         try:
+            # Ensure Chromium is available before attempting browser-based upload
+            from utils.auto_setup import is_chromium_installed, install_playwright_chromium
+            if not is_chromium_installed():
+                log.info("Chromium not found — installing automatically...")
+                install_playwright_chromium()
             log.info("=" * 60)
             log.info("Uploading to TikTok...")
             tiktok_url = upload_to_tiktok(video, concept)
@@ -390,6 +395,10 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
 
     # Step 6: Upload to TikTok
     try:
+        from utils.auto_setup import is_chromium_installed, install_playwright_chromium
+        if not is_chromium_installed():
+            log.info("Chromium not found — installing automatically...")
+            install_playwright_chromium()
         log.info("=" * 60)
         log.info("STEP 6: Uploading to TikTok...")
         tiktok_url = upload_to_tiktok(video, concept)

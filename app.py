@@ -742,9 +742,12 @@ class MusicFactoryApp(tk.Tk):
         else:
             self.status_cards["ffmpeg"].config(text="Missing", style="Error.TLabel")
 
-        # Playwright
-        if check_dependency("playwright"):
+        # Playwright (check Chromium browser, not just the Python package)
+        from utils.auto_setup import is_chromium_installed
+        if is_chromium_installed():
             self.status_cards["playwright"].config(text="OK", style="Success.TLabel")
+        elif check_dependency("playwright"):
+            self.status_cards["playwright"].config(text="No Chromium", style="Warning.TLabel")
         else:
             self.status_cards["playwright"].config(text="Missing", style="Error.TLabel")
 

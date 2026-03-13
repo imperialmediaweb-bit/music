@@ -48,6 +48,16 @@ jobs:
       - name: Copy .env.example
         run: copy .env.example dist\LUTH\.env.example
 
+      - name: Bundle client_secrets.json if present
+        run: |
+          if (Test-Path "client_secrets.json") {
+            Copy-Item "client_secrets.json" "dist\LUTH\client_secrets.json"
+            Write-Host "client_secrets.json bundled"
+          } else {
+            Write-Host "client_secrets.json not found — YouTube OAuth must be configured by user"
+          }
+        shell: pwsh
+
       - name: Create ZIP archive
         run: Compress-Archive -Path dist\LUTH\* -DestinationPath dist\LUTH-windows.zip
 
