@@ -43,18 +43,22 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
         "errors": [],
     }
 
+    # Sanitize track name the same way modules do when saving files
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in track_name)
+    safe_name = safe_name.strip().replace(" ", "_")[:50] or track_name
+
     # Locate existing files — check multiple naming conventions
     video = None
     for suffix in ["_video.mp4", "_tiktok.mp4", ".mp4"]:
-        candidate = OUTPUT_DIR / f"{track_name}{suffix}"
+        candidate = OUTPUT_DIR / f"{safe_name}{suffix}"
         if candidate.exists():
             video = candidate
             break
     # Check both .jpg (new) and .png (old) thumbnail formats
-    thumbnail = OUTPUT_DIR / f"{track_name}_thumbnail.jpg"
+    thumbnail = OUTPUT_DIR / f"{safe_name}_thumbnail.jpg"
     if not thumbnail.exists():
-        thumbnail = OUTPUT_DIR / f"{track_name}_thumbnail.png"
-    mp3_file = OUTPUT_DIR / f"{track_name}.mp3"
+        thumbnail = OUTPUT_DIR / f"{safe_name}_thumbnail.png"
+    mp3_file = OUTPUT_DIR / f"{safe_name}.mp3"
 
     if not thumbnail.exists():
         log.warning(f"Thumbnail not found: {thumbnail} — continuing without it")
