@@ -39,7 +39,7 @@ SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "false").lower() == "true"
 SKIP_SOUNDCLOUD = os.getenv("SKIP_SOUNDCLOUD", "false").lower() == "true"
 
 # Beat-synced video: zoom/brightness pulses on detected beats (requires librosa)
-BEAT_SYNC_VIDEO = os.getenv("BEAT_SYNC_VIDEO", "true").lower() == "true"
+BEAT_SYNC_VIDEO = os.getenv("BEAT_SYNC_VIDEO", "false").lower() == "true"
 VIDEO_FPS = int(os.getenv("VIDEO_FPS", "24"))
 
 # Thumbnail text style: "stylized" (glow + gradient) or "classic" (plain outline)
