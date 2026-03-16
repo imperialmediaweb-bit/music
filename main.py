@@ -661,21 +661,29 @@ def cmd_autostart(args):
 
     _cleanup_legacy()
 
-    # Build a silent VBS launcher so no CMD/PowerShell window appears
+    # Build a hidden PowerShell script + VBS launcher (completely silent)
+    ps1_name = "music_pipeline_schedule.ps1"
+    ps1_path = Path(project_dir) / ps1_name
+
+    # PowerShell script that activates venv and runs the scheduler
+    venv_activate = Path(project_dir) / "venv" / "Scripts" / "Activate.ps1"
+    venv2_activate = Path(project_dir) / ".venv" / "Scripts" / "Activate.ps1"
+    ps1_lines = [
+        f'Set-Location "{project_dir}"',
+    ]
+    if venv_activate.exists():
+        ps1_lines.append(r'& .\venv\Scripts\Activate.ps1')
+    elif venv2_activate.exists():
+        ps1_lines.append(r'& .\.venv\Scripts\Activate.ps1')
+    ps1_lines.append(f'& "{python}" main.py schedule')
+    ps1_path.write_text("\n".join(ps1_lines), encoding="utf-8")
+
+    # VBS launcher: runs PowerShell completely hidden (no CMD, no PS window)
     vbs_content = (
         f'Set WshShell = CreateObject("WScript.Shell")\n'
         f'WshShell.CurrentDirectory = "{project_dir}"\n'
+        f'WshShell.Run "powershell -ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File ""{ps1_path}""""", 0, False\n'
     )
-    # Activate venv if it exists, then run the scheduler (PowerShell, no CMD)
-    sq = "'"  # single quote — can't use backslash escapes inside f-strings
-    venv_activate = Path(project_dir) / "venv" / "Scripts" / "Activate.ps1"
-    venv2_activate = Path(project_dir) / ".venv" / "Scripts" / "Activate.ps1"
-    if venv_activate.exists():
-        vbs_content += f'WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& venv\\Scripts\\Activate.ps1; & {sq}{python}{sq} main.py schedule""", 0, False\n'
-    elif venv2_activate.exists():
-        vbs_content += f'WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& .venv\\Scripts\\Activate.ps1; & {sq}{python}{sq} main.py schedule""", 0, False\n'
-    else:
-        vbs_content += f'WshShell.Run "powershell -ExecutionPolicy Bypass -WindowStyle Hidden -Command ""& {sq}{python}{sq} main.py schedule""", 0, False\n'
     vbs_path.write_text(vbs_content, encoding="utf-8")
 
     log.info(f"Autostart launcher installed: {vbs_path}")
