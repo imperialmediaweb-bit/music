@@ -37,7 +37,8 @@ def _get_music_generator(platform: str):
 
 
 def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = None,
-                       genre: str = "", music_style: str = "", thumbnail_style: str = ""):
+                       genre: str = "", music_style: str = "", thumbnail_style: str = "",
+                       fusion: bool = False):
     """Full pipeline: generate music → merge → thumbnail → video → upload.
 
     Args:
@@ -47,9 +48,10 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
         genre: Music genre (e.g. "Afro House", "Lo-Fi"). Falls back to config.
         music_style: Custom music style prompt. Falls back to config or default.
         thumbnail_style: Custom thumbnail prompt. Falls back to config or default.
+        fusion: If True, use the fusion concept generator (Afro House × another genre).
     """
     from modules.audio_merger import merge_mp3s
-    from modules.concept_generator import generate_concept
+    from modules.concept_generator import generate_concept, generate_fusion_concept
     from pipeline import process_single_track
 
     platform = platform or MUSIC_PLATFORM
@@ -60,9 +62,13 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
 
     # Step 1: Generate concept first (for the music prompt)
     log.info("=" * 60)
-    log.info(f"STEP 1: Generating {genre or 'music'} concept...")
-    concept = generate_concept(genre=genre, music_style=music_style,
-                               thumbnail_style=thumbnail_style)
+    if fusion:
+        log.info("STEP 1: Generating FUSION concept (Afro House × another genre)...")
+        concept = generate_fusion_concept()
+    else:
+        log.info(f"STEP 1: Generating {genre or 'music'} concept...")
+        concept = generate_concept(genre=genre, music_style=music_style,
+                                   thumbnail_style=thumbnail_style)
     log.info(f"Track name: {concept.track_name}")
 
     # Step 2: Generate music
@@ -755,11 +761,11 @@ def cmd_schedule(args):
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-    # (hour, minute, gen_count) — gen_count × 2 MP3s merged into one clip
+    # (hour, minute, gen_count, extra_kwargs) — gen_count × 2 MP3s merged into one clip
     SCHEDULE_SLOTS = [
-        (13, 0,  1),   # 13:00 → 1 gen = 2 MP3s (ready ~13:15, before 15:00 peak)
-        (16, 0,  2),   # 16:00 → 2 gen = 4 MP3s (ready ~16:15, before 18:00 peak)
-        (19, 0,  4),   # 19:00 → 4 gen = 8 MP3s (ready ~19:15, before 21:00 peak)
+        (13, 0,  1, {"fusion": True}),   # 13:00 → FUSION: Afro House × Japanese/Greek/Latin Folk
+        (16, 0,  2, {}),                  # 16:00 → 2 gen = 4 MP3s (ready ~16:15, before 18:00 peak)
+        (19, 0,  4, {}),                  # 19:00 → 4 gen = 8 MP3s (ready ~19:15, before 21:00 peak)
     ]
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
@@ -789,17 +795,23 @@ def cmd_schedule(args):
         # Default schedule with variable generation counts
         clips_per_day = args.clips or len(SCHEDULE_SLOTS)
         selected_slots = SCHEDULE_SLOTS[:clips_per_day]
-        for i, (hour, minute, gen_count) in enumerate(selected_slots):
+        for i, (hour, minute, gen_count, extra_kw) in enumerate(selected_slots):
+            job_kwargs = {"gen_count": gen_count, **extra_kw}
+            is_fusion = extra_kw.get("fusion", False)
+            job_label = "FUSION" if is_fusion else f"{gen_count} gen"
             scheduler.add_job(
                 _run_full_pipeline,
                 CronTrigger(hour=hour, minute=minute, timezone=TIMEZONE),
-                kwargs={"gen_count": gen_count},
+                kwargs=job_kwargs,
                 id=f"music_pipeline_{i + 1}",
-                name=f"Clip {i + 1} ({hour}:{minute:02d}, {gen_count} gen)",
+                name=f"Clip {i + 1} ({hour}:{minute:02d}, {job_label})",
                 misfire_grace_time=MISFIRE_GRACE,
                 coalesce=True,
             )
-        schedule_desc = ", ".join(f"{h}:{m:02d} ({g} gen)" for h, m, g in selected_slots)
+        schedule_desc = ", ".join(
+            f"{h}:{m:02d} ({'FUSION' if kw.get('fusion') else f'{g} gen'})"
+            for h, m, g, kw in selected_slots
+        )
         log.info(f"Scheduled {len(selected_slots)} clips per day: {schedule_desc}")
         log.info(f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s")
 
