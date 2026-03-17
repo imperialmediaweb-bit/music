@@ -54,6 +54,7 @@ DEFAULT_THUMBNAIL_PROMPT = (
 
 # ── Fusion genres for the 13:00 slot (Afro House × another genre) ──
 FUSION_GENRES = [
+    # ── ASIA ──
     {
         "name": "Afro House × Japanese",
         "secondary": "Japanese",
@@ -62,69 +63,841 @@ FUSION_GENRES = [
             "Create an EPIC fusion track blending Afro House grooves with traditional Japanese "
             "instrumentation. 122 BPM. Layer organic African percussion (djembe, congas, shakers) "
             "with Japanese koto melodies, shamisen plucks, deep taiko drum hits, and haunting "
-            "shakuhachi flute. Build progressive transitions with evolving pads, tribal chants "
-            "intertwined with Japanese vocal textures. Massive sub-bass with car bass resonance. "
-            "The vibe is mystical, cinematic, and hypnotic — East meets Africa in a deep, "
-            "festival-ready fusion. Mastered for warmth, clarity, and sub-bass impact."
+            "shakuhachi flute. Massive sub-bass with car bass resonance. "
+            "The vibe is mystical, cinematic, and hypnotic — East meets Africa."
         ),
         "thumbnail_style": (
-            "A STUNNING fusion artwork: an African tribal mask MERGED with Japanese aesthetic elements. "
-            "The mask combines carved African wood textures with Japanese lacquer finish, gold leaf "
-            "(kintsugi style), cherry blossom petals floating around it, and samurai armor details. "
-            "Background: deep dark with a blood-red rising sun glow behind the mask. "
-            "GLOWING EYES with supernatural energy (neon crimson or electric gold). "
-            "Mix African tribal patterns with Japanese geometric waves (seigaiha) and cloud motifs. "
-            "Dramatic spotlight lighting, volumetric fog, floating cherry blossoms and embers. "
-            "Cinematic, vivid, powerful. No text. 4K ultra detailed. Music album cover aesthetic."
+            "A STUNNING fusion artwork: an African tribal mask MERGED with Japanese aesthetic. "
+            "Carved African wood with Japanese lacquer finish, gold leaf (kintsugi style), "
+            "cherry blossom petals floating, samurai armor details. "
+            "Background: deep dark with blood-red rising sun glow. "
+            "GLOWING EYES (neon crimson or electric gold). Japanese waves + African tribal patterns. "
+            "Dramatic lighting, volumetric fog, cherry blossoms and embers. No text. 4K."
         ),
     },
+    {
+        "name": "Afro House × Chinese",
+        "secondary": "Chinese",
+        "instruments": "erhu, guzheng, pipa, dizi flute, Chinese gongs, yangqin",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Chinese instrumentation. "
+            "122 BPM. Layer African percussion (djembe, congas) with erhu melodies, guzheng arpeggios, "
+            "pipa plucks, dizi flute, and deep Chinese gong hits. Progressive transitions with "
+            "pentatonic scales, tribal chants intertwined with Chinese vocal textures. Massive sub-bass. "
+            "The vibe is ancient, powerful, and mystical — the Silk Road meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Chinese imperial aesthetic. "
+            "Carved wood with red lacquer, golden dragon motifs, jade inlays, imperial crown details. "
+            "Background: deep dark with golden imperial dragon silhouette glowing. "
+            "GLOWING EYES (jade green or imperial gold). Chinese cloud patterns + African scarification. "
+            "Dramatic lighting, volumetric red smoke, floating golden particles. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Indian",
+        "secondary": "Indian",
+        "instruments": "sitar, tabla, tanpura, bansuri flute, sarangi, mridangam",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Indian instrumentation. "
+            "122 BPM. Layer African percussion (djembe, congas) with sitar melodies, tabla rhythms, "
+            "tanpura drone, bansuri flute, and sarangi bowing. Build progressive ragas over "
+            "tribal chants. Massive sub-bass with car bass. "
+            "The vibe is transcendent, spiritual, and hypnotic — Bollywood meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Indian aesthetic. "
+            "Carved wood with golden mandala patterns, jewel-encrusted third eye, "
+            "henna-style geometric designs, peacock feather accents. "
+            "Background: deep dark with vibrant saffron/magenta divine glow. "
+            "GLOWING EYES (electric saffron or deep violet). Mandala + tribal patterns. "
+            "Dramatic lighting, incense smoke effects, floating marigold petals. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Korean",
+        "secondary": "Korean",
+        "instruments": "gayageum, haegeum, daegeum flute, janggu drum, kkwaenggwari gong",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Korean instrumentation. "
+            "122 BPM. Layer African percussion with gayageum plucks, haegeum bowing, daegeum flute, "
+            "janggu drum patterns, and kkwaenggwari metallic accents. Progressive transitions with "
+            "Korean pansori vocal textures over tribal chants. Massive sub-bass. "
+            "The vibe is elegant, powerful, and dynamic — K-tradition meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Korean royal aesthetic. "
+            "Carved wood with mother-of-pearl inlay (najeonchilgi), celadon green accents, "
+            "hanbok silk patterns, royal crown (gat) details. "
+            "Background: deep dark with luminous celadon green and gold glow. "
+            "GLOWING EYES (electric turquoise or pale gold). Korean geometric + African tribal. "
+            "Dramatic lighting, floating silk ribbons and sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Arabian",
+        "secondary": "Arabian",
+        "instruments": "oud, qanun, ney flute, darbuka, riq tambourine, rabab",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Arabian instrumentation. "
+            "122 BPM. Layer African percussion with oud melodies, qanun arpeggios, haunting ney flute, "
+            "darbuka rhythms, and riq accents. Build progressive maqam scales over tribal chants. "
+            "Massive sub-bass with desert wind atmospherics. "
+            "The vibe is exotic, cinematic, and mesmerizing — Arabia meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Arabian aesthetic. "
+            "Carved wood with golden arabesque patterns, crescent moon ornaments, "
+            "turquoise mosaic tiles, jeweled details. "
+            "Background: deep dark desert night with golden crescent moon glow. "
+            "GLOWING EYES (electric turquoise or molten gold). Arabesque + tribal patterns. "
+            "Dramatic lighting, golden sand particles, starlit smoke. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Turkish",
+        "secondary": "Turkish",
+        "instruments": "baglama/saz, kemençe, zurna, davul drum, kanun, kudüm",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Turkish instrumentation. "
+            "122 BPM. Layer African percussion with baglama/saz melodies, kemençe bowing, "
+            "zurna wind, davul drum power, and kanun arpeggios. Ottoman-scale progressions "
+            "mixed with tribal chants. Massive sub-bass. "
+            "The vibe is fiery, imperial, and hypnotic — Ottoman Empire meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Ottoman Turkish aesthetic. "
+            "Carved wood with Iznik tile patterns (blue/white), tulip motifs, "
+            "Ottoman calligraphy-inspired designs, jeweled turban accents. "
+            "Background: deep dark with cobalt blue and ruby red glow. "
+            "GLOWING EYES (electric cobalt or ruby red). Turkish geometric + African tribal. "
+            "Dramatic lighting, floating tile fragments and embers. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Persian",
+        "secondary": "Persian",
+        "instruments": "tar, setar, santur, kamancheh, tombak, ney",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Persian instrumentation. "
+            "122 BPM. Layer African percussion with tar melodies, setar plucks, santur hammered "
+            "dulcimer, kamancheh bowing, and tombak hand drum. Persian dastgah modes over "
+            "tribal rhythms. Massive sub-bass. "
+            "The vibe is poetic, ancient, and mystical — Persia meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Persian aesthetic. "
+            "Carved wood with Persian miniature art patterns, lapis lazuli and gold inlay, "
+            "cypress tree motifs, peacock-inspired details. "
+            "Background: deep dark with deep lapis blue and gold divine glow. "
+            "GLOWING EYES (lapis blue or burnished gold). Persian floral + African tribal. "
+            "Dramatic lighting, floating rose petals and golden dust. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Vietnamese",
+        "secondary": "Vietnamese",
+        "instruments": "đàn tranh, đàn bầu, sáo trúc flute, đàn nguyệt, trống drum",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Vietnamese instrumentation. "
+            "122 BPM. Layer African percussion with đàn tranh zither, đàn bầu monochord, "
+            "sáo trúc bamboo flute, and đàn nguyệt moon lute. Pentatonic melodies over "
+            "tribal rhythms. Massive sub-bass. "
+            "The vibe is delicate yet powerful, ethereal — Southeast Asia meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Vietnamese aesthetic. "
+            "Carved wood with lacquer art, golden lotus motifs, conical hat silhouette, "
+            "dragon patterns in red and gold. "
+            "Background: deep dark with emerald green and gold glow. "
+            "GLOWING EYES (emerald or golden). Vietnamese dragon + African tribal patterns. "
+            "Dramatic lighting, floating lotus petals and lantern light. No text. 4K."
+        ),
+    },
+    # ── EUROPE ──
     {
         "name": "Afro House × Greek",
         "secondary": "Greek",
         "instruments": "bouzouki, lyra, santouri, daouli drum, laouto",
         "music_style": (
-            "Create an EPIC fusion track blending Afro House grooves with traditional Greek "
-            "instrumentation. 122 BPM. Layer organic African percussion (djembe, congas, shakers) "
-            "with Greek bouzouki melodies, Cretan lyra, santouri hammered dulcimer, and deep "
-            "daouli drum accents. Build progressive transitions with evolving Mediterranean pads, "
-            "tribal chants mixed with Greek vocal scales (dromos). Massive sub-bass with car bass. "
-            "The vibe is passionate, cinematic, and euphoric — Mediterranean meets Africa in a deep, "
-            "festival-ready fusion. Mastered for warmth, clarity, and sub-bass impact."
+            "Create an EPIC fusion blending Afro House with traditional Greek instrumentation. "
+            "122 BPM. Layer African percussion with bouzouki melodies, Cretan lyra, "
+            "santouri hammered dulcimer, and daouli drum accents. Mediterranean pads, "
+            "tribal chants mixed with Greek dromos scales. Massive sub-bass. "
+            "The vibe is passionate, euphoric — Mediterranean meets Africa."
         ),
         "thumbnail_style": (
-            "A STUNNING fusion artwork: an African tribal mask MERGED with ancient Greek aesthetic. "
-            "The mask combines carved African wood with white marble texture, golden laurel wreaths, "
-            "Greek meander/key patterns, and Ionic column details. "
-            "Background: deep dark Aegean blue with golden divine light radiating behind the mask. "
-            "GLOWING EYES with supernatural energy (electric blue or golden white glow). "
-            "Mix African tribal scarification with Greek geometric patterns and olive branch motifs. "
-            "Dramatic spotlight lighting, volumetric fog, floating golden particles and sparks. "
-            "Cinematic, vivid, powerful — ancient gods aesthetic. No text. 4K ultra detailed."
+            "A STUNNING fusion: African tribal mask MERGED with ancient Greek aesthetic. "
+            "Carved wood with white marble texture, golden laurel wreaths, "
+            "Greek meander/key patterns, Ionic column details. "
+            "Background: deep dark Aegean blue with golden divine light. "
+            "GLOWING EYES (electric blue or golden white). Greek geometric + African tribal. "
+            "Dramatic lighting, floating golden particles. No text. 4K."
         ),
     },
+    {
+        "name": "Afro House × Irish Celtic",
+        "secondary": "Irish Celtic",
+        "instruments": "fiddle (violin), uilleann pipes, bodhrán drum, tin whistle, Celtic harp",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Irish Celtic instrumentation. "
+            "122 BPM. Layer African percussion with fiddle melodies, uilleann pipes, bodhrán drum, "
+            "tin whistle, and Celtic harp arpeggios. Build reels and jigs over tribal grooves. "
+            "Massive sub-bass with mystical Celtic atmosphere. "
+            "The vibe is wild, enchanting, and euphoric — Celtic magic meets African fire."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Celtic aesthetic. "
+            "Carved wood with Celtic knotwork patterns, emerald green accents, "
+            "silver torques, druidic oak leaf motifs. "
+            "Background: deep dark misty forest with emerald green magical glow. "
+            "GLOWING EYES (electric emerald or silver white). Celtic spirals + African tribal. "
+            "Dramatic lighting, mystical fog, floating embers and fireflies. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Spanish Flamenco",
+        "secondary": "Spanish Flamenco",
+        "instruments": "flamenco guitar, cajón, palmas (handclaps), castanets, violin",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Spanish Flamenco instrumentation. "
+            "122 BPM. Layer African percussion with passionate flamenco guitar rasgueados, "
+            "cajón rhythms, palmas handclaps, castanets, and soulful violin. "
+            "Build dramatic flamenco compás over tribal grooves. Massive sub-bass. "
+            "The vibe is fiery, passionate, and raw — Andalusia meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Spanish Flamenco aesthetic. "
+            "Carved wood with red and black lace patterns, golden fan motifs, "
+            "bull silhouette, flamenco rose details. "
+            "Background: deep dark with passionate crimson red and gold glow. "
+            "GLOWING EYES (fiery red or electric gold). Moorish + African tribal patterns. "
+            "Dramatic lighting, floating rose petals and sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Romanian Folk",
+        "secondary": "Romanian Folk",
+        "instruments": "nai (pan flute), cobza, țambal, fluier, violin, taragot",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Romanian Folk instrumentation. "
+            "122 BPM. Layer African percussion with nai pan flute melodies, cobza plucks, "
+            "țambal hammered dulcimer, fluier shepherd's flute, and soulful violin. "
+            "Doina-style melancholic passages over tribal grooves. Massive sub-bass. "
+            "The vibe is haunting, mystical, and soulful — Carpathian mountains meet Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Romanian folk aesthetic. "
+            "Carved wood with traditional Romanian embroidery patterns (ie motifs), "
+            "red/white/blue cross-stitch, Brâncuși-inspired geometric carvings. "
+            "Background: deep dark Carpathian night with mystic blue and red glow. "
+            "GLOWING EYES (electric blue or fiery red). Romanian geometric + African tribal. "
+            "Dramatic lighting, floating snowflakes and mountain mist. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Balkan",
+        "secondary": "Balkan",
+        "instruments": "accordion, clarinet, trumpet, tapan drum, gadulka, kaval flute",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Balkan brass and folk instrumentation. "
+            "122 BPM. Layer African percussion with Balkan brass (trumpet, clarinet), accordion, "
+            "tapan drum power, gadulka bowing, and kaval flute. Irregular Balkan rhythms (7/8, 9/8) "
+            "fused with tribal grooves. Massive sub-bass. "
+            "The vibe is wild, celebratory, and chaotic — Balkan wedding meets African festival."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Balkan folk aesthetic. "
+            "Carved wood with Balkan embroidery, brass instrument motifs, "
+            "colorful woven textile patterns, Ottoman-influenced details. "
+            "Background: deep dark with warm copper and fiery orange glow. "
+            "GLOWING EYES (electric copper or warm gold). Balkan geometric + African tribal. "
+            "Dramatic lighting, floating confetti and brass sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Russian",
+        "secondary": "Russian",
+        "instruments": "balalaika, domra, bayan accordion, gusli, zhaleika",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Russian instrumentation. "
+            "122 BPM. Layer African percussion with balalaika tremolo, domra melodies, "
+            "bayan accordion chords, gusli arpeggios. Russian folk scales over tribal grooves. "
+            "Massive sub-bass. "
+            "The vibe is epic, dramatic, and powerful — Slavic soul meets African fire."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Russian aesthetic. "
+            "Carved wood with Khokhloma golden/red floral patterns, matryoshka elements, "
+            "onion dome silhouettes, Fabergé-inspired jewel details. "
+            "Background: deep dark with rich red and gold imperial glow. "
+            "GLOWING EYES (electric red or imperial gold). Russian folk + African tribal. "
+            "Dramatic lighting, floating snowflakes and golden sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Scottish",
+        "secondary": "Scottish",
+        "instruments": "bagpipes, fiddle (violin), clàrsach harp, snare drum, accordion",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Scottish instrumentation. "
+            "122 BPM. Layer African percussion with bagpipe drones and melodies, fiddle reels, "
+            "clàrsach harp, military snare drum rolls, and accordion. Highland energy over "
+            "tribal grooves. Massive sub-bass. "
+            "The vibe is epic, warrior-like, and majestic — Highland warrior meets African warrior."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Scottish Highland aesthetic. "
+            "Carved wood with tartan plaid patterns, thistle motifs, "
+            "Celtic knotwork, claymore sword silhouette. "
+            "Background: deep dark misty highland with purple heather glow. "
+            "GLOWING EYES (electric violet or steel blue). Tartan + African tribal patterns. "
+            "Dramatic lighting, highland mist and floating embers. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Nordic/Viking",
+        "secondary": "Nordic Viking",
+        "instruments": "nyckelharpa, Hardanger fiddle, lur horn, tagelharpa, birch bark flute",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Nordic/Viking instrumentation. "
+            "122 BPM. Layer African percussion with nyckelharpa melodies, Hardanger fiddle, "
+            "deep lur horn blasts, tagelharpa bowing, and birch bark flute. Viking war chants "
+            "over tribal rhythms. Massive sub-bass. "
+            "The vibe is dark, primal, and epic — Viking raids meet African ritual."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Viking aesthetic. "
+            "Carved wood with Norse rune engravings, Viking knotwork, "
+            "iron and silver accents, wolf/raven motifs. "
+            "Background: deep dark aurora borealis glow (green/purple). "
+            "GLOWING EYES (ice blue or fiery amber). Norse runes + African scarification. "
+            "Dramatic lighting, northern lights, floating snow and embers. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Hungarian",
+        "secondary": "Hungarian",
+        "instruments": "cimbalom, tárogató, violin, hurdy-gurdy, zither",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Hungarian instrumentation. "
+            "122 BPM. Layer African percussion with cimbalom cascades, tárogató melodies, "
+            "passionate violin, hurdy-gurdy drones, and zither. Hungarian csárdás rhythms "
+            "over tribal grooves. Massive sub-bass. "
+            "The vibe is passionate, dark, and intoxicating — Magyar soul meets African spirit."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Hungarian folk aesthetic. "
+            "Carved wood with Matyó embroidery floral patterns (red/blue/white), "
+            "paprika-red accents, horseman motifs. "
+            "Background: deep dark with warm paprika red and gold glow. "
+            "GLOWING EYES (fiery red or electric blue). Hungarian floral + African tribal. "
+            "Dramatic lighting, floating floral petals and sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Italian",
+        "secondary": "Italian",
+        "instruments": "mandolin, accordion, violin, classical guitar, tarantella tambourine",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Italian instrumentation. "
+            "122 BPM. Layer African percussion with mandolin tremolo, accordion, passionate violin, "
+            "classical guitar, and tarantella tambourine. Mediterranean scales over tribal grooves. "
+            "Massive sub-bass. "
+            "The vibe is romantic, passionate, and cinematic — Napoli meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Italian Renaissance aesthetic. "
+            "Carved wood with marble and gold leaf, Renaissance fresco patterns, "
+            "Roman laurel wreath, Venetian mask elements. "
+            "Background: deep dark with warm terracotta and gold glow. "
+            "GLOWING EYES (warm gold or electric amber). Renaissance + African tribal. "
+            "Dramatic lighting, floating golden particles and marble dust. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Portuguese Fado",
+        "secondary": "Portuguese Fado",
+        "instruments": "Portuguese guitar, classical guitar, violin, accordion, cavaquinho",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Portuguese Fado instrumentation. "
+            "122 BPM. Layer African percussion with Portuguese guitar (guitarra portuguesa), "
+            "classical guitar, soulful violin, and melancholic fado vocals. "
+            "Saudade-infused melodies over tribal grooves. Massive sub-bass. "
+            "The vibe is melancholic, soulful, and deep — Lisbon meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Portuguese azulejo tile aesthetic. "
+            "Carved wood with blue and white azulejo patterns, maritime motifs, "
+            "golden Age of Discovery symbols. "
+            "Background: deep dark Atlantic blue with golden lighthouse glow. "
+            "GLOWING EYES (ocean blue or warm gold). Azulejo + African tribal patterns. "
+            "Dramatic lighting, ocean mist and golden sparks. No text. 4K."
+        ),
+    },
+    # ── AMERICAS ──
     {
         "name": "Afro House × Latin Folk",
         "secondary": "Latin Folk",
         "instruments": "charango, quena flute, cajón, maracas, pan flute, guitarrón",
         "music_style": (
-            "Create an EPIC fusion track blending Afro House grooves with traditional Latin Folk "
-            "instrumentation. 122 BPM. Layer organic African percussion (djembe, congas, shakers) "
-            "with Andean quena flute, charango strings, deep cajón rhythms, maracas, and "
-            "pan flute melodies. Build progressive transitions with evolving pads, tribal chants "
-            "intertwined with Latin vocal textures and folkloric harmonies. Massive sub-bass. "
-            "The vibe is fiery, cinematic, and passionate — Latin America meets Africa in a deep, "
-            "festival-ready fusion. Mastered for warmth, clarity, and sub-bass impact."
+            "Create an EPIC fusion blending Afro House with traditional Latin Folk instrumentation. "
+            "122 BPM. Layer African percussion with Andean quena flute, charango strings, "
+            "deep cajón rhythms, maracas, and pan flute melodies. Massive sub-bass. "
+            "The vibe is fiery, cinematic, and passionate — Latin America meets Africa."
         ),
         "thumbnail_style": (
-            "A STUNNING fusion artwork: an African tribal mask MERGED with Latin American folk art. "
-            "The mask combines carved African wood with colorful Aztec/Mayan mosaic patterns, "
-            "turquoise and jade inlays, feathered headdress elements (quetzal feathers), "
-            "and pre-Columbian gold ornaments. "
-            "Background: deep dark with fiery orange/red/gold gradient glow behind the mask. "
-            "GLOWING EYES with supernatural energy (emerald green or fiery orange glow). "
-            "Mix African tribal patterns with Aztec geometric designs and sun symbols. "
-            "Dramatic spotlight lighting, volumetric smoke, floating embers and golden dust. "
-            "Cinematic, vivid, powerful — ancient civilizations collide. No text. 4K ultra detailed."
+            "A STUNNING fusion: African tribal mask MERGED with Latin American folk art. "
+            "Carved wood with Aztec/Mayan mosaic patterns, turquoise and jade inlays, "
+            "feathered headdress elements (quetzal feathers), pre-Columbian gold ornaments. "
+            "Background: deep dark with fiery orange/red/gold glow. "
+            "GLOWING EYES (emerald green or fiery orange). Aztec + African tribal patterns. "
+            "Dramatic lighting, floating embers and golden dust. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Brazilian",
+        "secondary": "Brazilian",
+        "instruments": "berimbau, cuíca, surdo drum, pandeiro, cavaquinho, atabaque",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Brazilian instrumentation. "
+            "122 BPM. Layer African percussion with berimbau twang, cuíca friction drum, "
+            "surdo bass drum, pandeiro tambourine, cavaquinho, and atabaque. "
+            "Samba/capoeira rhythms fused with tribal grooves. Massive sub-bass. "
+            "The vibe is carnival, euphoric, and electric — Brazil meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Brazilian carnival aesthetic. "
+            "Carved wood with vibrant carnival feathers, sequins, golden Carnaval crown, "
+            "tropical bird motifs, candomblé symbols. "
+            "Background: deep dark with explosive neon carnival colors (green/yellow/blue). "
+            "GLOWING EYES (electric green or neon yellow). Carnival + African tribal. "
+            "Dramatic lighting, floating feathers and confetti sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Native American",
+        "secondary": "Native American",
+        "instruments": "Native American flute, pow-wow drums, rattles, eagle bone whistle, water drum",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Native American instrumentation. "
+            "122 BPM. Layer African percussion with Native American cedar flute, "
+            "pow-wow drum circles, rattles, and eagle bone whistle. "
+            "Chant-based melodies over tribal grooves. Massive sub-bass. "
+            "The vibe is spiritual, primal, and sacred — two ancient tribal cultures unite."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Native American aesthetic. "
+            "Carved wood with eagle feather headdress, dreamcatcher elements, "
+            "turquoise and silver jewelry, buffalo/eagle motifs. "
+            "Background: deep dark prairie sunset with amber and turquoise glow. "
+            "GLOWING EYES (turquoise or fiery amber). Native geometric + African tribal. "
+            "Dramatic lighting, floating eagle feathers and spirit smoke. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Cuban",
+        "secondary": "Cuban",
+        "instruments": "tres guitar, bongos, timbales, güiro, trumpet, piano",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Cuban Son/Salsa instrumentation. "
+            "122 BPM. Layer African percussion with Cuban tres guitar, bongos, timbales, "
+            "güiro scraper, salsa trumpet, and piano montunos. "
+            "Son clave rhythms fused with tribal grooves. Massive sub-bass. "
+            "The vibe is hot, infectious, and celebratory — Havana meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Cuban vintage aesthetic. "
+            "Carved wood with vintage car chrome details, cigar-box patterns, "
+            "tropical palm motifs, Havana architecture elements. "
+            "Background: deep dark with warm sunset orange and turquoise glow. "
+            "GLOWING EYES (electric turquoise or sunset orange). Cuban art + African tribal. "
+            "Dramatic lighting, floating smoke and tropical sparks. No text. 4K."
+        ),
+    },
+    # ── AFRICA (sub-genre fusions) ──
+    {
+        "name": "Afro House × Ethiopian Jazz",
+        "secondary": "Ethiopian Jazz",
+        "instruments": "krar (lyre), masenqo, washint flute, kebero drum, saxophone, piano",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Ethiopian Jazz (Ethio-jazz). "
+            "122 BPM. Layer African percussion with krar lyre, masenqo fiddle, washint flute, "
+            "kebero drum, saxophone, and piano. Ethiopian pentatonic scales (tizita, bati modes) "
+            "over tribal grooves. Massive sub-bass. "
+            "The vibe is soulful, smoky, and spiritual — Addis Ababa meets Lagos."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask with Ethiopian motifs. "
+            "Carved wood with Ethiopian cross patterns, Ge'ez script decorations, "
+            "coffee plant motifs, golden Axumite obelisk silhouette. "
+            "Background: deep dark with warm amber and coffee-brown glow. "
+            "GLOWING EYES (golden amber or deep brown). Ethiopian + West African tribal. "
+            "Dramatic lighting, floating coffee beans and incense smoke. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × North African Gnawa",
+        "secondary": "North African Gnawa",
+        "instruments": "guembri (sintir), qraqeb (metal castanets), tbel drum, ney flute, bendir",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with North African Gnawa music. "
+            "122 BPM. Layer West African percussion with guembri bass lute, qraqeb metal castanets, "
+            "tbel drum, ney flute, and bendir frame drum. Gnawa trance rhythms "
+            "over house grooves. Massive sub-bass. "
+            "The vibe is trance-like, spiritual, and ritualistic — Marrakech meets Lagos."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: two African masks — one Sub-Saharan, one North African Berber. "
+            "Carved wood + silver Berber jewelry, Zellige tile patterns, "
+            "Tuareg cross, henna designs, desert sand textures. "
+            "Background: deep dark Saharan night with starlit golden glow. "
+            "GLOWING EYES (desert gold or electric silver). Berber + Sub-Saharan patterns. "
+            "Dramatic lighting, desert sand particles and starlight. No text. 4K."
+        ),
+    },
+    # ── OCEANIA ──
+    {
+        "name": "Afro House × Aboriginal Australian",
+        "secondary": "Aboriginal Australian",
+        "instruments": "didgeridoo, clapsticks, bullroarer, gum leaf, bilma",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Aboriginal Australian instrumentation. "
+            "122 BPM. Layer African percussion with deep didgeridoo drones, clapstick rhythms, "
+            "bullroarer effects, and circular breathing textures. "
+            "Dreamtime atmospherics over tribal grooves. Massive sub-bass. "
+            "The vibe is ancient, primal, and hypnotic — Dreamtime meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Aboriginal dot-painting aesthetic. "
+            "Carved wood covered in intricate dot-painting patterns, ochre and white pigments, "
+            "serpent/kangaroo dreamtime symbols, boomerang motifs. "
+            "Background: deep dark Outback red earth with electric dot-art glow. "
+            "GLOWING EYES (ochre orange or electric white). Dot-art + African tribal. "
+            "Dramatic lighting, floating red sand and spirit particles. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Polynesian",
+        "secondary": "Polynesian",
+        "instruments": "pahu drum, ukulele, nose flute, toere slit drum, conch shell horn",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Polynesian/Maori instrumentation. "
+            "122 BPM. Layer African percussion with pahu drum, ukulele, nose flute, "
+            "toere slit drum, and conch shell horn. Pacific Island chants "
+            "over tribal grooves. Massive sub-bass. "
+            "The vibe is oceanic, powerful, and ancestral — Pacific Islands meet Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Polynesian/Maori tiki aesthetic. "
+            "Carved wood with Maori ta moko patterns, tiki god features, "
+            "ocean wave motifs, tropical flower lei accents. "
+            "Background: deep dark ocean blue with volcanic orange glow. "
+            "GLOWING EYES (volcanic orange or ocean turquoise). Polynesian + African tribal. "
+            "Dramatic lighting, ocean mist and volcanic embers. No text. 4K."
+        ),
+    },
+    # ── CLASSICAL INSTRUMENT FUSIONS ──
+    {
+        "name": "Afro House × Violin",
+        "secondary": "Classical Violin",
+        "instruments": "solo violin, viola, cello, pizzicato strings, orchestral percussion",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with passionate solo violin and strings. "
+            "122 BPM. Layer African percussion with a soaring solo violin melody, "
+            "viola harmonies, deep cello bass lines, pizzicato accents, and orchestral percussion. "
+            "Build dramatic crescendos over tribal grooves. Massive sub-bass. "
+            "The vibe is cinematic, emotional, and powerful — orchestra meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING artwork: an African tribal mask with a VIOLIN integrated into the design. "
+            "The mask's surface has violin f-holes carved in, strings running through it, "
+            "bow-like details, musical staff patterns. "
+            "Background: deep dark concert hall with dramatic golden spotlight. "
+            "GLOWING EYES (electric gold or warm amber). Musical + African tribal. "
+            "Dramatic lighting, floating musical notes and golden particles. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Piano",
+        "secondary": "Piano",
+        "instruments": "grand piano, electric piano (Rhodes), piano bass, celesta, harpsichord",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with grand piano and keyboard instruments. "
+            "122 BPM. Layer African percussion with grand piano chords and runs, "
+            "Rhodes electric piano warmth, deep piano bass, celesta sparkles, and harpsichord. "
+            "Jazz-influenced piano over tribal grooves. Massive sub-bass. "
+            "The vibe is sophisticated, deep, and soulful — concert hall meets African ritual."
+        ),
+        "thumbnail_style": (
+            "A STUNNING artwork: an African tribal mask with PIANO KEYS integrated into the design. "
+            "The mask has piano keys as teeth/jawline, grand piano curves merged with mask contours, "
+            "golden music note ornaments. "
+            "Background: deep dark with elegant ivory and ebony contrast, golden spotlight. "
+            "GLOWING EYES (electric ivory white or deep golden). Piano + African tribal. "
+            "Dramatic lighting, floating keys and golden dust. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Saxophone",
+        "secondary": "Saxophone",
+        "instruments": "alto saxophone, tenor saxophone, soprano sax, baritone sax, jazz organ",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with sultry saxophone solos. "
+            "122 BPM. Layer African percussion with alto sax melodies, deep tenor sax, "
+            "soprano sax riffs, baritone sax bass lines, and jazz organ pads. "
+            "Smooth jazz runs over tribal grooves. Massive sub-bass. "
+            "The vibe is sexy, smoky, and midnight — jazz club meets African festival."
+        ),
+        "thumbnail_style": (
+            "A STUNNING artwork: an African tribal mask with a SAXOPHONE merged into the design. "
+            "The mask has golden saxophone curves as horns, brass reflections, "
+            "jazz-era art deco patterns, smoke wisps. "
+            "Background: deep dark smoky jazz club with warm golden sax glow. "
+            "GLOWING EYES (warm gold or neon blue). Art Deco + African tribal. "
+            "Dramatic lighting, floating smoke and golden brass sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Guitar",
+        "secondary": "Guitar",
+        "instruments": "acoustic guitar, electric guitar, bass guitar, 12-string guitar, slide guitar",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with guitar-driven energy. "
+            "122 BPM. Layer African percussion with acoustic guitar fingerpicking, "
+            "electric guitar riffs and solos, deep bass guitar grooves, "
+            "12-string shimmer, and slide guitar. Rock/blues energy over tribal grooves. "
+            "Massive sub-bass. "
+            "The vibe is raw, electric, and powerful — rock arena meets African village."
+        ),
+        "thumbnail_style": (
+            "A STUNNING artwork: an African tribal mask with ELECTRIC GUITAR elements. "
+            "The mask has guitar pickups as eyes, fretboard patterns, "
+            "lightning bolt accents, amplifier grill texture. "
+            "Background: deep dark with electric neon purple and orange stage lighting. "
+            "GLOWING EYES (electric purple or neon orange). Rock + African tribal. "
+            "Dramatic lighting, electric sparks and stage smoke. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Cello",
+        "secondary": "Cello",
+        "instruments": "solo cello, double bass, cello ensemble, pizzicato cello, arco strings",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with deep, emotional cello. "
+            "122 BPM. Layer African percussion with solo cello melody, double bass depth, "
+            "cello ensemble harmonies, pizzicato rhythms, and arco string swells. "
+            "Dark, dramatic classical passages over tribal grooves. Massive sub-bass. "
+            "The vibe is dark, cinematic, and profoundly emotional — symphony meets ritual."
+        ),
+        "thumbnail_style": (
+            "A STUNNING artwork: an African tribal mask with CELLO integrated into the design. "
+            "The mask has cello scroll as crown, f-holes carved in cheeks, "
+            "bow-hair texture as decoration, deep wood grain patterns. "
+            "Background: deep dark with warm amber and deep burgundy glow. "
+            "GLOWING EYES (warm amber or deep burgundy). Classical + African tribal. "
+            "Dramatic lighting, floating string vibrations and ember particles. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Trumpet & Brass",
+        "secondary": "Trumpet & Brass",
+        "instruments": "trumpet, trombone, French horn, flugelhorn, tuba, brass ensemble",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with powerful brass section. "
+            "122 BPM. Layer African percussion with trumpet fanfares, trombone slides, "
+            "French horn swells, flugelhorn warmth, and full brass ensemble blasts. "
+            "Brass stabs and jazzy runs over tribal grooves. Massive sub-bass. "
+            "The vibe is triumphant, massive, and victorious — brass band meets African warriors."
+        ),
+        "thumbnail_style": (
+            "A STUNNING artwork: an African tribal mask with BRASS INSTRUMENTS merged in. "
+            "The mask has trumpet bell as mouth, brass tubing as decoration, "
+            "golden valves as ornaments, polished brass reflections. "
+            "Background: deep dark with blazing golden brass spotlight. "
+            "GLOWING EYES (blazing gold or electric copper). Brass + African tribal. "
+            "Dramatic lighting, golden light rays and metallic sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Harp",
+        "secondary": "Harp",
+        "instruments": "concert harp, Celtic harp, electric harp, lyre, zither",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with ethereal harp instrumentation. "
+            "122 BPM. Layer African percussion with concert harp glissandos and arpeggios, "
+            "Celtic harp melodies, electric harp effects, lyre plucks, and zither. "
+            "Heavenly cascading notes over tribal grooves. Massive sub-bass. "
+            "The vibe is ethereal, angelic, and transcendent — heaven meets earth."
+        ),
+        "thumbnail_style": (
+            "A STUNNING artwork: an African tribal mask with HARP strings running through it. "
+            "The mask has golden harp frame as crown, strings as tears/decoration, "
+            "angelic wing motifs, crystalline details. "
+            "Background: deep dark with ethereal white and gold divine light. "
+            "GLOWING EYES (pure white or celestial gold). Angelic + African tribal. "
+            "Dramatic lighting, floating golden particles and light rays. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Organ & Church",
+        "secondary": "Church Organ",
+        "instruments": "pipe organ, Hammond organ, church bells, choir vocals, gospel piano",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with massive church organ and gospel. "
+            "122 BPM. Layer African percussion with pipe organ power chords, "
+            "Hammond organ grooves, church bells, choir vocal layers, and gospel piano. "
+            "Sacred hymn progressions over tribal grooves. Massive sub-bass. "
+            "The vibe is sacred, massive, and transcendent — cathedral meets African temple."
+        ),
+        "thumbnail_style": (
+            "A STUNNING artwork: an African tribal mask inside a GOTHIC CATHEDRAL setting. "
+            "The mask has stained glass patterns, pipe organ pipes as crown/horns, "
+            "golden cross motifs, cathedral arch frame. "
+            "Background: deep dark cathedral interior with divine light beams. "
+            "GLOWING EYES (stained glass multicolor or divine gold). Gothic + African tribal. "
+            "Dramatic lighting, dust motes in light beams, floating incense. No text. 4K."
+        ),
+    },
+    # ── MORE WORLD GENRES ──
+    {
+        "name": "Afro House × Jamaican Reggae/Dub",
+        "secondary": "Jamaican Reggae",
+        "instruments": "melodica, steel drums, reggae guitar, dub bass, nyabinghi drums",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Jamaican Reggae/Dub instrumentation. "
+            "122 BPM. Layer African percussion with melodica, steel drums, offbeat reggae guitar, "
+            "deep dub bass lines with heavy reverb, and nyabinghi drums. "
+            "Dub echo effects over tribal grooves. Massive sub-bass. "
+            "The vibe is chill, deep, and spiritual — Kingston meets Lagos."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Jamaican Rastafari aesthetic. "
+            "Carved wood with red/gold/green color scheme, lion of Judah motifs, "
+            "dreadlock-like raffia, palm leaf patterns. "
+            "Background: deep dark with rasta red/gold/green gradient glow. "
+            "GLOWING EYES (electric green or golden). Jamaican + African tribal. "
+            "Dramatic lighting, floating smoke and tropical sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Hawaiian",
+        "secondary": "Hawaiian",
+        "instruments": "steel guitar, ukulele, slack-key guitar, ipu gourd drum, pahu drum",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Hawaiian instrumentation. "
+            "122 BPM. Layer African percussion with Hawaiian steel guitar slides, "
+            "ukulele strumming, slack-key guitar, ipu gourd drum, and pahu drum. "
+            "Island melodies over tribal grooves. Massive sub-bass. "
+            "The vibe is tropical, dreamy, and warm — Hawaiian paradise meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Hawaiian tiki aesthetic. "
+            "Carved wood with hibiscus flowers, volcanic rock texture, "
+            "tiki god elements, ocean wave motifs, plumeria lei. "
+            "Background: deep dark tropical sunset with orange/purple volcanic glow. "
+            "GLOWING EYES (volcanic orange or ocean blue). Tiki + African tribal. "
+            "Dramatic lighting, floating plumeria petals and volcanic embers. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Mongolian",
+        "secondary": "Mongolian",
+        "instruments": "morin khuur (horsehead fiddle), throat singing, yatga, tovshuur, limbe flute",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Mongolian throat singing and instruments. "
+            "122 BPM. Layer African percussion with morin khuur fiddle, deep throat singing "
+            "(khoomei/sygyt overtone), yatga zither, tovshuur lute, and limbe flute. "
+            "Vast steppe atmospherics over tribal grooves. Massive sub-bass. "
+            "The vibe is vast, primal, and otherworldly — Mongolian steppe meets African savanna."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Mongolian warrior aesthetic. "
+            "Carved wood with Mongolian armor details, horsehair decoration, "
+            "eagle motifs, ger (yurt) geometric patterns, sky-blue silk. "
+            "Background: deep dark endless steppe with dramatic sky-blue and gold glow. "
+            "GLOWING EYES (sky blue or fierce gold). Mongolian + African tribal. "
+            "Dramatic lighting, floating horsehair and steppe dust. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Thai",
+        "secondary": "Thai",
+        "instruments": "ranat ek (xylophone), khim, pi (oboe), saw duang fiddle, klong drum",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Thai instrumentation. "
+            "122 BPM. Layer African percussion with ranat ek xylophone cascades, "
+            "khim hammered dulcimer, pi oboe, saw duang fiddle, and klong drum. "
+            "Thai pentatonic scales over tribal grooves. Massive sub-bass. "
+            "The vibe is ornate, mystical, and regal — Thai temple meets African ritual."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Thai royal aesthetic. "
+            "Carved wood with golden Thai temple patterns, Naga serpent details, "
+            "lotus motifs, jeweled crown (chada), emerald accents. "
+            "Background: deep dark with golden temple glow and emerald light. "
+            "GLOWING EYES (emerald green or royal gold). Thai + African tribal. "
+            "Dramatic lighting, floating lotus petals and golden sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Indonesian Gamelan",
+        "secondary": "Indonesian Gamelan",
+        "instruments": "gamelan gongs, metallophones, kendang drum, suling flute, rebab",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Indonesian Gamelan orchestration. "
+            "122 BPM. Layer African percussion with gamelan gong cascades, metallophone melodies, "
+            "kendang drum patterns, suling bamboo flute, and rebab bowing. "
+            "Interlocking gamelan patterns over tribal grooves. Massive sub-bass. "
+            "The vibe is hypnotic, shimmering, and trance-like — Bali meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Balinese Barong mask aesthetic. "
+            "Carved wood combining African and Balinese demon-mask styles, "
+            "golden filigree, batik patterns, temple guardian details. "
+            "Background: deep dark with shimmering bronze/gold gamelan glow. "
+            "GLOWING EYES (electric bronze or fiery red). Balinese + African tribal. "
+            "Dramatic lighting, floating incense smoke and metallic sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Filipino",
+        "secondary": "Filipino",
+        "instruments": "kulintang gongs, kudyapi lute, tongali flute, dabakan drum, gangsa",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with traditional Filipino instrumentation. "
+            "122 BPM. Layer African percussion with kulintang gong melodies, kudyapi lute, "
+            "tongali nose flute, dabakan drum, and gangsa flat gongs. "
+            "Island rhythms over tribal grooves. Massive sub-bass. "
+            "The vibe is vibrant, island-spirit, and powerful — Philippines meets Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Filipino tribal aesthetic. "
+            "Carved wood with T'boli/Ifugao tribal patterns, brass gong textures, "
+            "rice terrace motifs, tattoo-inspired designs (batok). "
+            "Background: deep dark with warm bronze and tropical green glow. "
+            "GLOWING EYES (bronze or electric teal). Filipino tribal + African tribal. "
+            "Dramatic lighting, floating tropical leaves and bronze sparks. No text. 4K."
+        ),
+    },
+    {
+        "name": "Afro House × Tibetan",
+        "secondary": "Tibetan",
+        "instruments": "singing bowls, dungchen (long horn), dramyin, gyaling oboe, nga drum",
+        "music_style": (
+            "Create an EPIC fusion blending Afro House with Tibetan Buddhist instrumentation. "
+            "122 BPM. Layer African percussion with singing bowl overtones, "
+            "deep dungchen long horn blasts, dramyin lute, gyaling oboe, and nga drum. "
+            "Monk chant textures over tribal grooves. Massive sub-bass. "
+            "The vibe is meditative, vast, and transcendent — Himalayas meet Africa."
+        ),
+        "thumbnail_style": (
+            "A STUNNING fusion: African tribal mask MERGED with Tibetan Buddhist aesthetic. "
+            "Carved wood with mandala patterns, prayer wheel motifs, "
+            "dharma wheel symbols, turquoise and coral inlays, golden Buddha details. "
+            "Background: deep dark mountain night with peaceful golden/turquoise glow. "
+            "GLOWING EYES (turquoise or warm gold). Tibetan + African tribal. "
+            "Dramatic lighting, floating prayer flags and incense smoke. No text. 4K."
         ),
     },
 ]
