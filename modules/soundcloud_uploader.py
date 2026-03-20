@@ -113,15 +113,30 @@ def _do_upload(
                     timeout=15_000,
                 )
             except PlaywrightTimeout:
-                # Try finding via the "or choose files to upload" button
-                log.info("No file input found directly, looking for upload button...")
-                # SoundCloud may use a button that triggers a hidden file input
+                log.info("No file input found directly, trying alternative strategies...")
+
+                # Strategy 2: use filechooser event — click the upload area/button
+                # to trigger the browser's file dialog, then intercept it
                 upload_btn = page.query_selector(
                     'button:has-text("choose files"), button:has-text("Upload"), '
-                    'a:has-text("choose files"), a:has-text("Upload")'
+                    'a:has-text("choose files"), a:has-text("Upload"), '
+                    '[class*="dropzone"], [class*="upload"] button, '
+                    '[data-testid*="upload"], [class*="chooserContainer"]'
                 )
                 if upload_btn:
-                    # The button may trigger a file input — find it after clicking
+                    log.info("Found upload button/area, clicking to trigger file chooser...")
+                    try:
+                        with page.expect_file_chooser(timeout=5_000) as fc_info:
+                            upload_btn.click(force=True)
+                        file_chooser = fc_info.value
+                        file_chooser.set_files(str(audio_path))
+                        log.info(f"Audio file selected via file chooser: {audio_path.name}")
+                        page.screenshot(path=str(debug_dir / "debug_soundcloud_02_file_selected.png"))
+                        file_input = "ALREADY_SET"  # sentinel to skip set_input_files below
+                    except PlaywrightTimeout:
+                        log.info("File chooser did not appear, checking for file input...")
+                        file_input = page.query_selector('input[type="file"]')
+                else:
                     file_input = page.query_selector('input[type="file"]')
 
             if not file_input:
@@ -138,9 +153,10 @@ def _do_upload(
                 log.error(f"No file input found. Inputs on page: {inputs}")
                 raise RuntimeError("Could not find file input on SoundCloud upload page")
 
-            file_input.set_input_files(str(audio_path))
-            log.info(f"Audio file selected: {audio_path.name}")
-            page.screenshot(path=str(debug_dir / "debug_soundcloud_02_file_selected.png"))
+            if file_input != "ALREADY_SET":
+                file_input.set_input_files(str(audio_path))
+                log.info(f"Audio file selected: {audio_path.name}")
+                page.screenshot(path=str(debug_dir / "debug_soundcloud_02_file_selected.png"))
 
             # Wait for SoundCloud to process the file and show the edit form
             log.info("Waiting for SoundCloud to process the upload (up to 5 min)...")
@@ -262,6 +278,35 @@ def _do_upload(
 
 def _dismiss_soundcloud_popups(page) -> None:
     """Dismiss cookie consent and other popups on SoundCloud."""
+    # Wait for OneTrust banner to appear (SoundCloud uses OneTrust)
+    try:
+        onetrust_btn = page.wait_for_selector(
+            '#onetrust-accept-btn-handler',
+            state="visible",
+            timeout=8_000,
+        )
+        if onetrust_btn:
+            onetrust_btn.click(force=True)
+            log.info("Popup dismissed: onetrust accept button")
+            page.wait_for_timeout(2_000)
+            # Wait for the banner to disappear
+            try:
+                page.wait_for_selector('#onetrust-banner-sdk', state='hidden', timeout=5_000)
+                log.info("OneTrust banner hidden")
+            except PlaywrightTimeout:
+                # Force-remove the banner via JS
+                page.evaluate("""() => {
+                    const banner = document.querySelector('#onetrust-banner-sdk');
+                    if (banner) banner.remove();
+                    const overlay = document.querySelector('.onetrust-pc-dark-filter');
+                    if (overlay) overlay.remove();
+                }""")
+                log.info("OneTrust banner force-removed")
+            return
+    except PlaywrightTimeout:
+        log.info("No OneTrust banner found, trying other dismiss methods...")
+
+    # Fallback: try generic cookie consent buttons via JS
     dismissed = page.evaluate("""() => {
         const buttons = [...document.querySelectorAll('button')];
         for (const btn of buttons) {
@@ -272,12 +317,6 @@ def _dismiss_soundcloud_popups(page) -> None:
                 btn.click();
                 return 'cookie:' + text;
             }
-        }
-        // Try the SoundCloud-specific cookie banner
-        const banner = document.querySelector('#onetrust-accept-btn-handler');
-        if (banner) {
-            banner.click();
-            return 'onetrust';
         }
         return null;
     }""")
