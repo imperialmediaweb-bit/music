@@ -643,7 +643,7 @@ def cmd_autostart(args):
     legacy_vbs = Path(project_dir) / "schedule_silent.vbs"
 
     def _cleanup_legacy():
-        """Remove old Task Scheduler task and project-dir VBS if present."""
+        """Remove old Task Scheduler task, old VBS/BAT launchers from Startup and project dir."""
         subprocess.run(
             ["schtasks", "/Delete", "/TN", legacy_task, "/F"],
             capture_output=True, text=True,
@@ -651,6 +651,17 @@ def cmd_autostart(args):
         if legacy_vbs.exists():
             legacy_vbs.unlink()
             log.info("Removed legacy schedule_silent.vbs from project folder")
+        # Remove ANY old .bat or .vbs files in Startup folder that reference this project
+        if startup_dir.is_dir():
+            for f in startup_dir.iterdir():
+                if f.suffix.lower() in ('.bat', '.vbs', '.cmd') and f != vbs_path:
+                    try:
+                        content = f.read_text(encoding="utf-8", errors="ignore")
+                        if project_dir in content or "music" in content.lower() or "pipeline" in content.lower() or "luth" in content.lower():
+                            f.unlink()
+                            log.info(f"Removed old CMD/BAT launcher from Startup: {f.name}")
+                    except OSError:
+                        pass
 
     if args.remove:
         if vbs_path.exists():
@@ -719,10 +730,9 @@ def cmd_schedule(args):
     """Schedule 4 clips per day, uploaded to YouTube + TikTok automatically.
 
     Default schedule (Europe/Bucharest timezone):
-      10:40 — 1 generate (2 MP3s) → 1 clip
-      14:00 — 1 generate (2 MP3s) → 1 clip
-      18:00 — 2 generates (4 MP3s) → 1 clip
-      20:00 — 4 generates (8 MP3s) → 1 clip
+      13:00 — 1 generate (FUSION: Afro House × another genre)
+      16:00 — 2 generates (4 MP3s) → 1 clip
+      19:00 — 4 generates (8 MP3s) → 1 clip
 
     Uses misfire_grace_time=3600 so jobs still run even if the PC
     wakes from sleep up to 1 hour late.
