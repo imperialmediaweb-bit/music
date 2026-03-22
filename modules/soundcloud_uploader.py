@@ -75,7 +75,7 @@ def _do_upload(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
+                "Chrome/134.0.0.0 Safari/537.36"
             ),
         )
         page = context.new_page()
@@ -104,59 +104,119 @@ def _do_upload(
             # Upload audio file — look for the file input or the upload button area
             log.info("Looking for audio file input...")
 
-            # SoundCloud upload page has a file input (hidden) and a visible drop area
-            file_input = None
-            try:
-                file_input = page.wait_for_selector(
-                    'input[type="file"][accept*="audio"], input[type="file"]',
-                    state="attached",
-                    timeout=15_000,
-                )
-            except PlaywrightTimeout:
-                log.info("No file input found directly, trying alternative strategies...")
+            # SoundCloud is a SPA — wait a bit more for dynamic content to load
+            page.wait_for_load_state("networkidle", timeout=15_000)
+            page.wait_for_timeout(3_000)
 
-                # Strategy 2: use filechooser event — click the upload area/button
-                # to trigger the browser's file dialog, then intercept it
-                upload_btn = page.query_selector(
-                    'button:has-text("choose files"), button:has-text("Upload"), '
-                    'a:has-text("choose files"), a:has-text("Upload"), '
-                    '[class*="dropzone"], [class*="upload"] button, '
-                    '[data-testid*="upload"], [class*="chooserContainer"]'
+            file_uploaded = False
+
+            # Strategy 1: Find file input directly (attached to DOM, may be hidden)
+            file_input = page.query_selector('input[type="file"]')
+            if file_input:
+                try:
+                    file_input.set_input_files(str(audio_path))
+                    log.info(f"Audio file selected via input[type=file]: {audio_path.name}")
+                    page.screenshot(path=str(debug_dir / "debug_soundcloud_02_file_selected.png"))
+                    file_uploaded = True
+                except Exception as e:
+                    log.warning(f"set_input_files failed on file input: {e}")
+
+            # Strategy 2: Use FileChooser event — click the upload button/area
+            if not file_uploaded:
+                log.info("No file input found directly, trying file chooser strategy...")
+                # SoundCloud upload page has a button like "or choose files to upload"
+                # or a large dropzone area
+                upload_clickables = [
+                    'button:has-text("choose file")',
+                    'a:has-text("choose file")',
+                    'button:has-text("Upload")',
+                    'a:has-text("Upload a track")',
+                    '[class*="dropzone"]',
+                    '[class*="chooser"]',
+                    '[class*="uploadButton"]',
+                    '[class*="upload"] button',
+                    '[data-testid*="upload"]',
+                    'label[for*="file"]',
+                ]
+                for selector in upload_clickables:
+                    el = page.query_selector(selector)
+                    if el:
+                        log.info(f"Found clickable: {selector}, trying file chooser...")
+                        try:
+                            with page.expect_file_chooser(timeout=5_000) as fc_info:
+                                el.click(force=True)
+                            file_chooser = fc_info.value
+                            file_chooser.set_files(str(audio_path))
+                            log.info(f"Audio file selected via file chooser: {audio_path.name}")
+                            page.screenshot(path=str(debug_dir / "debug_soundcloud_02_file_selected.png"))
+                            file_uploaded = True
+                            break
+                        except PlaywrightTimeout:
+                            log.info(f"File chooser did not appear for {selector}")
+                        except Exception as e:
+                            log.warning(f"File chooser error for {selector}: {e}")
+
+            # Strategy 3: Use JavaScript to find ANY file input (even deeply nested/shadow DOM)
+            if not file_uploaded:
+                log.info("Trying JavaScript-based file input discovery...")
+                found_input = page.evaluate_handle("""() => {
+                    // Check regular DOM
+                    let input = document.querySelector('input[type="file"]');
+                    if (input) return input;
+                    // Check all inputs regardless of type attribute
+                    const inputs = document.querySelectorAll('input');
+                    for (const i of inputs) {
+                        if (i.accept && (i.accept.includes('audio') || i.accept.includes('*')))
+                            return i;
+                    }
+                    return null;
+                }""")
+                el = found_input.as_element()
+                if el:
+                    try:
+                        el.set_input_files(str(audio_path))
+                        log.info(f"Audio file selected via JS discovery: {audio_path.name}")
+                        page.screenshot(path=str(debug_dir / "debug_soundcloud_02_file_selected.png"))
+                        file_uploaded = True
+                    except Exception as e:
+                        log.warning(f"JS file input set_input_files failed: {e}")
+
+            # Strategy 4: Click anywhere in the dropzone area and intercept file chooser
+            if not file_uploaded:
+                log.info("Trying click-on-dropzone strategy...")
+                # Try clicking the center of the main upload area
+                dropzone = page.query_selector(
+                    '[class*="drop"], [class*="upload"]:not(nav *):not(header *), '
+                    'main [role="button"], [class*="Dropzone"], [class*="drag"]'
                 )
-                if upload_btn:
-                    log.info("Found upload button/area, clicking to trigger file chooser...")
+                if dropzone:
                     try:
                         with page.expect_file_chooser(timeout=5_000) as fc_info:
-                            upload_btn.click(force=True)
+                            dropzone.click(force=True)
                         file_chooser = fc_info.value
                         file_chooser.set_files(str(audio_path))
-                        log.info(f"Audio file selected via file chooser: {audio_path.name}")
-                        page.screenshot(path=str(debug_dir / "debug_soundcloud_02_file_selected.png"))
-                        file_input = "ALREADY_SET"  # sentinel to skip set_input_files below
-                    except PlaywrightTimeout:
-                        log.info("File chooser did not appear, checking for file input...")
-                        file_input = page.query_selector('input[type="file"]')
-                else:
-                    file_input = page.query_selector('input[type="file"]')
+                        log.info(f"Audio file selected via dropzone click: {audio_path.name}")
+                        file_uploaded = True
+                    except Exception as e:
+                        log.warning(f"Dropzone file chooser failed: {e}")
 
-            if not file_input:
-                # Last resort: find any file input on the page
-                file_input = page.query_selector('input[type="file"]')
-
-            if not file_input:
+            if not file_uploaded:
                 page.screenshot(path=str(debug_dir / "debug_soundcloud_no_file_input.png"))
-                # Log all inputs for debugging
-                inputs = page.evaluate("""() => {
-                    return [...document.querySelectorAll('input')]
-                        .map(i => ({type: i.type, accept: i.accept, name: i.name, id: i.id}));
+                # Log all inputs and clickable elements for debugging
+                debug_info = page.evaluate("""() => {
+                    const inputs = [...document.querySelectorAll('input')]
+                        .map(i => ({type: i.type, accept: i.accept, name: i.name, id: i.id,
+                                    visible: i.offsetParent !== null}));
+                    const buttons = [...document.querySelectorAll('button, a[role="button"]')]
+                        .filter(b => b.offsetParent !== null)
+                        .map(b => ({text: b.textContent.trim().substring(0, 60),
+                                    class: b.className.substring(0, 80)}))
+                        .slice(0, 15);
+                    return {inputs, buttons};
                 }""")
-                log.error(f"No file input found. Inputs on page: {inputs}")
+                log.error(f"No file input found. Inputs: {debug_info.get('inputs', [])}")
+                log.error(f"Visible buttons: {debug_info.get('buttons', [])}")
                 raise RuntimeError("Could not find file input on SoundCloud upload page")
-
-            if file_input != "ALREADY_SET":
-                file_input.set_input_files(str(audio_path))
-                log.info(f"Audio file selected: {audio_path.name}")
-                page.screenshot(path=str(debug_dir / "debug_soundcloud_02_file_selected.png"))
 
             # Wait for SoundCloud to process the file and show the edit form
             log.info("Waiting for SoundCloud to process the upload (up to 5 min)...")

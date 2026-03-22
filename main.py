@@ -675,13 +675,28 @@ def cmd_autostart(args):
     venv_activate = Path(project_dir) / "venv" / "Scripts" / "Activate.ps1"
     venv2_activate = Path(project_dir) / ".venv" / "Scripts" / "Activate.ps1"
     ps1_lines = [
+        '# LUTH Music Pipeline — Auto-generated scheduler script',
+        f'# Project: {project_dir}',
+        '',
+        '$ErrorActionPreference = "Continue"',
         f'Set-Location "{project_dir}"',
+        '',
     ]
     if venv_activate.exists():
         ps1_lines.append(r'& .\venv\Scripts\Activate.ps1')
     elif venv2_activate.exists():
         ps1_lines.append(r'& .\.venv\Scripts\Activate.ps1')
-    ps1_lines.append(f'& "{python}" main.py schedule')
+    ps1_lines.extend([
+        '',
+        '# Start the scheduler — runs 3 clips/day at 13:00, 16:00, 19:00',
+        f'& "{python}" main.py schedule',
+        '',
+        '# If scheduler exits unexpectedly, log it',
+        'if ($LASTEXITCODE -ne 0) {',
+        '    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"',
+        '    Add-Content -Path "output\\scheduler_errors.log" -Value "$timestamp — Scheduler exited with code $LASTEXITCODE"',
+        '}',
+    ])
     ps1_path.write_text("\n".join(ps1_lines), encoding="utf-8")
 
     # VBS launcher: runs PowerShell completely hidden (no CMD, no PS window)
