@@ -307,7 +307,7 @@ def install_missing_packages(progress_callback=None):
         else:
             log.error(f"pip install failed: {result.stderr[-300:]}")
             if progress_callback:
-                progress_callback(f"Package install failed — run install.bat")
+                progress_callback(f"Package install failed — run install.ps1")
             return False
     except Exception as e:
         log.error(f"Package install error: {e}")

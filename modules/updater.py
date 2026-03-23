@@ -229,7 +229,7 @@ def download_and_apply_update(download_url: str, progress_callback=None):
                         )
                         log("Dependencies updated!")
                     except Exception:
-                        log("Could not auto-install dependencies — run install.bat")
+                        log("Could not auto-install dependencies — run install.ps1")
 
                 return True
 

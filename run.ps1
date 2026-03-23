@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     LUTH — PowerShell automation script for the music pipeline.
-    Replaces run.bat with native PowerShell support.
+    Native PowerShell launcher for the LUTH music pipeline.
 
 .DESCRIPTION
     Full automation: generate music, merge, thumbnail, video, upload to
