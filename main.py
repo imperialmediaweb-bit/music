@@ -747,8 +747,7 @@ def cmd_autostart(args):
             f"-Argument '{ps_argument}'; "
             f"$trigger = New-ScheduledTaskTrigger -Daily -At '{time_str}'; "
             f"$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable; "
-            f"$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType S4U -RunLevel Limited; "
-            f"Register-ScheduledTask -TaskName '{task_name}' -Action $action -Trigger $trigger -Settings $settings -Principal $principal -Force"
+            f"Register-ScheduledTask -TaskName '{task_name}' -Action $action -Trigger $trigger -Settings $settings -Force"
         )
 
         result = subprocess.run(
