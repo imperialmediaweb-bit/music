@@ -570,7 +570,11 @@ def cmd_run(args):
     platform = args.platform or MUSIC_PLATFORM
     songs = args.songs or SONGS_PER_CLIP
     gen_count = args.gens
-    log.info(f"Running full pipeline for {count} clip(s) on {platform} ({songs} songs each, {gen_count} gen(s))...")
+    fusion = getattr(args, "fusion", False)
+    label = f"{count} clip(s) on {platform} ({songs} songs each, {gen_count} gen(s))"
+    if fusion:
+        label += " [FUSION]"
+    log.info(f"Running full pipeline for {label}...")
 
     total_errors = 0
     for i in range(1, count + 1):
@@ -578,7 +582,7 @@ def cmd_run(args):
         log.info(f"CLIP {i}/{count}")
         log.info(f"{'#' * 60}")
         try:
-            result = _run_full_pipeline(gen_count=gen_count, platform=platform, songs=songs)
+            result = _run_full_pipeline(gen_count=gen_count, platform=platform, songs=songs, fusion=fusion)
             if result["errors"]:
                 total_errors += 1
                 log.warning(f"Clip {i} had errors: {result['errors']}")
@@ -618,10 +622,11 @@ def cmd_reupload(args):
 
 
 def cmd_autostart(args):
-    """Place a silent VBS launcher in the Windows Startup folder.
+    """Create Windows Task Scheduler tasks that run the pipeline at scheduled times.
 
-    The launcher runs 'python main.py schedule' when the user logs in.
-    No administrator privileges required — uses the per-user Startup folder.
+    Creates one task per time slot (e.g. 13:00, 16:00, 19:00). Each task runs
+    PowerShell directly — no CMD window, no VBS launcher needed.
+    No administrator privileges required — uses the current user's context.
     """
     import platform as plat
     import subprocess
@@ -636,96 +641,125 @@ def cmd_autostart(args):
     startup_dir = Path(os.path.expandvars(
         r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
     ))
-    vbs_name = "music_pipeline_schedule_silent.vbs"
-    vbs_path = startup_dir / vbs_name
-    # Legacy paths from old Task Scheduler approach
-    legacy_task = "MusicPipelineScheduler"
-    legacy_vbs = Path(project_dir) / "schedule_silent.vbs"
+    task_prefix = "LUTH_Music_Pipeline"
 
-    def _cleanup_legacy():
-        """Remove old Task Scheduler task, old VBS/BAT launchers from Startup and project dir."""
-        subprocess.run(
-            ["schtasks", "/Delete", "/TN", legacy_task, "/F"],
-            capture_output=True, text=True,
-        )
-        if legacy_vbs.exists():
-            legacy_vbs.unlink()
-            log.info("Removed legacy schedule_silent.vbs from project folder")
-        # Remove ANY old .bat or .vbs files in Startup folder that reference this project
+    # (hour, minute, gen_count, extra_cli_args)
+    SCHEDULE_SLOTS = [
+        (13, 0,  1, "--fusion"),   # 13:00 → FUSION: Afro House × another genre
+        (16, 0,  2, ""),           # 16:00 → 2 gen = 4 MP3s
+        (19, 0,  4, ""),           # 19:00 → 4 gen = 8 MP3s
+    ]
+
+    def _cleanup_all():
+        """Remove all old launchers: Task Scheduler tasks, VBS, BAT from Startup."""
+        # Remove old Task Scheduler tasks
+        for old_task in ["MusicPipelineScheduler"]:
+            subprocess.run(
+                ["schtasks", "/Delete", "/TN", old_task, "/F"],
+                capture_output=True, text=True,
+            )
+        # Remove LUTH tasks (from previous autostart runs)
+        for i in range(1, 10):
+            subprocess.run(
+                ["schtasks", "/Delete", "/TN", f"{task_prefix}_{i}", "/F"],
+                capture_output=True, text=True,
+            )
+        # Remove old VBS/BAT files from Startup folder
         if startup_dir.is_dir():
             for f in startup_dir.iterdir():
-                if f.suffix.lower() in ('.bat', '.vbs', '.cmd') and f != vbs_path:
+                if f.suffix.lower() in ('.bat', '.vbs', '.cmd', '.lnk'):
                     try:
-                        content = f.read_text(encoding="utf-8", errors="ignore")
-                        if project_dir in content or "music" in content.lower() or "pipeline" in content.lower() or "luth" in content.lower():
+                        content = f.read_text(encoding="utf-8", errors="ignore") if f.suffix.lower() != '.lnk' else ""
+                        if (f.suffix.lower() == '.lnk' and ("music" in f.name.lower() or "luth" in f.name.lower() or "pipeline" in f.name.lower())) or \
+                           (project_dir in content or "music" in content.lower() or "pipeline" in content.lower() or "luth" in content.lower()):
                             f.unlink()
-                            log.info(f"Removed old CMD/BAT launcher from Startup: {f.name}")
+                            log.info(f"Removed old launcher from Startup: {f.name}")
                     except OSError:
                         pass
+        # Remove old VBS from project dir
+        for old_file in ["schedule_silent.vbs", "music_pipeline_schedule.ps1"]:
+            old_path = Path(project_dir) / old_file
+            if old_path.exists():
+                old_path.unlink()
+                log.info(f"Removed old file: {old_file}")
 
     if args.remove:
-        if vbs_path.exists():
-            vbs_path.unlink()
-            log.info(f"Removed autostart launcher: {vbs_path}")
-        else:
-            log.info("No autostart launcher found to remove")
-        _cleanup_legacy()
+        _cleanup_all()
+        log.info("All autostart tasks removed.")
         return
 
-    if not startup_dir.is_dir():
-        log.error(f"Startup folder not found: {startup_dir}")
-        sys.exit(1)
+    _cleanup_all()
 
-    _cleanup_legacy()
-
-    # Build a hidden PowerShell script + VBS launcher (completely silent)
-    ps1_name = "music_pipeline_schedule.ps1"
-    ps1_path = Path(project_dir) / ps1_name
-
-    # PowerShell script that activates venv and runs the scheduler
+    # Build a PowerShell runner script for each slot
     venv_activate = Path(project_dir) / "venv" / "Scripts" / "Activate.ps1"
     venv2_activate = Path(project_dir) / ".venv" / "Scripts" / "Activate.ps1"
-    ps1_lines = [
-        '# LUTH Music Pipeline — Auto-generated scheduler script',
-        f'# Project: {project_dir}',
-        '',
-        '$ErrorActionPreference = "Continue"',
-        f'Set-Location "{project_dir}"',
-        '',
-    ]
+    venv_line = ""
     if venv_activate.exists():
-        ps1_lines.append(r'& .\venv\Scripts\Activate.ps1')
+        venv_line = r'& .\venv\Scripts\Activate.ps1'
     elif venv2_activate.exists():
-        ps1_lines.append(r'& .\.venv\Scripts\Activate.ps1')
-    ps1_lines.extend([
-        '',
-        '# Start the scheduler — runs 3 clips/day at 13:00, 16:00, 19:00',
-        f'& "{python}" main.py schedule',
-        '',
-        '# If scheduler exits unexpectedly, log it',
-        'if ($LASTEXITCODE -ne 0) {',
-        '    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"',
-        '    Add-Content -Path "output\\scheduler_errors.log" -Value "$timestamp — Scheduler exited with code $LASTEXITCODE"',
-        '}',
-    ])
-    ps1_path.write_text("\n".join(ps1_lines), encoding="utf-8")
+        venv_line = r'& .\.venv\Scripts\Activate.ps1'
 
-    # VBS launcher: runs PowerShell completely hidden (no CMD, no PS window)
-    # Use full powershell.exe path to avoid cmd.exe intermediary window
     ps_exe = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-    vbs_content = (
-        f'Set objShell = CreateObject("Shell.Application")\n'
-        f'objShell.ShellExecute "{ps_exe}", '
-        f'"-ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File ""{ps1_path}""""", '
-        f'"{project_dir}", "", 0\n'
-    )
-    vbs_path.write_text(vbs_content, encoding="utf-8")
 
-    log.info(f"Autostart launcher installed: {vbs_path}")
-    log.info("The scheduler will run SILENTLY (no CMD/PowerShell window).")
-    log.info("It starts automatically when you log in — no admin required.")
+    for i, (hour, minute, gen_count, extra_args) in enumerate(SCHEDULE_SLOTS, 1):
+        task_name = f"{task_prefix}_{i}"
+        cli_args = f"run -g {gen_count}"
+        if extra_args:
+            cli_args += f" {extra_args}"
+
+        # Create a small PS1 script for this slot
+        ps1_name = f"music_pipeline_slot_{i}.ps1"
+        ps1_path = Path(project_dir) / ps1_name
+        ps1_lines = [
+            f'# LUTH Music Pipeline — Slot {i} ({hour}:{minute:02d})',
+            f'# {gen_count} generation(s){" [FUSION]" if extra_args == "--fusion" else ""}',
+            '',
+            '$ErrorActionPreference = "Continue"',
+            f'Set-Location "{project_dir}"',
+            '',
+        ]
+        if venv_line:
+            ps1_lines.append(venv_line)
+        ps1_lines.extend([
+            '',
+            f'& "{python}" main.py {cli_args}',
+            '',
+            'if ($LASTEXITCODE -ne 0) {',
+            '    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"',
+            f'    Add-Content -Path "output\\scheduler_errors.log" -Value "$timestamp — Slot {i} exited with code $LASTEXITCODE"',
+            '}',
+        ])
+        ps1_path.write_text("\n".join(ps1_lines), encoding="utf-8")
+
+        # Register Windows Task Scheduler task using PowerShell (no CMD)
+        time_str = f"{hour:02d}:{minute:02d}"
+        ps_command = (
+            f'$action = New-ScheduledTaskAction '
+            f'-Execute "{ps_exe}" '
+            f'-Argument "-ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File \"{ps1_path}\"" '
+            f'-WorkingDirectory "{project_dir}"; '
+            f'$trigger = New-ScheduledTaskTrigger -Daily -At "{time_str}"; '
+            f'$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable; '
+            f'Register-ScheduledTask -TaskName "{task_name}" -Action $action -Trigger $trigger -Settings $settings -Force'
+        )
+
+        result = subprocess.run(
+            [ps_exe, "-NoProfile", "-NonInteractive", "-Command", ps_command],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            label = f"{time_str} → {gen_count} gen"
+            if extra_args == "--fusion":
+                label += " [FUSION]"
+            log.info(f"Task '{task_name}' created: {label}")
+        else:
+            log.error(f"Failed to create task '{task_name}': {result.stderr.strip()}")
+
     log.info("")
-    log.info(f"To verify: check your Startup folder")
+    log.info("Windows Task Scheduler tasks installed — NO CMD window, NO VBS needed.")
+    log.info("Pipeline runs automatically at scheduled times, even if PowerShell is closed.")
+    log.info("")
+    log.info("To verify: run 'schtasks /Query /TN LUTH_Music_Pipeline_1' in PowerShell")
     log.info("To remove: python main.py autostart --remove")
 
 
@@ -996,6 +1030,10 @@ def main():
     run_parser.add_argument(
         "-g", "--gens", type=int, default=1,
         help="Generations per clip — each generation = 2 MP3s (default: 1)",
+    )
+    run_parser.add_argument(
+        "--fusion", action="store_true", default=False,
+        help="Use fusion concept generator (Afro House × another genre)",
     )
     run_parser.set_defaults(func=cmd_run)
 
