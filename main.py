@@ -733,14 +733,15 @@ def cmd_autostart(args):
 
         # Register Windows Task Scheduler task using PowerShell (no CMD)
         time_str = f"{hour:02d}:{minute:02d}"
+        ps1_path_str = str(ps1_path).replace("'", "''")
+        ps_argument = f"-ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File '{ps1_path_str}'"
         ps_command = (
-            f'$action = New-ScheduledTaskAction '
-            f'-Execute "{ps_exe}" '
-            f'-Argument "-ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File \"{ps1_path}\"" '
-            f'-WorkingDirectory "{project_dir}"; '
-            f'$trigger = New-ScheduledTaskTrigger -Daily -At "{time_str}"; '
-            f'$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable; '
-            f'Register-ScheduledTask -TaskName "{task_name}" -Action $action -Trigger $trigger -Settings $settings -Force'
+            f"$action = New-ScheduledTaskAction "
+            f"-Execute '{ps_exe}' "
+            f"-Argument '{ps_argument}'; "
+            f"$trigger = New-ScheduledTaskTrigger -Daily -At '{time_str}'; "
+            f"$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable; "
+            f"Register-ScheduledTask -TaskName '{task_name}' -Action $action -Trigger $trigger -Settings $settings -Force"
         )
 
         result = subprocess.run(
