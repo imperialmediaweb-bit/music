@@ -711,10 +711,13 @@ def cmd_autostart(args):
     ps1_path.write_text("\n".join(ps1_lines), encoding="utf-8")
 
     # VBS launcher: runs PowerShell completely hidden (no CMD, no PS window)
+    # Use full powershell.exe path to avoid cmd.exe intermediary window
+    ps_exe = r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
     vbs_content = (
-        f'Set WshShell = CreateObject("WScript.Shell")\n'
-        f'WshShell.CurrentDirectory = "{project_dir}"\n'
-        f'WshShell.Run "powershell -ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File ""{ps1_path}""""", 0, False\n'
+        f'Set objShell = CreateObject("Shell.Application")\n'
+        f'objShell.ShellExecute "{ps_exe}", '
+        f'"-ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File ""{ps1_path}""""", '
+        f'"{project_dir}", "", 0\n'
     )
     vbs_path.write_text(vbs_content, encoding="utf-8")
 
