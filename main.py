@@ -658,6 +658,12 @@ def cmd_autostart(args):
                 ["schtasks", "/Delete", "/TN", old_task, "/F"],
                 capture_output=True, text=True,
             )
+        # Remove legacy MusicPipeline_* tasks (old naming convention)
+        for i in range(1, 10):
+            subprocess.run(
+                ["schtasks", "/Delete", "/TN", f"MusicPipeline_{i}", "/F"],
+                capture_output=True, text=True,
+            )
         # Remove LUTH tasks (from previous autostart runs)
         for i in range(1, 10):
             subprocess.run(
