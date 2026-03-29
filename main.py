@@ -646,7 +646,7 @@ def cmd_autostart(args):
     # (hour, minute, gen_count, extra_cli_args)
     SCHEDULE_SLOTS = [
         (13, 0,  1, "--fusion"),   # 13:00 → FUSION: Afro House × another genre
-        (16, 0,  2, ""),           # 16:00 → 2 gen = 4 MP3s
+        (16, 15, 2, ""),           # 16:15 → 2 gen = 4 MP3s
         (19, 0,  4, ""),           # 19:00 → 4 gen = 8 MP3s
     ]
 
