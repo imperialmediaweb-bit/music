@@ -104,9 +104,23 @@ def _do_upload(
             # Upload audio file — look for the file input or the upload button area
             log.info("Looking for audio file input...")
 
-            # SoundCloud is a SPA — wait a bit more for dynamic content to load
+            # SoundCloud is a SPA — wait for dynamic content to fully render
             page.wait_for_load_state("networkidle", timeout=15_000)
             page.wait_for_timeout(3_000)
+
+            # Extra wait: poll for any file input or upload-related element to appear
+            for _poll in range(6):  # up to 30s total
+                has_upload_el = page.evaluate("""() => {
+                    return !!(document.querySelector('input[type="file"]')
+                        || document.querySelector('[class*="dropzone" i]')
+                        || document.querySelector('[class*="upload" i] button')
+                        || document.querySelector('button[class*="upload" i]')
+                        || document.querySelector('[data-testid*="upload"]'));
+                }""")
+                if has_upload_el:
+                    break
+                log.info(f"Waiting for upload elements to appear... ({(_poll + 1) * 5}s)")
+                page.wait_for_timeout(5_000)
 
             file_uploaded = False
 
@@ -125,18 +139,28 @@ def _do_upload(
             if not file_uploaded:
                 log.info("No file input found directly, trying file chooser strategy...")
                 # SoundCloud upload page has a button like "or choose files to upload"
-                # or a large dropzone area
+                # or a large dropzone area — try multiple known selectors
                 upload_clickables = [
                     'button:has-text("choose file")',
                     'a:has-text("choose file")',
                     'button:has-text("Upload")',
+                    'button:has-text("Upload a track")',
                     'a:has-text("Upload a track")',
+                    'button:has-text("Select a file")',
+                    'button:has-text("Browse")',
                     '[class*="dropzone"]',
+                    '[class*="Dropzone"]',
                     '[class*="chooser"]',
                     '[class*="uploadButton"]',
+                    '[class*="uploadTarget"]',
                     '[class*="upload"] button',
                     '[data-testid*="upload"]',
+                    '[data-testid*="file"]',
                     'label[for*="file"]',
+                    'label[for*="upload"]',
+                    # React/modern UI patterns
+                    '[role="button"][class*="upload" i]',
+                    'div[class*="upload" i][role="presentation"]',
                 ]
                 for selector in upload_clickables:
                     el = page.query_selector(selector)
@@ -169,6 +193,14 @@ def _do_upload(
                         if (i.accept && (i.accept.includes('audio') || i.accept.includes('*')))
                             return i;
                     }
+                    // Search inside shadow DOMs
+                    const allElements = document.querySelectorAll('*');
+                    for (const el of allElements) {
+                        if (el.shadowRoot) {
+                            const shadowInput = el.shadowRoot.querySelector('input[type="file"]');
+                            if (shadowInput) return shadowInput;
+                        }
+                    }
                     return null;
                 }""")
                 el = found_input.as_element()
@@ -200,6 +232,93 @@ def _do_upload(
                     except Exception as e:
                         log.warning(f"Dropzone file chooser failed: {e}")
 
+            # Strategy 5: Inject a file input via JS and simulate drag-and-drop
+            if not file_uploaded:
+                log.info("Trying drag-and-drop simulation strategy...")
+                # Create a hidden file input, set its files, and dispatch
+                # a drop event on the upload area
+                drop_target = page.query_selector(
+                    '[class*="drop" i], [class*="upload" i]:not(nav *):not(header *), '
+                    'main, [class*="Dropzone"]'
+                )
+                if drop_target:
+                    try:
+                        with page.expect_file_chooser(timeout=5_000) as fc_info:
+                            # Click center of the target area
+                            box = drop_target.bounding_box()
+                            if box:
+                                page.mouse.click(
+                                    box["x"] + box["width"] / 2,
+                                    box["y"] + box["height"] / 2,
+                                )
+                        file_chooser = fc_info.value
+                        file_chooser.set_files(str(audio_path))
+                        log.info(f"Audio file selected via drop-target click: {audio_path.name}")
+                        file_uploaded = True
+                    except Exception as e:
+                        log.warning(f"Drop-target click strategy failed: {e}")
+
+            # Strategy 6: Force-create a file input via JS as last resort
+            if not file_uploaded:
+                log.info("Trying forced file input creation via JS...")
+                page.evaluate("""() => {
+                    const input = document.createElement('input');
+                    input.type = 'file';
+                    input.id = '__sc_forced_file_input';
+                    input.style.position = 'fixed';
+                    input.style.top = '0';
+                    input.style.left = '0';
+                    input.style.opacity = '0.01';
+                    input.style.zIndex = '999999';
+                    document.body.appendChild(input);
+                }""")
+                page.wait_for_timeout(500)
+                forced_input = page.query_selector('#__sc_forced_file_input')
+                if forced_input:
+                    try:
+                        forced_input.set_input_files(str(audio_path))
+                        # Dispatch change event to trigger SoundCloud handlers
+                        page.evaluate("""() => {
+                            const input = document.querySelector('#__sc_forced_file_input');
+                            if (input && input.files.length > 0) {
+                                // Find the real drop zone and dispatch a synthetic drop event
+                                const dropZone = document.querySelector(
+                                    '[class*="drop" i], [class*="upload" i]:not(nav *):not(header *)'
+                                );
+                                if (dropZone) {
+                                    const dt = new DataTransfer();
+                                    dt.items.add(input.files[0]);
+                                    const dropEvent = new DragEvent('drop', {
+                                        dataTransfer: dt, bubbles: true, cancelable: true
+                                    });
+                                    dropZone.dispatchEvent(dropEvent);
+                                    return 'drop_dispatched';
+                                }
+                                // Fallback: dispatch change on any existing file input
+                                input.dispatchEvent(new Event('change', {bubbles: true}));
+                                return 'change_dispatched';
+                            }
+                            return 'no_files';
+                        }""")
+                        page.wait_for_timeout(3_000)
+                        # Check if SoundCloud picked up the file (title form appears)
+                        title_check = page.query_selector(
+                            'input[name="title"], input[placeholder*="Title"], '
+                            'input[aria-label*="Title"]'
+                        )
+                        if title_check:
+                            log.info("Audio file accepted via forced drag-and-drop simulation")
+                            file_uploaded = True
+                        else:
+                            log.warning("Forced file input created but SoundCloud did not accept the file")
+                    except Exception as e:
+                        log.warning(f"Forced file input strategy failed: {e}")
+                    finally:
+                        page.evaluate("""() => {
+                            const el = document.querySelector('#__sc_forced_file_input');
+                            if (el) el.remove();
+                        }""")
+
             if not file_uploaded:
                 page.screenshot(path=str(debug_dir / "debug_soundcloud_no_file_input.png"))
                 # Log all inputs and clickable elements for debugging
@@ -212,10 +331,16 @@ def _do_upload(
                         .map(b => ({text: b.textContent.trim().substring(0, 60),
                                     class: b.className.substring(0, 80)}))
                         .slice(0, 15);
-                    return {inputs, buttons};
+                    // Also log all elements with upload-related classes
+                    const uploadEls = [...document.querySelectorAll('[class*="upload" i], [class*="drop" i]')]
+                        .map(e => ({tag: e.tagName, class: e.className.substring(0, 80),
+                                    id: e.id, visible: e.offsetParent !== null}))
+                        .slice(0, 15);
+                    return {inputs, buttons, uploadEls};
                 }""")
                 log.error(f"No file input found. Inputs: {debug_info.get('inputs', [])}")
                 log.error(f"Visible buttons: {debug_info.get('buttons', [])}")
+                log.error(f"Upload-related elements: {debug_info.get('uploadEls', [])}")
                 raise RuntimeError("Could not find file input on SoundCloud upload page")
 
             # Wait for SoundCloud to process the file and show the edit form
