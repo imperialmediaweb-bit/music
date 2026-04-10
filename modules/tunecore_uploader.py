@@ -1320,6 +1320,24 @@ def _do_upload(
                 except Exception:
                     pass
                 _dismiss_overlays(page)
+
+                # ── Beatport Add-On: click "DISTRIBUTE TO BEATPORT" if visible ──
+                try:
+                    bp_btn = _find_clickable(page, [
+                        "button:has-text('Distribute to Beatport')",
+                        "a:has-text('Distribute to Beatport')",
+                        "[role='button']:has-text('Distribute to Beatport')",
+                        "text=DISTRIBUTE TO BEATPORT",
+                    ])
+                    if bp_btn:
+                        bp_btn.scroll_into_view_if_needed()
+                        page.wait_for_timeout(500)
+                        bp_btn.click()
+                        page.wait_for_timeout(3000)
+                        log.info("  Clicked 'DISTRIBUTE TO BEATPORT'")
+                except Exception:
+                    pass
+
                 state = _detect_page(page)
                 page_visit_counts[state] = page_visit_counts.get(state, 0) + 1
                 log.info(f"{'='*50}")
