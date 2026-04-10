@@ -1173,6 +1173,13 @@ def _detect_page(page) -> str:
             hasArtworkBtn: visibleBtn('add artwork') || visibleBtn('upload artwork')
                 || visibleBtn('cover art') || visibleBtn('add image'),
             hasReviewBtn: visibleBtn('continue and review') || visibleBtn('continue & review') || visibleBtn('continue to review'),
+            reviewBtnDisabled: [...document.querySelectorAll('button, [role="button"]')]
+                .some(el => el.offsetWidth > 0
+                    && (el.textContent.toLowerCase().includes('continue to review')
+                        || el.textContent.toLowerCase().includes('continue and review')
+                        || el.textContent.toLowerCase().includes('continue & review'))
+                    && (el.disabled || el.getAttribute('aria-disabled') === 'true'
+                        || el.classList.contains('Mui-disabled'))),
             hasReleaseBtn: visibleBtn('release music'),
             hasConfirm: body.includes('congrat') || body.includes('submitted your release')
                 || body.includes('in review'),
@@ -1195,14 +1202,15 @@ def _detect_page(page) -> str:
         return 'dashboard'
     if state.get('hasReleaseBtn') and not state.get('hasTypeChoice'):
         return 'release'
-    # ③ Tracks page has BOTH "Add Track" AND "Continue to Review".
-    # If tracks still need uploading, stay on add_track.
-    # If all tracks uploaded, proceed to review.
+    # ③ Overview page can show "Add Track", "Add Artwork", AND "Continue to Review".
+    # The review button is DISABLED until artwork is uploaded.
+    # Priority: upload artwork first, then review.
     if state.get('hasReviewBtn') and state.get('hasAddTrackBtn'):
-        if not state.get('hasUnuploadedFile'):
-            return 'review'  # all files uploaded → Continue to Review
-        # else: fall through to add_track (need to upload WAV first)
-    if state.get('hasArtworkBtn') and not state.get('hasAddTrackBtn'):
+        if not state.get('hasUnuploadedFile') and not state.get('reviewBtnDisabled'):
+            return 'review'  # all files uploaded + artwork done → Continue to Review
+        # else: fall through — need to upload WAV or artwork first
+    # Artwork — also match on overview page where hasAddTrackBtn is present
+    if state.get('hasArtworkBtn') and (not state.get('hasAddTrackBtn') or state.get('reviewBtnDisabled')):
         return 'artwork'
     if state.get('hasReviewBtn') and not state.get('hasAddTrackBtn'):
         return 'review'
