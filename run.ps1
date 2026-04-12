@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    LUTH — PowerShell automation script for the music pipeline.
+    LUTH -- PowerShell automation script for the music pipeline.
     Native PowerShell launcher for the LUTH music pipeline.
 
 .DESCRIPTION
@@ -85,13 +85,13 @@ switch ($Command.ToLower()) {
             Write-Host "Unknown command: $Command" -ForegroundColor Red
             Write-Host ""
             Write-Host "Usage:" -ForegroundColor Yellow
-            Write-Host "  .\run.ps1              — Launch LUTH GUI"
-            Write-Host "  .\run.ps1 cli          — Run pipeline once"
-            Write-Host "  .\run.ps1 cli 3        — Run pipeline 3 times"
-            Write-Host "  .\run.ps1 schedule     — Start daily scheduler"
-            Write-Host "  .\run.ps1 autostart    — Auto-start on Windows login"
-            Write-Host "  .\run.ps1 login        — Login to aimusicfactory"
-            Write-Host "  .\run.ps1 *-login      — Login to specific platform"
+            Write-Host "  .\run.ps1              -- Launch LUTH GUI"
+            Write-Host "  .\run.ps1 cli          -- Run pipeline once"
+            Write-Host "  .\run.ps1 cli 3        -- Run pipeline 3 times"
+            Write-Host "  .\run.ps1 schedule     -- Start daily scheduler"
+            Write-Host "  .\run.ps1 autostart    -- Auto-start on Windows login"
+            Write-Host "  .\run.ps1 login        -- Login to aimusicfactory"
+            Write-Host "  .\run.ps1 *-login      -- Login to specific platform"
         }
     }
 }
