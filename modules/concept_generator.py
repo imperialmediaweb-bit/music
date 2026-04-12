@@ -946,14 +946,17 @@ GENRE_PROFILES: dict[str, dict] = {
         ),
         "name_examples": "Noctis, Obskura, Vertigo, Kinesis, Sable, Velora, Halcyon, Mirage, Crimson, Ember, Zephira, Phantasm, Violette, Lumen, Nyxara",
         "power_words": "HAUNTING, SEDUCTIVE, HYPNOTIC, NEON, ADDICTIVE, FORBIDDEN, CINEMATIC, OBSESSIVE, MIDNIGHT, MELANCHOLIC, SULTRY, INSANE, VELVET, AFTER-DARK",
+        # Dark House uses compilation-style titles like:
+        #   "Deep House Mix • Chill / Night Vibes / Stress Relief #8 dark"
+        # {mix_number} is auto-incremented per run via _next_mix_number(genre).
         "title_formulas": (
-            "- TRACKNAME 🔥 HAUNTING {genre} for a Late Night Drive | Neon Rain Mix | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 SEDUCTIVE {genre} That Feels Like Midnight | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 The Most ADDICTIVE {genre} Track of 2026 | After Dark Mix | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 CINEMATIC {genre} | Neon Lights, Rain, Obsession | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 FORBIDDEN {genre} Gem | Sultry Vocals, Deep Bass | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 HYPNOTIC {genre} for Night Drives | Melancholic Vibes | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 Dark {genre} That Will HAUNT You | Velvet Midnight Mix | {genre_hashtag}"
+            "- TRACKNAME 🔥 Deep House Mix • Chill / Night Vibes / Stress Relief #{mix_number} Dark | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Dark Deep House Mix • Late Night Drive / Neon Rain #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Deep House Mix • Midnight Mood / Chill Lounge #{mix_number} Dark | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Dark House Mix • Night Drive / Stress Relief #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Deep House Mix • After Dark / Sultry Vibes #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Dark Deep House Mix • Insomnia / Cinematic Night #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Deep House Mix • Velvet Midnight / Study Focus #{mix_number} Dark | {genre_hashtag}"
         ),
         "thumbnail_core": (
             "A cinematic noir scene: rain-slick neon-lit city street at night, wet asphalt reflecting "
@@ -1247,6 +1250,29 @@ Return ONLY valid JSON with these exact fields:
 
 
 
+def _next_mix_number(genre: str, start: int = 8) -> int:
+    """Return the next sequential "mix number" for this genre and persist it.
+
+    Used by compilation-style title formulas (e.g. Dark House's
+    "Deep House Mix • Chill / Night Vibes / Stress Relief #8"). Counter is
+    stored per-genre in `output/<genre>_mix_counter.txt`; starts at `start`
+    the first time, increments by 1 on every concept generation.
+    """
+    from config import OUTPUT_DIR
+    slug = "".join(c if c.isalnum() else "_" for c in genre.lower()).strip("_") or "mix"
+    counter_file = OUTPUT_DIR / f"{slug}_mix_counter.txt"
+    try:
+        current = int(counter_file.read_text().strip())
+    except (OSError, ValueError):
+        current = start
+    try:
+        counter_file.parent.mkdir(parents=True, exist_ok=True)
+        counter_file.write_text(str(current + 1))
+    except OSError as e:
+        log.warning(f"Could not persist mix counter for {genre}: {e}")
+    return current
+
+
 def _build_system_prompt(genre: str, music_style: str) -> str:
     """Build the system prompt dynamically based on genre and style.
 
@@ -1263,8 +1289,13 @@ def _build_system_prompt(genre: str, music_style: str) -> str:
     name_vibe = profile["name_vibe"]
     name_examples = profile["name_examples"]
     power_words = profile["power_words"]
+    # Pass a mix_number into title_formulas so compilation-style formats
+    # (e.g. Dark House "Deep House Mix • ... #8") get a fresh sequential
+    # number each run. Formulas that don't reference {mix_number} ignore it.
     title_formulas = profile["title_formulas"].format(
-        genre=genre, genre_hashtag=genre_hashtag
+        genre=genre,
+        genre_hashtag=genre_hashtag,
+        mix_number=_next_mix_number(genre),
     )
     thumbnail_core = profile["thumbnail_core"]
     related_genres = profile["related_genres"]
