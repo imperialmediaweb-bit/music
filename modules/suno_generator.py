@@ -66,62 +66,49 @@ def _dismiss_cookie_banner(page) -> None:
         pass
 
 
-def _find_song_rows(page) -> list:
-    """Return handles for individual song rows in Suno's workspace list."""
-    for sel in [
-        '[data-testid="song-row"]',
-        '[data-testid="song-card"]',
-        '[role="row"]:has(button[aria-label*="more" i])',
-        'div:has(> button[aria-label*="more" i]):has(a[href*="/song/"])',
-        'a[href*="/song/"]',
-    ]:
+def _find_song_menu_buttons(page) -> list:
+    """Return handles for the per-song ⋯ menu buttons in Suno's workspace list.
+
+    Rather than finding 'rows' and then the button inside them (the button
+    is a sibling of the /song/ anchor, not inside it), we locate the ⋯
+    buttons directly. Each row has exactly one, so the count should match
+    the number of songs on the page.
+    """
+    candidate_selectors = [
+        'button[aria-haspopup="menu"]',
+        'button[aria-label*="more" i]',
+        'button[aria-label*="options" i]',
+        'button[data-testid*="more" i]',
+        'button[data-testid*="menu" i]',
+    ]
+    for sel in candidate_selectors:
         try:
-            rows = page.query_selector_all(sel)
-            rows = [r for r in rows if r.is_visible()]
-            if rows:
-                log.info(f"Found {len(rows)} song rows via: {sel}")
-                return rows
+            buttons = page.query_selector_all(sel)
+            buttons = [b for b in buttons if b.is_visible()]
+            # Filter out site-wide buttons (e.g. header nav menus) — keep
+            # only buttons inside the main content area by excluding those
+            # with tiny bounding boxes or that sit in header/footer.
+            filtered = []
+            for b in buttons:
+                try:
+                    box = b.bounding_box()
+                    if box and box["width"] > 8 and box["height"] > 8:
+                        filtered.append(b)
+                except Exception:
+                    filtered.append(b)
+            if len(filtered) >= 2:
+                log.info(f"Found {len(filtered)} ⋯ menu buttons via: {sel}")
+                return filtered
         except Exception:
             continue
     return []
 
 
-def _download_song_mp3(page, row_handle, target_path: Path) -> bool:
-    """Open the row's ⋯ menu → Download → MP3 Audio, and save the file.
+def _download_song_mp3(page, menu_btn, target_path: Path) -> bool:
+    """Given a ⋯ menu button for a song row, drive the menu → Download → MP3 flow.
 
     Returns True if an MP3 landed at target_path, False otherwise.
     """
-    # Step 1: open the 3-dot menu scoped to THIS row
-    menu_btn = None
-    for sel in [
-        'button[aria-label*="more" i]',
-        'button[aria-haspopup]',
-        '[data-testid*="more" i]',
-        '[data-testid*="menu" i]',
-    ]:
-        try:
-            menu_btn = row_handle.query_selector(sel)
-            if menu_btn and menu_btn.is_visible():
-                break
-            menu_btn = None
-        except Exception:
-            continue
-
-    if not menu_btn:
-        # Fallback: hover the row so the button appears, then last button
-        try:
-            row_handle.hover()
-            page.wait_for_timeout(400)
-            btns = [b for b in row_handle.query_selector_all("button") if b.is_visible()]
-            if btns:
-                menu_btn = btns[-1]  # ⋯ is usually the rightmost button on the row
-        except Exception:
-            pass
-
-    if not menu_btn:
-        log.warning("Could not find ⋯ menu button on song row")
-        return False
-
     try:
         menu_btn.scroll_into_view_if_needed()
         menu_btn.click()
@@ -443,14 +430,14 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                 time.sleep(5)
                 _dismiss_cookie_banner(page)
 
-                # Find song rows for the latest 2 songs in the workspace
-                song_rows = _find_song_rows(page)[:2]
-                log.info(f"Downloading latest {len(song_rows)} song row(s)")
+                # Find ⋯ menu buttons for the latest 2 songs in the workspace
+                menu_buttons = _find_song_menu_buttons(page)[:2]
+                log.info(f"Downloading latest {len(menu_buttons)} song(s)")
 
-                for i, row in enumerate(song_rows):
+                for i, menu_btn in enumerate(menu_buttons):
                     mp3_path = download_dir / f"{safe_name}_suno_{batch_idx}_{i}.mp3"
                     try:
-                        ok = _download_song_mp3(page, row, mp3_path)
+                        ok = _download_song_mp3(page, menu_btn, mp3_path)
                         if ok and _validate_mp3(mp3_path):
                             all_mp3s.append(mp3_path)
                             log.info(f"Downloaded: {mp3_path.name}")
@@ -525,13 +512,13 @@ def download_existing_tracks(track_name: str = "", max_cards: int = 4) -> list[P
         time.sleep(5)
         _dismiss_cookie_banner(page)
 
-        song_rows = _find_song_rows(page)[:max_cards]
-        log.info(f"Downloading latest {len(song_rows)} song(s) from library")
+        menu_buttons = _find_song_menu_buttons(page)[:max_cards]
+        log.info(f"Downloading latest {len(menu_buttons)} song(s) from library")
 
-        for i, row in enumerate(song_rows):
+        for i, menu_btn in enumerate(menu_buttons):
             mp3_path = download_dir / f"{safe_name}_{i}.mp3"
             try:
-                ok = _download_song_mp3(page, row, mp3_path)
+                ok = _download_song_mp3(page, menu_btn, mp3_path)
                 if ok and _validate_mp3(mp3_path):
                     all_mp3s.append(mp3_path)
                     log.info(f"Downloaded: {mp3_path.name}")
