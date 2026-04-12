@@ -20,6 +20,48 @@ from utils.logger import log
 GENERATION_WAIT_SEC = 120  # Suno typically takes ~1-2 min per generation
 
 
+def _dismiss_cookie_banner(page) -> None:
+    """Dismiss the OneTrust cookie consent banner if present.
+
+    Suno uses OneTrust; the banner overlays the page and intercepts all
+    pointer events until a choice is made. Try 'Reject All' first to
+    minimize tracking, fall back to 'Accept All'. Also hide the root
+    element as a last resort so clicks can pass through.
+    """
+    # Buttons exposed by OneTrust with stable IDs
+    for sel in [
+        "#onetrust-reject-all-handler",
+        "#onetrust-accept-btn-handler",
+        "button#onetrust-reject-all-handler",
+        "button#onetrust-accept-btn-handler",
+    ]:
+        try:
+            btn = page.query_selector(sel)
+            if btn and btn.is_visible():
+                btn.click(timeout=3_000)
+                log.info(f"Dismissed OneTrust cookie banner via {sel}")
+                page.wait_for_timeout(500)
+                return
+        except Exception:
+            continue
+
+    # Fallback: remove the blocker from the DOM entirely
+    try:
+        page.evaluate(
+            """() => {
+                const ids = ['onetrust-consent-sdk', 'onetrust-banner-sdk',
+                             'onetrust-button-group-parent'];
+                for (const id of ids) {
+                    const el = document.getElementById(id);
+                    if (el) el.remove();
+                }
+                document.body.style.overflow = 'auto';
+            }"""
+        )
+    except Exception:
+        pass
+
+
 def _validate_mp3(path: Path) -> bool:
     """Check if a file is a valid MP3."""
     if not path.exists():
@@ -86,6 +128,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                 log.info("Opening suno.com/create ...")
                 page.goto("https://suno.com/create", wait_until="domcontentloaded", timeout=60_000)
                 time.sleep(3)
+                _dismiss_cookie_banner(page)
 
                 # Check if we're logged in (look for the create form)
                 if page.url and "login" in page.url.lower():
@@ -264,6 +307,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                 log.info("Going to library to download songs...")
                 page.goto("https://suno.com/me", wait_until="domcontentloaded", timeout=60_000)
                 time.sleep(5)
+                _dismiss_cookie_banner(page)
 
                 # Find download buttons for the latest songs
                 # Suno shows songs in a list — look for download/three-dot menus
@@ -323,6 +367,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                         # Go back to library for next song
                         page.goto("https://suno.com/me", wait_until="domcontentloaded", timeout=30_000)
                         time.sleep(2)
+                        _dismiss_cookie_banner(page)
 
                     except Exception as e:
                         log.warning(f"Failed to download song {i}: {e}")
@@ -384,6 +429,7 @@ def download_existing_tracks(track_name: str = "", max_cards: int = 4) -> list[P
 
         page.goto("https://suno.com/me", wait_until="domcontentloaded", timeout=60_000)
         time.sleep(5)
+        _dismiss_cookie_banner(page)
 
         # Find song cards
         song_cards = page.query_selector_all('[data-testid="song-card"], .song-row, a[href*="/song/"]')
@@ -426,6 +472,7 @@ def download_existing_tracks(track_name: str = "", max_cards: int = 4) -> list[P
 
                 page.goto("https://suno.com/me", wait_until="domcontentloaded", timeout=30_000)
                 time.sleep(2)
+                _dismiss_cookie_banner(page)
 
             except Exception as e:
                 log.warning(f"Failed to download song {i}: {e}")
