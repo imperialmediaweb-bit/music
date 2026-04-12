@@ -11,7 +11,7 @@ from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
 from modules.tunecore_uploader import upload_to_tunecore
 from modules.soundcloud_uploader import upload_to_soundcloud
-from config import SKIP_TUNECORE, SKIP_SOUNDCLOUD
+from config import SKIP_TUNECORE, SKIP_SOUNDCLOUD, SKIP_TIKTOK
 
 # Default artist name (used for cover art overlay and TuneCore metadata)
 DEFAULT_ARTIST = "GrooveGenix"
@@ -120,7 +120,10 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
         log.info(f"Skipping YouTube (--only {only})")
 
     # Upload to TikTok
-    if only in (None, "tiktok"):
+    if SKIP_TIKTOK:
+        log.info("=" * 60)
+        log.info("TikTok SKIPPED (SKIP_TIKTOK=true)")
+    elif only in (None, "tiktok"):
         try:
             log.info("=" * 60)
             log.info("Uploading to TikTok...")
@@ -386,19 +389,23 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         result["errors"].append(f"youtube: {e}")
 
     # Step 6: Upload to TikTok
-    try:
+    if SKIP_TIKTOK:
         log.info("=" * 60)
-        log.info("STEP 6: Uploading to TikTok...")
-        tiktok_url = upload_to_tiktok(video, concept)
-        result["tiktok_url"] = tiktok_url
-        if tiktok_url:
-            log.info(f"TikTok: {tiktok_url}")
-        else:
-            log.error("TikTok upload returned None — check cookies/login above")
-            result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
-    except Exception as e:
-        log.error(f"TikTok upload failed: {e}")
-        result["errors"].append(f"tiktok: {e}")
+        log.info("STEP 6: TikTok SKIPPED (SKIP_TIKTOK=true)")
+    else:
+        try:
+            log.info("=" * 60)
+            log.info("STEP 6: Uploading to TikTok...")
+            tiktok_url = upload_to_tiktok(video, concept)
+            result["tiktok_url"] = tiktok_url
+            if tiktok_url:
+                log.info(f"TikTok: {tiktok_url}")
+            else:
+                log.error("TikTok upload returned None — check cookies/login above")
+                result["errors"].append("tiktok: upload returned None (cookies expired or login redirect)")
+        except Exception as e:
+            log.error(f"TikTok upload failed: {e}")
+            result["errors"].append(f"tiktok: {e}")
 
     # Step 7: Cover art already generated in Step 3 (combined DALL-E call)
     if not cover_path:
