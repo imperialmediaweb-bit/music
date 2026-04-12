@@ -85,19 +85,30 @@ def _find_song_menu_buttons(page) -> list:
         try:
             buttons = page.query_selector_all(sel)
             buttons = [b for b in buttons if b.is_visible()]
-            # Filter out site-wide buttons (e.g. header nav menus) — keep
-            # only buttons inside the main content area by excluding those
-            # with tiny bounding boxes or that sit in header/footer.
             filtered = []
             for b in buttons:
                 try:
+                    # Song ⋯ buttons are icon-only (no visible text). Page-level
+                    # dropdowns like "Filters (3)" / "Newest" have text — skip.
+                    text = (b.inner_text() or "").strip()
+                    if text and len(text) > 0:
+                        continue
                     box = b.bounding_box()
-                    if box and box["width"] > 8 and box["height"] > 8:
-                        filtered.append(b)
-                except Exception:
+                    if not box or box["width"] < 8 or box["height"] < 8:
+                        continue
+                    # Drop buttons in the very top 80px (header / filter bar)
+                    if box["y"] < 80:
+                        continue
                     filtered.append(b)
+                except Exception:
+                    continue
+            # Sort by y-coordinate so index 0 is the TOPMOST song row
+            try:
+                filtered.sort(key=lambda b: b.bounding_box()["y"] if b.bounding_box() else 0)
+            except Exception:
+                pass
             if len(filtered) >= 2:
-                log.info(f"Found {len(filtered)} ⋯ menu buttons via: {sel}")
+                log.info(f"Found {len(filtered)} song ⋯ menu buttons via: {sel}")
                 return filtered
         except Exception:
             continue
@@ -109,34 +120,48 @@ def _download_song_mp3(page, menu_btn, target_path: Path) -> bool:
 
     Returns True if an MP3 landed at target_path, False otherwise.
     """
-    try:
-        menu_btn.scroll_into_view_if_needed()
-        menu_btn.click()
-    except Exception as e:
-        log.warning(f"⋯ menu click failed: {e}")
-        return False
-    page.wait_for_timeout(500)
-
-    # Step 2: hover/click the "Download" item to expand submenu
     download_item = None
-    for sel in [
-        '[role="menuitem"]:has-text("Download")',
-        'li:has-text("Download")',
-        'button:has-text("Download")',
-        ':text("Download")',
-    ]:
+    for attempt in range(1, 4):
         try:
-            el = page.wait_for_selector(sel, timeout=2_000, state="visible")
-            if el:
-                download_item = el
-                break
-        except PlaywrightTimeout:
+            menu_btn.scroll_into_view_if_needed()
+            menu_btn.click()
+        except Exception as e:
+            log.warning(f"⋯ menu click failed (attempt {attempt}): {e}")
+            page.wait_for_timeout(500)
             continue
+        # Give the menu time to render
+        page.wait_for_timeout(900)
+
+        # Step 2: find the "Download" item
+        for sel in [
+            '[role="menuitem"]:has-text("Download")',
+            'li:has-text("Download")',
+            'button:has-text("Download")',
+            ':text("Download")',
+        ]:
+            try:
+                el = page.wait_for_selector(sel, timeout=1_500, state="visible")
+                if el:
+                    download_item = el
+                    break
+            except PlaywrightTimeout:
+                continue
+            except Exception:
+                continue
+
+        if download_item:
+            break
+
+        # Menu didn't render Download item — close it and retry
+        log.info(f"Download item not visible on attempt {attempt}, retrying...")
+        try:
+            page.keyboard.press("Escape")
         except Exception:
-            continue
+            pass
+        page.wait_for_timeout(500)
 
     if not download_item:
-        log.warning("Could not find 'Download' menu item")
+        log.warning("Could not find 'Download' menu item after 3 attempts")
         return False
 
     try:
