@@ -16,7 +16,7 @@ from googleapiclient.http import MediaFileUpload
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 from modules.concept_generator import MusicConcept
-from config import BASE_DIR, OUTPUT_DIR, YOUTUBE_COOKIE_FILE, HEADLESS
+from config import BASE_DIR, OUTPUT_DIR, YOUTUBE_COOKIE_FILE, YOUTUBE_TOKEN_FILE, HEADLESS
 from utils.browser import get_browser_context, save_cookies
 from utils.logger import log
 
@@ -25,7 +25,9 @@ SCOPES = ["https://www.googleapis.com/auth/youtube"]
 
 # Paths for OAuth credentials
 CLIENT_SECRETS_FILE = BASE_DIR / "client_secrets.json"
-TOKEN_FILE = BASE_DIR / "youtube_token.pickle"
+# TOKEN_FILE is profile-aware via config.YOUTUBE_TOKEN_FILE so each YouTube
+# channel (Afro House / Dark House / ...) uploads with its own OAuth token.
+TOKEN_FILE = YOUTUBE_TOKEN_FILE
 
 
 def _get_authenticated_service():

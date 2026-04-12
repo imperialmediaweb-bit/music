@@ -17,6 +17,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 HF_API_KEY = os.getenv("HF_API_KEY", "")
 SCHEDULE_CRON = os.getenv("SCHEDULE_CRON", "0 10 * * *")
 YOUTUBE_COOKIE_FILE = Path(os.getenv("YOUTUBE_COOKIE_FILE", BASE_DIR / "cookies" / "youtube_cookies.json"))
+# OAuth token for the YouTube Data API. Use a separate file per profile so
+# each channel has its own token (required — the YouTube API uploads to the
+# channel the token was authorized against, regardless of cookies).
+YOUTUBE_TOKEN_FILE = Path(os.getenv("YOUTUBE_TOKEN_FILE", BASE_DIR / "youtube_token.pickle"))
 TIKTOK_COOKIE_FILE = Path(os.getenv("TIKTOK_COOKIE_FILE", BASE_DIR / "cookies" / "tiktok_cookies.json"))
 AIMUSICFACTORY_STATE_FILE = Path(os.getenv("AIMUSICFACTORY_STATE_FILE", BASE_DIR / "cookies" / "aimusicfactory_state.json"))
 SUNO_STATE_FILE = Path(os.getenv("SUNO_STATE_FILE", BASE_DIR / "cookies" / "suno_state.json"))

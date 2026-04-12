@@ -16,6 +16,7 @@ venv/
 !.env.*.example
 client_secrets.json
 youtube_token.pickle
+youtube_token_*.pickle
 
 # Generated output
 input/
