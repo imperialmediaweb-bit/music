@@ -903,6 +903,301 @@ FUSION_GENRES = [
 ]
 
 
+# ── Per-genre creative profiles ──
+# Each profile tailors the AI prompt so track names, titles, thumbnails, and
+# social copy fit the ACTUAL genre instead of defaulting to Afro/tribal vibes.
+GENRE_PROFILES: dict[str, dict] = {
+    "afro house": {
+        "name_vibe": (
+            "exotic African-inspired invented words that sound like names of tribes, "
+            "rivers, spirits, or ancestral places — rhythmic, two syllables preferred"
+        ),
+        "name_examples": "Bakari, Djenné, Kisumu, Makossa, Ngoma, Safiri, Tabora, Owari, Gajani, Lumba, Echoro, Haruna, Fikiri, Zaharu",
+        "power_words": "ADDICTIVE, LEGENDARY, FORBIDDEN, GODLY, SACRED, PRIMAL, EPIC, INSANE, MASSIVE, UNREAL, TRIBAL, ANCESTRAL, SPIRITUAL, HYPNOTIC",
+        "title_formulas": (
+            "- TRACKNAME 🔥 The Most ADDICTIVE {genre} Track of 2026 | [Mood] Extended Mix | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 This {genre} Track Will POSSESS Your Soul | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 SACRED Tribal Journey | Deep {genre} You MUST Hear | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 PRIMAL {genre} Energy | Your New Obsession | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 LEGENDARY African Energy | {genre} Extended 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 GODLY {genre} Mix | Tribal Beats From Another Dimension | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            "An authentic African tribal mask (Yoruba, Dogon, Fang, Punu, Dan, Kuba, Chokwe, "
+            "Makonde, Baule, Songye, Luba, or Bamana) with GLOWING supernatural eyes, carved wood, "
+            "cowrie shells, raffia, brass ornaments, ritual paint. Dark background, volumetric smoke, "
+            "embers and mystical particles. Centered composition, 60-70% frame."
+        ),
+        "related_genres": "deep house, tribal house, organic house, melodic house, african house music, afro tribal, ethnic house, progressive house",
+        "use_cases": "gym workout music, driving music, DJ sets, festival music, meditation, car bass music, late night vibes, sunset sessions",
+        "tiktok_hooks": (
+            "'This beat hits different 🔥', 'Name a better {genre} track, I'll wait 🎧', "
+            "'POV: you found the perfect {genre} gem 💎', 'When the tribal drums kick in 🥁🔥', "
+            "'Put this on repeat 🔁🔥'"
+        ),
+    },
+    "dark house": {
+        "name_vibe": (
+            "short, cinematic, nocturnal invented words that evoke neon-lit rain, obsession, "
+            "smoke, velvet shadows and late-night cityscapes — sultry, mysterious, single word preferred"
+        ),
+        "name_examples": "Noctis, Obskura, Vertigo, Kinesis, Sable, Velora, Halcyon, Mirage, Crimson, Ember, Zephira, Phantasm, Violette, Lumen, Nyxara",
+        "power_words": "HAUNTING, SEDUCTIVE, HYPNOTIC, NEON, ADDICTIVE, FORBIDDEN, CINEMATIC, OBSESSIVE, MIDNIGHT, MELANCHOLIC, SULTRY, INSANE, VELVET, AFTER-DARK",
+        "title_formulas": (
+            "- TRACKNAME 🔥 HAUNTING {genre} for a Late Night Drive | Neon Rain Mix | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 SEDUCTIVE {genre} That Feels Like Midnight | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The Most ADDICTIVE {genre} Track of 2026 | After Dark Mix | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 CINEMATIC {genre} | Neon Lights, Rain, Obsession | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 FORBIDDEN {genre} Gem | Sultry Vocals, Deep Bass | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 HYPNOTIC {genre} for Night Drives | Melancholic Vibes | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Dark {genre} That Will HAUNT You | Velvet Midnight Mix | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            "A cinematic noir scene: rain-slick neon-lit city street at night, wet asphalt reflecting "
+            "purple and electric blue lights, soft female silhouette in the distance, film grain, "
+            "volumetric fog, dreamy blurred bokeh. Dark moody palette (deep purple, midnight blue, "
+            "magenta accents). Cinematic wide shot aesthetic. Evokes obsession, desire, late-night "
+            "loneliness. 60-70% frame composition, HIGH CONTRAST so it pops as a YouTube thumbnail."
+        ),
+        "related_genres": "melodic techno, progressive house, deep house, organic house, melodic house, chillwave, synthwave, dark progressive",
+        "use_cases": "late night drive, rainy night vibes, study focus music, insomnia, cinematic moments, rooftop lounges, chill club sets, after-dark playlists",
+        "tiktok_hooks": (
+            "'POV: 3am, neon lights, this track 🌧️', 'This hits when the rain starts 🌧️🔥', "
+            "'Night drive energy is UNREAL 🚗✨', 'Put this on and lose yourself 🌌', "
+            "'Midnight mood activated 🌃'"
+        ),
+    },
+    "phonk": {
+        "name_vibe": (
+            "aggressive, drift-racer, Memphis-flavored invented words — short, hard, cyrillic-leaning, "
+            "evoking skulls, smoke, demons, night streets"
+        ),
+        "name_examples": "Krovavy, Molot, Vostok, Drift, Sable, Raptor, Venom, Obsidian, Saber, Demon, Mayhem, Stalker, Zverь, Nyktos",
+        "power_words": "HARD, AGGRESSIVE, DEMONIC, BRUTAL, UNDERGROUND, SLAY, DRIFT, MEMPHIS, INSANE, VIOLENT, RAW, DARK",
+        "title_formulas": (
+            "- TRACKNAME 🔥 HARD {genre} | Drift Phonk 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 AGGRESSIVE {genre} Mix | Brazilian Drift Vibes | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 DEMONIC {genre} Drop | Tire Smoke Energy | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 UNDERGROUND {genre} | Memphis Cowbell Mayhem | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 BRUTAL {genre} Track That Hits DIFFERENT | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The {genre} Track Every Drift Edit NEEDS | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            "A drifting sports car at night wreathed in thick tire smoke, glowing red brake lights, "
+            "neon signs and grimy urban backdrop. Optional demonic skull or grim reaper silhouette "
+            "with glowing red eyes. Color palette: deep black, blood red, amber, electric white. "
+            "Gritty grainy texture, motion blur, dramatic low-angle composition, HIGH CONTRAST."
+        ),
+        "related_genres": "drift phonk, brazilian phonk, memphis phonk, house phonk, aggressive phonk, trap, hard bass",
+        "use_cases": "drift edits, gym music, car bass, workout motivation, gaming, street racing videos, sigma edits",
+        "tiktok_hooks": (
+            "'This phonk is UNREAL 🔥🚗', 'Drift edit material 💨', 'POV: the villain arc starts 😈', "
+            "'Gym went different with this on 💪🔥', 'Sigma activated 🗿'"
+        ),
+    },
+    "techno": {
+        "name_vibe": (
+            "futurist / industrial invented words — short, metallic, cryptic, evoking circuitry, "
+            "warehouses, machines, synthetic futures"
+        ),
+        "name_examples": "Axon, Vector, Nyx, Ion, Cipher, Apex, Quanta, Helios, Aurex, Kryon, Volt, Mira, Pyx, Zenos",
+        "power_words": "RELENTLESS, POUNDING, WAREHOUSE, INDUSTRIAL, HYPNOTIC, PEAK-TIME, UNDERGROUND, BERLIN, DRIVING, RAW, MASSIVE",
+        "title_formulas": (
+            "- TRACKNAME 🔥 RELENTLESS {genre} | Peak-Time Warehouse Mix | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 HYPNOTIC {genre} Drop | Berlin Underground 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 POUNDING {genre} Track | Industrial Energy | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The {genre} Banger That SHOOK The Dancefloor | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 RAW {genre} | Driving 4x4 Kick, Acid Stabs | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            "A brutalist concrete warehouse interior lit by intense strobe lights, silhouetted crowd, "
+            "laser beams cutting through fog, industrial pipes and machinery. Color palette: stark "
+            "black and white with one vivid accent (acid green, hot pink, or ice blue). Harsh "
+            "high-contrast lighting, minimalist geometric composition. No text."
+        ),
+        "related_genres": "melodic techno, peak time techno, hard techno, industrial techno, progressive house, minimal techno",
+        "use_cases": "warehouse raves, gym workouts, focus coding music, festival main stage, late night driving, rave playlists",
+        "tiktok_hooks": (
+            "'When the kick drops 🥁⚡', 'Berlin warehouse energy 🖤', 'This techno is UNREAL 🔥', "
+            "'Peak time vibes 🌌', 'Gym PR unlocked 💪'"
+        ),
+    },
+    "melodic techno": {
+        "name_vibe": "ethereal, celestial, melancholic invented words — evoking cosmos, glaciers, auroras",
+        "name_examples": "Aurora, Celeste, Nivara, Solaria, Etheros, Lumina, Nebula, Arkana, Solstice, Elysia, Kyros",
+        "power_words": "EMOTIONAL, CINEMATIC, CELESTIAL, HYPNOTIC, ETHEREAL, MASSIVE, INSANE, UNREAL, TRANSCENDENT, SOULFUL",
+        "title_formulas": (
+            "- TRACKNAME 🔥 EMOTIONAL {genre} | Afterlife-Style Extended Mix | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 CINEMATIC {genre} Drop | Melodic Journey 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 CELESTIAL {genre} | Tale of Us Vibes | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The {genre} Track That Made Everyone Cry On The Dancefloor | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 HYPNOTIC {genre} Journey | Sunset Set Gem | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            "A vast cinematic landscape at twilight: endless desert, glacier, or cosmic nebula. "
+            "A lone silhouetted figure facing the horizon. Aurora lights or celestial glow. "
+            "Palette: deep indigo, violet, rose gold, soft amber. Dreamy, ethereal, emotional. "
+            "Wide cinematic composition, soft film grain, HIGH CONTRAST."
+        ),
+        "related_genres": "melodic house, progressive house, organic house, deep house, afterlife style, tale of us style, anjunadeep",
+        "use_cases": "sunset sessions, desert raves, emotional driving, meditation, festival main stage, cinematic playlists",
+        "tiktok_hooks": (
+            "'Goosebumps from this drop 🌌', 'When the melody hits 😭🔥', 'Afterlife energy 🌅', "
+            "'This melodic techno is UNREAL ✨'"
+        ),
+    },
+    "deep house": {
+        "name_vibe": "smooth, soulful, sun-soaked invented words — evoking beaches, ibiza sunsets, cocktails",
+        "name_examples": "Solara, Marea, Sienna, Cala, Azura, Lumbra, Ondara, Velvana, Iberia, Estio, Noira",
+        "power_words": "SMOOTH, SOULFUL, IBIZA, SUNSET, GROOVY, ADDICTIVE, HYPNOTIC, EMOTIONAL, DEEP, CLASSIC",
+        "title_formulas": (
+            "- TRACKNAME 🔥 SMOOTH {genre} | Ibiza Sunset Mix 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 SOULFUL {genre} Groove | Balearic Vibes | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 ADDICTIVE {genre} Track | Poolside Extended Mix | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The {genre} Gem Every DJ Is Playing | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            "An Ibiza-style sunset scene: infinity pool, white architecture, palm silhouettes, "
+            "warm amber and magenta sky. Optional female silhouette with cocktail. "
+            "Palette: golden hour amber, rose pink, deep turquoise. Dreamy, aspirational, luxurious. "
+            "HIGH CONTRAST cinematic composition."
+        ),
+        "related_genres": "soulful house, tech house, organic house, melodic house, balearic, jackin house, afro house",
+        "use_cases": "poolside sessions, beach clubs, sunset driving, cocktail hours, summer workouts, chill DJ sets",
+        "tiktok_hooks": (
+            "'Ibiza sunset vibes 🌅', 'Poolside energy unlocked 🍹', 'This groove is addictive 🕺', "
+            "'When the bassline hits 🎧🔥'"
+        ),
+    },
+    "lo-fi": {
+        "name_vibe": "calm, poetic, urban-nostalgic invented words — evoking rain, tea, paper, quiet rooms",
+        "name_examples": "Paperline, Velour, Koi, Tatami, Moth, Linen, Rainfall, Yugen, Kinoko, Amari, Yori",
+        "power_words": "COZY, DREAMY, NOSTALGIC, CALM, RAINY, STUDY, FOCUSED, MELLOW, CHILL, SOOTHING",
+        "title_formulas": (
+            "- TRACKNAME 🌧️ COZY Lo-Fi Beat | Study & Chill Mix | {genre_hashtag}\n"
+            "- TRACKNAME 🌧️ DREAMY {genre} | Rainy Afternoon Vibes | {genre_hashtag}\n"
+            "- TRACKNAME 🌧️ NOSTALGIC {genre} Beat to Relax To | {genre_hashtag}\n"
+            "- TRACKNAME 🌧️ The {genre} Track That Feels Like a Warm Hug | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            "A cozy bedroom or café scene at dusk, rain on the window, warm lamp light, steaming cup of tea, "
+            "an anime-style character reading or gazing out. Palette: warm amber, soft pink, muted teal. "
+            "Soft grainy illustration style (Studio Ghibli / lo-fi girl aesthetic). Calm, nostalgic, dreamy."
+        ),
+        "related_genres": "chillhop, jazzhop, lofi hip hop, bedroom beats, study beats, ambient, chillwave",
+        "use_cases": "studying, reading, coding, sleeping, rainy day vibes, yoga, morning routines",
+        "tiktok_hooks": (
+            "'Study session unlocked 📚🌧️', 'Rainy afternoon mood ☕', 'Cozy vibes only 🫖', "
+            "'This beat is a warm hug 🧡'"
+        ),
+    },
+    "trap": {
+        "name_vibe": "gritty, street, short hard invented words with edge — evoke money, night, hustle",
+        "name_examples": "Onyx, Krypto, Zaga, Vexx, Rico, Sable, Vantta, Kobra, Drayko, Styx",
+        "power_words": "HARD, HEAVY, DIRTY, INSANE, UNDERGROUND, STREET, VIRAL, BANGER, SAVAGE, RAW",
+        "title_formulas": (
+            "- TRACKNAME 🔥 HARD {genre} Beat 2026 | Street Banger | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 HEAVY {genre} | 808 Mayhem | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 INSANE {genre} Drop | Underground Fire | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The {genre} Beat Every Rapper Needs | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            "A gritty urban night scene: neon-lit alley, chain-link fence, skyline silhouette. "
+            "Gold chains, diamond glint, smoke. Palette: deep black, gold, blood red, neon purple. "
+            "High-contrast street photography aesthetic with grainy film texture."
+        ),
+        "related_genres": "drill, hip hop, rap, trap beats, hard trap, dark trap, type beat",
+        "use_cases": "gym workouts, driving, gaming, hype moments, freestyle, rap beats",
+        "tiktok_hooks": (
+            "'This beat is HARD 🔥', 'Type beat energy 💯', 'Gym mode activated 💪', "
+            "'When the 808 hits 🔊'"
+        ),
+    },
+    "drum and bass": {
+        "name_vibe": "fast, kinetic, futuristic invented words — evoking speed, circuits, neon",
+        "name_examples": "Voltara, Kinetix, Pulsar, Axiom, Neuros, Cyphera, Jungla, Volt, Nexis, Syra",
+        "power_words": "FAST, RELENTLESS, LIQUID, NEUROFUNK, JUNGLE, HEAVY, MASSIVE, INSANE, EXPLOSIVE",
+        "title_formulas": (
+            "- TRACKNAME 🔥 RELENTLESS {genre} | Neurofunk Banger 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 HEAVY {genre} Drop | Liquid Vibes | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 EXPLOSIVE {genre} Mix | 174 BPM Fire | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The {genre} Track That Destroyed The Club | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            "Futuristic cyberpunk scene: neon-drenched city, speeding light trails, cybernetic figure. "
+            "Palette: electric cyan, magenta, deep black. Motion blur, glitch effects, "
+            "high-energy composition. HIGH CONTRAST."
+        ),
+        "related_genres": "dnb, jungle, neurofunk, liquid dnb, drum n bass, breakbeat",
+        "use_cases": "gym workouts, running, gaming, driving, festival sets, adrenaline playlists",
+        "tiktok_hooks": (
+            "'174 BPM energy 🔥', 'When the bass drops ⚡', 'Gym PR music 💪', "
+            "'Speed demon playlist 🏎️'"
+        ),
+    },
+    "synthwave": {
+        "name_vibe": "80s neon / retro-futurist invented words — chrome, sunsets, arcades, VHS",
+        "name_examples": "Neonix, Chroma, Vaporis, Retrox, Miami, Vortex, Sunstrike, Cyra, Lazra, Palmyra",
+        "power_words": "RETRO, NEON, 80S, NOSTALGIC, CINEMATIC, OUTRUN, DRIVING, CHROME, HYPNOTIC",
+        "title_formulas": (
+            "- TRACKNAME 🌴 RETRO {genre} | 80s Night Drive Mix | {genre_hashtag}\n"
+            "- TRACKNAME 🌴 NEON {genre} | Outrun Banger 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🌴 NOSTALGIC {genre} Track | Miami Sunset Vibes | {genre_hashtag}\n"
+            "- TRACKNAME 🌴 CINEMATIC {genre} | VHS Aesthetic Mix | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            "An 80s retro-futurist scene: chrome sports car, palm silhouettes against a massive "
+            "magenta-and-orange gridded sunset, neon horizon, VHS grain and scanlines. "
+            "Palette: hot pink, electric purple, orange sun, cyan grid. Highly stylized, HIGH CONTRAST."
+        ),
+        "related_genres": "retrowave, outrun, darkwave, vaporwave, dreamwave, cyberpunk",
+        "use_cases": "night drives, retro gaming, coding, 80s movie marathons, workout playlists",
+        "tiktok_hooks": (
+            "'80s night drive energy 🌴🚗', 'Outrun vibes unlocked 🕹️', 'Miami sunset mood 🌅', "
+            "'Retro futurism hits different ✨'"
+        ),
+    },
+}
+
+
+def _get_genre_profile(genre: str) -> dict:
+    """Return the creative profile for a genre, or a generic fallback."""
+    key = (genre or "").strip().lower()
+    if key in GENRE_PROFILES:
+        return GENRE_PROFILES[key]
+    # Try loose match (e.g. "Deep House Mix" → "deep house")
+    for name, profile in GENRE_PROFILES.items():
+        if name in key:
+            return profile
+    # Generic fallback — reuses the genre name itself, avoids forcing any aesthetic.
+    return {
+        "name_vibe": (
+            f"short, catchy, invented words that fit the {genre} vibe — evocative, "
+            "memorable, not common English words"
+        ),
+        "name_examples": "Axiom, Nova, Kairo, Mira, Solen, Vynn, Zara, Lumi, Orix, Kael, Nyra, Velo",
+        "power_words": "ADDICTIVE, LEGENDARY, EPIC, INSANE, MASSIVE, UNREAL, HYPNOTIC, CINEMATIC, VIRAL",
+        "title_formulas": (
+            "- TRACKNAME 🔥 The Most ADDICTIVE {genre} Track of 2026 | Extended Mix | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 EPIC {genre} Drop | [Mood] Vibes | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 INSANE {genre} Mix | Underground Gem | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The {genre} Track Everyone Is Talking About | {genre_hashtag}"
+        ),
+        "thumbnail_core": (
+            f"A striking genre-appropriate scene that visually represents {genre} music. "
+            "HIGH CONTRAST, bold colors, dramatic lighting, cinematic composition, "
+            "60-70% frame focus. No text. The imagery MUST fit the mood and aesthetic of "
+            f"{genre} specifically — avoid unrelated motifs."
+        ),
+        "related_genres": f"{genre}, electronic music, dance music",
+        "use_cases": "driving, gym, festival sets, DJ mixes, playlists, chilling",
+        "tiktok_hooks": (
+            "'This hits different 🔥', 'Put this on repeat 🔁', 'When the drop hits 🎧', "
+            "'New favorite track ✨'"
+        ),
+    }
+
+
 def _build_fusion_system_prompt(fusion: dict, music_style: str) -> str:
     """Build system prompt for the 13:00 fusion slot."""
     name = fusion["name"]
@@ -950,9 +1245,28 @@ Return ONLY valid JSON with these exact fields:
 
 
 def _build_system_prompt(genre: str, music_style: str) -> str:
-    """Build the system prompt dynamically based on genre and style."""
+    """Build the system prompt dynamically based on genre and style.
+
+    The naming examples, viral title formulas, thumbnail imagery and TikTok hooks
+    are ALL drawn from a per-genre profile so that e.g. Dark House does not get
+    African-tribal naming or artwork, and Phonk does not get "sacred tribal"
+    copy. Unknown genres fall back to a neutral profile that only keys off the
+    genre name itself.
+    """
     genre_lower = genre.lower().replace(" ", "")
     genre_hashtag = f"#{genre_lower}"
+    profile = _get_genre_profile(genre)
+
+    name_vibe = profile["name_vibe"]
+    name_examples = profile["name_examples"]
+    power_words = profile["power_words"]
+    title_formulas = profile["title_formulas"].format(
+        genre=genre, genre_hashtag=genre_hashtag
+    )
+    thumbnail_core = profile["thumbnail_core"]
+    related_genres = profile["related_genres"]
+    use_cases = profile["use_cases"]
+    tiktok_hooks = profile["tiktok_hooks"].format(genre=genre)
 
     return f"""You are a creative {genre} music producer and YouTube SEO expert.
 Generate a unique {genre} track concept. The track style is:
@@ -960,31 +1274,33 @@ Generate a unique {genre} track concept. The track style is:
 
 IMPORTANT NAMING RULE:
 - The track_name MUST be 1-2 short, catchy, invented words that fit the {genre} vibe.
-- They should sound exotic and memorable but NOT be common English words.
-- Do NOT use generic or overused names.
-- CRITICAL: Vary the starting letter EVERY TIME. Use ALL letters of the alphabet — A, B, D, G, K, M, N, O, S, T, etc. Do NOT always start with Z.
-- Examples of good diverse names: Bakari, Djenné, Kisumu, Makossa, Ngoma, Safiri, Tabora, Owari, Gajani, Lumba, Echoro, Haruna, Fikiri.
+- Specifically: {name_vibe}.
+- They should sound memorable but NOT be common English words, and NOT be generic.
+- Do NOT reuse names from previous tracks.
+- CRITICAL: Vary the starting letter EVERY TIME across the WHOLE alphabet — A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z. Do NOT always start with the same letter.
+- Examples of good names for THIS genre: {name_examples}.
+- The name MUST evoke the aesthetic of {genre} specifically. Do NOT force aesthetics from unrelated genres.
 
-CRITICAL: Every track MUST have a COMPLETELY DIFFERENT youtube_title and youtube_description.
-- Do NOT reuse phrases from previous tracks.
-- Vary the structure, wording, and style of descriptions each time.
-- Use different adjectives, metaphors, and sentence patterns.
+CRITICAL: Every track MUST have a COMPLETELY DIFFERENT youtube_title, youtube_description, thumbnail_prompt and tiktok_caption.
+- Do NOT reuse phrases, adjectives, metaphors or imagery from previous tracks.
+- Vary the structure, wording, and sentence patterns each time.
+- All creative choices (names, titles, covers, hooks) MUST be specific to the {genre} genre — no generic or off-genre motifs.
 
-Everything else (youtube_title, youtube_description, hashtags, youtube_tags, tiktok_caption) MUST be in English.
+Everything (youtube_title, youtube_description, hashtags, youtube_tags, tiktok_caption, thumbnail_prompt) MUST be in English.
 
 Return ONLY valid JSON with these exact fields:
 
 {{
-  "track_name": "1-2 invented catchy words that fit the {genre} vibe",
-  "mood": "emotional mood/vibe — pick something UNIQUE each time (e.g. euphoric, hypnotic, volcanic, celestial, nocturnal, cinematic, dreamy, aggressive, ethereal, melancholic)",
-  "description": "2-3 sentence vivid description of the track's atmosphere and energy (in English)",
-  "music_prompt": "detailed prompt for AI music generation - describe instruments, rhythm, bass, mood, style. Must match the {genre} genre.",
-  "hashtags": ["relevant hashtags for {genre} music - include genre-specific and general music hashtags, 10-15 total"],
-  "youtube_title": "Create a UNIQUE, ULTRA-ATTRACTIVE YouTube title designed to MAXIMIZE click-through rate (CTR) and YouTube recommendations. RANDOMLY pick ONE of these proven VIRAL formats:\\n\\nFORMATS (pick ONE, never repeat):\\n- TRACKNAME 🔥 The Most ADDICTIVE {genre} Track of 2026 | [Mood] Extended Mix | {genre_hashtag}\\n- TRACKNAME 🔥 This {genre} Track Will POSSESS Your Soul | {genre_hashtag}\\n- TRACKNAME 🔥 FORBIDDEN {genre} Gem | Once You Hear It You Can't Stop | {genre_hashtag}\\n- TRACKNAME 🔥 [Mood] {genre} Mix That Will HAUNT You | {genre_hashtag}\\n- TRACKNAME 🔥 The {genre} Masterpiece Everyone Is Talking About | {genre_hashtag}\\n- TRACKNAME 🔥 GODLY {genre} Mix | Tribal Beats From Another Dimension | {genre_hashtag}\\n- TRACKNAME 🔥 WARNING: This {genre} Track Is DANGEROUSLY Addictive | {genre_hashtag}\\n- TRACKNAME 🔥 LEGENDARY African Energy | {genre} Extended 2026 | {genre_hashtag}\\n- TRACKNAME 🔥 The {genre} Drop That SHOOK The Internet | {genre_hashtag}\\n- TRACKNAME 🔥 SACRED Tribal Journey | Deep {genre} You MUST Hear | {genre_hashtag}\\n- TRACKNAME 🔥 Best {genre} Track 2026 | UNREAL Tribal Power | {genre_hashtag}\\n- TRACKNAME 🔥 PRIMAL {genre} Energy | Your New Obsession | {genre_hashtag}\\n- TRACKNAME 🔥 {genre} Gem So Good It Should Be ILLEGAL | {genre_hashtag}\\n- TRACKNAME 🔥 EPIC {genre} Extended Mix | Feels Like A SPIRITUAL Experience | {genre_hashtag}\\n- TRACKNAME 🔥 INSANE {genre} Drop | Tribal Beats That Hit DIFFERENT | {genre_hashtag}\\n- TRACKNAME 🔥 MASSIVE {genre} Mix 2026 | Underground Gem | {genre_hashtag}\\n\\nSEO KEYWORD RULES:\\n1. ALWAYS include the genre name '{genre}' in the title (critical for search ranking)\\n2. Include at least ONE power word: ADDICTIVE, LEGENDARY, FORBIDDEN, GODLY, SACRED, PRIMAL, EPIC, INSANE, MASSIVE, UNREAL\\n3. Use EXTREME curiosity gaps and emotional triggers to MAXIMIZE clicks\\n4. Front-load the most important keywords (first 50 chars matter most for search)\\n5. Make titles feel URGENT and UNMISSABLE — the viewer should feel they NEED to click\\n6. Use 2026 when mentioning year\\n\\nPower words: ADDICTIVE, LEGENDARY, FORBIDDEN, GODLY, SACRED, PRIMAL, EPIC, INSANE, MASSIVE, UNREAL, DANGEROUS, HYPNOTIC, POSSESSED, SPIRITUAL, OTHERWORLDLY, DEVASTATING.\\n\\nRules: track name UPPERCASE, fire emoji after name, end with {genre_hashtag}, max 100 chars. Do NOT include duration. EVERY title MUST be COMPLETELY different.",
-  "youtube_description": "Write a LONG (25+ lines) YouTube description FULLY OPTIMIZED for YouTube SEO and algorithm recommendations. The description is CRITICAL for YouTube search ranking and suggested videos.\\n\\nSTRUCTURE (follow this order):\\n\\n1. FIRST 2 LINES (most important — shown in search results before 'Show more'):\\n   - Include the EXACT track name and genre '{genre}' in the first sentence\\n   - Use high-search keywords: {genre}, deep house, tribal house, African music, mix, new music 2026\\n   - Make it compelling enough to click 'Show more'\\n\\n2. KEYWORD-RICH BODY (5-8 lines):\\n   - Describe the track's sound, instruments, energy, and atmosphere\\n   - Naturally weave in SEARCH KEYWORDS: {genre}, tribal beats, deep bass, African drums, underground music, DJ mix, electronic music, dance music\\n   - Mention related genres: deep house, tribal house, organic house, melodic house\\n   - Each sentence should contain at least one searchable keyword\\n\\n3. USE CASES with keywords (3-4 lines):\\n   - 'Perfect for: [keyword-rich list]' — gym workout music, driving music, DJ sets, festival music, meditation, study music, car bass music, late night vibes\\n   - This helps YouTube match your video to DIFFERENT search queries\\n\\n4. CALL TO ACTION (2-3 lines):\\n   - Ask viewers to LIKE, SUBSCRIBE, and turn on NOTIFICATIONS\\n   - Ask them to COMMENT their favorite part\\n   - Ask them to SHARE with friends who love {genre}\\n   - Engagement signals (likes, comments, shares) directly boost YouTube recommendations\\n\\n5. KEYWORD CLOUD (5-8 lines):\\n   - List related search terms that people actually search on YouTube:\\n   - '{genre} mix 2026', 'best {genre} tracks', 'deep tribal house', 'African house music',\\n     'underground {genre}', '{genre} DJ set', 'new {genre} music', 'tribal drums',\\n     '{genre} car bass', 'deep house mix', 'organic house', 'afro tribal'\\n   - Format as a clean list, one per line\\n\\n6. CONTACT: imperialmediaweb@gmail.com\\n\\nIMPORTANT RULES:\\n- Do NOT include hashtags (#) in the description (they get added separately)\\n- EVERY sentence should be keyword-rich but still read naturally\\n- VARY the structure, wording, and keywords each time — no two descriptions should be similar\\n- Use line breaks and spacing for readability",
-  "youtube_tags": ["Generate 25-30 YouTube tags OPTIMIZED for search discovery and algorithm recommendations. Tags are how YouTube understands what your video is about and who to show it to.\\n\\nINCLUDE THESE TAG CATEGORIES (mix all together):\\n\\n1. EXACT MATCH genre tags (highest priority):\\n   '{genre}', '{genre} music', '{genre} mix', '{genre} 2026', 'new {genre}', 'best {genre}'\\n\\n2. RELATED genre tags (expands reach to related audiences):\\n   'deep house', 'tribal house', 'organic house', 'melodic house', 'african house music', 'afro tribal', 'ethnic house', 'progressive house'\\n\\n3. MOOD/VIBE tags (matches user search intent):\\n   'deep bass music', 'tribal drums', 'african drums', 'hypnotic beats', 'car bass music', 'festival music', 'underground music'\\n\\n4. USE CASE tags (captures different search queries):\\n   'gym music', 'driving music', 'DJ mix', 'party music', 'workout music', 'study beats', 'night drive music'\\n\\n5. TRENDING/DISCOVERY tags:\\n   'new music 2026', 'music mix 2026', 'best music 2026', 'trending music', 'viral music'\\n\\n6. TRACK-SPECIFIC tags: include the track name as a tag\\n\\nRULES: Each tag max 100 chars, total under 500 chars. Mix short (1-2 word) and long-tail (3-4 word) tags. NO hashtag symbols."],
-  "tiktok_caption": "Write a VIRAL TikTok caption optimized for TikTok's For You Page (FYP) algorithm. MAX 150 chars.\\n\\nFORMULA: [Viral hook] + [3-5 strategic hashtags]\\n\\nVIRAL HOOKS (pick one, vary each time):\\n- 'This beat hits different 🔥'\\n- 'Wait for the drop... 🫠'\\n- 'Name a better {genre} track, I'll wait 🎧'\\n- 'POV: you found the perfect {genre} gem 💎'\\n- 'This track is INSANE 🤯'\\n- 'When the tribal drums kick in 🥁🔥'\\n- 'Why is nobody talking about this?!'\\n- 'Put this on repeat 🔁🔥'\\n\\nHASHTAG STRATEGY (mix niche + broad for maximum reach):\\n- ALWAYS include: #fyp #foryou (algorithm boost)\\n- Genre: #{genre_lower} #afrohouse #deephouse #tribalhouse\\n- Trending: #newmusic #viralmusic #musicdiscovery\\n- Niche: #undergroundmusic #africanbeats #tribalbeats\\n\\nPick 3-5 hashtags that fit within the 150 char limit. Always include #fyp.",
-  "thumbnail_prompt": "Generate a UNIQUE image prompt for an authentic African tribal mask OPTIMIZED for YouTube thumbnail click-through rate. HIGH CONTRAST and BOLD COLORS are critical for thumbnails — they must POP on small screens and stand out in YouTube's suggested videos sidebar.\\n\\nEACH mask must be from a DIFFERENT African tribe/tradition — rotate between: Yoruba (Nigeria), Dogon (Mali), Fang (Gabon), Punu (Gabon), Dan (Ivory Coast), Kuba (Congo), Chokwe (Angola), Makonde (Tanzania), Baule (Ivory Coast), Songye (Congo), Luba (Congo), Bamana (Mali).\\n\\nTHUMBNAIL CTR OPTIMIZATION RULES:\\n1. SUPER HIGH CONTRAST: dark black/deep navy background with BRIGHT glowing elements (neon gold, electric blue, fiery orange, vivid red)\\n2. DRAMATIC LIGHTING: spotlight or rim lighting that makes the mask POP against the dark background\\n3. GLOWING EYES on the mask — eyes that glow with intense supernatural energy (most clicked element on thumbnails)\\n4. BOLD COLOR ACCENTS: at least one vivid neon/glowing color that catches attention at small sizes\\n5. DEPTH and SMOKE: volumetric fog, embers, sparks, or mystical particles floating around the mask\\n6. CENTERED COMPOSITION: mask takes up 60-70% of the frame for maximum visual impact at small sizes\\n\\nDescribe: specific mask style, materials (carved wood, cowrie shells, raffia, brass, beads), ritual purpose, and the dramatic lighting/glow effects. No text. 4K ultra detailed. Must be COMPLETELY different from any previous mask."
+  "track_name": "1-2 invented catchy words that fit the {genre} vibe — see name rules above",
+  "mood": "emotional mood/vibe — pick something UNIQUE each time and appropriate to {genre} (e.g. euphoric, hypnotic, volcanic, celestial, nocturnal, cinematic, dreamy, aggressive, ethereal, melancholic, sultry, relentless)",
+  "description": "2-3 sentence vivid description of the track's atmosphere and energy, specific to the {genre} aesthetic (in English)",
+  "music_prompt": "detailed prompt for AI music generation - describe instruments, rhythm, bass, mood, style. Must match the {genre} genre specifically.",
+  "hashtags": ["10-15 hashtags RELEVANT TO {genre} — mix genre-specific and general music hashtags. Do NOT include hashtags from unrelated genres."],
+  "youtube_title": "Create a UNIQUE, ULTRA-ATTRACTIVE YouTube title designed to MAXIMIZE click-through rate (CTR) and YouTube recommendations. RANDOMLY pick ONE of these proven VIRAL formats tailored to {genre} (NEVER repeat a format from a previous track):\\n\\n{title_formulas}\\n\\nSEO KEYWORD RULES:\\n1. ALWAYS include the genre name '{genre}' in the title (critical for search ranking)\\n2. Include at least ONE power word appropriate to {genre}: {power_words}\\n3. Use EXTREME curiosity gaps and emotional triggers to MAXIMIZE clicks\\n4. Front-load the most important keywords (first 50 chars matter most for search)\\n5. Make titles feel URGENT and UNMISSABLE — the viewer should feel they NEED to click\\n6. Use 2026 when mentioning year\\n7. Do NOT use motifs from unrelated genres (e.g. no 'tribal' for Dark House, no 'sacred African energy' for Phonk, etc.)\\n\\nRules: track name UPPERCASE, fire emoji after name, end with {genre_hashtag}, max 100 chars. Do NOT include duration. EVERY title MUST be COMPLETELY different.",
+  "youtube_description": "Write a LONG (25+ lines) YouTube description FULLY OPTIMIZED for YouTube SEO and algorithm recommendations.\\n\\nSTRUCTURE (follow this order):\\n\\n1. FIRST 2 LINES (most important — shown in search results before 'Show more'):\\n   - Include the EXACT track name and the genre '{genre}' in the first sentence\\n   - Use high-search keywords specific to {genre} and related genres: {related_genres}\\n   - Make it compelling enough to click 'Show more'\\n\\n2. KEYWORD-RICH BODY (5-8 lines):\\n   - Describe the track's sound, instruments, energy, and atmosphere in a way that fits {genre}\\n   - Naturally weave in SEARCH KEYWORDS relevant to {genre}: {related_genres}\\n   - Each sentence should contain at least one searchable keyword\\n\\n3. USE CASES with keywords (3-4 lines):\\n   - 'Perfect for: [keyword-rich list relevant to {genre}]' — e.g. {use_cases}\\n   - This helps YouTube match your video to DIFFERENT search queries\\n\\n4. CALL TO ACTION (2-3 lines):\\n   - Ask viewers to LIKE, SUBSCRIBE, and turn on NOTIFICATIONS\\n   - Ask them to COMMENT their favorite part\\n   - Ask them to SHARE with friends who love {genre}\\n\\n5. KEYWORD CLOUD (5-8 lines):\\n   - List related search terms that people actually search on YouTube for {genre}:\\n     '{genre} mix 2026', 'best {genre} tracks', 'new {genre} music', plus terms from: {related_genres}\\n   - Format as a clean list, one per line\\n\\n6. CONTACT: imperialmediaweb@gmail.com\\n\\nIMPORTANT RULES:\\n- Do NOT include hashtags (#) in the description (they get added separately)\\n- Do NOT reference aesthetics from unrelated genres (no African/tribal talk unless the genre IS Afro House, no neon/rain talk unless the genre IS Dark House, etc.)\\n- EVERY sentence should be keyword-rich but still read naturally\\n- VARY the structure, wording, and keywords each time — no two descriptions should be similar\\n- Use line breaks and spacing for readability",
+  "youtube_tags": ["Generate 25-30 YouTube tags OPTIMIZED for search discovery, ALL relevant to {genre}.\\n\\nINCLUDE THESE TAG CATEGORIES:\\n\\n1. EXACT MATCH genre tags (highest priority):\\n   '{genre}', '{genre} music', '{genre} mix', '{genre} 2026', 'new {genre}', 'best {genre}'\\n\\n2. RELATED genre tags (only those that genuinely fit {genre}): {related_genres}\\n\\n3. MOOD/VIBE tags that fit {genre} specifically\\n\\n4. USE CASE tags: {use_cases}\\n\\n5. TRENDING/DISCOVERY tags: 'new music 2026', 'music mix 2026', 'best music 2026', 'trending music', 'viral music'\\n\\n6. TRACK-SPECIFIC tags: include the track name as a tag\\n\\nRULES: Each tag max 100 chars, total under 500 chars. Mix short (1-2 word) and long-tail (3-4 word) tags. NO hashtag symbols. Do NOT include tags for unrelated genres."],
+  "tiktok_caption": "Write a VIRAL TikTok caption optimized for TikTok's For You Page (FYP). MAX 150 chars.\\n\\nFORMULA: [Viral hook specific to {genre}] + [3-5 strategic hashtags]\\n\\nGENRE-SPECIFIC HOOKS (pick one, vary each time): {tiktok_hooks}\\n\\nHASHTAG STRATEGY:\\n- ALWAYS include: #fyp #foryou\\n- Genre: #{genre_lower} plus related hashtags for {genre} only (do NOT tag unrelated genres)\\n- Trending: #newmusic #viralmusic #musicdiscovery\\n\\nPick 3-5 hashtags that fit within the 150 char limit. Always include #fyp.",
+  "thumbnail_prompt": "Generate a UNIQUE image prompt for a YouTube thumbnail that FITS the {genre} genre specifically. HIGH CONTRAST and BOLD COLORS are critical — it must POP on small screens.\\n\\nCORE AESTHETIC for {genre}:\\n{thumbnail_core}\\n\\nTHUMBNAIL CTR OPTIMIZATION RULES:\\n1. SUPER HIGH CONTRAST between dark and bright elements\\n2. DRAMATIC LIGHTING (spotlight, rim light, or neon glow appropriate to the genre)\\n3. ONE bold focal point that takes up 60-70% of the frame\\n4. BOLD COLOR ACCENTS that catch attention at small sizes (colors should fit the {genre} palette)\\n5. DEPTH and ATMOSPHERE: fog, particles, motion blur, or bokeh as fits the genre\\n6. CENTERED composition\\n\\nCRITICAL: The imagery MUST be specific to {genre}. Do NOT use motifs from unrelated genres (e.g. no African tribal masks unless the genre IS Afro House, no neon-lit streets unless the genre IS Dark House / Synthwave, no drift cars unless the genre IS Phonk). Each thumbnail must be COMPLETELY different from any previous one. No text. 4K ultra detailed."
 }}"""
 
 
@@ -1096,8 +1412,20 @@ def generate_concept(track_name: str = "", genre: str = "",
         thumbnail_style: Custom thumbnail prompt. Falls back to config or default.
     """
     genre = genre or MUSIC_GENRE or "Afro House"
-    music_style = music_style or MUSIC_STYLE_PROMPT or DEFAULT_AFRO_HOUSE_STYLE
-    thumbnail_style = thumbnail_style or THUMBNAIL_STYLE_PROMPT or DEFAULT_THUMBNAIL_PROMPT
+    _genre_key = genre.strip().lower()
+    # Only use the Afro House music/thumbnail defaults when the genre IS Afro House.
+    # For any other genre, fall back to the per-genre profile so we don't leak
+    # tribal/African motifs into e.g. Dark House or Phonk outputs.
+    if _genre_key == "afro house":
+        music_style = music_style or MUSIC_STYLE_PROMPT or DEFAULT_AFRO_HOUSE_STYLE
+        thumbnail_style = thumbnail_style or THUMBNAIL_STYLE_PROMPT or DEFAULT_THUMBNAIL_PROMPT
+    else:
+        _profile = _get_genre_profile(genre)
+        music_style = music_style or MUSIC_STYLE_PROMPT or (
+            f"Create a {genre} track that fully fits the {genre} genre aesthetic. "
+            "Describe instruments, rhythm, tempo, bass, mood and production style faithful to the genre."
+        )
+        thumbnail_style = thumbnail_style or THUMBNAIL_STYLE_PROMPT or _profile["thumbnail_core"]
 
     log.info(f"Generating {genre} music concept...")
 
@@ -1107,8 +1435,11 @@ def generate_concept(track_name: str = "", genre: str = "",
 
     user_msg = (
         f"Generate a fresh, original {genre} track concept. "
-        "The track name MUST be invented catchy African-sounding words — NOT common English words. "
-        "IMPORTANT: Start the name with a DIFFERENT letter each time — do NOT always use Z. Vary across the whole alphabet. "
+        f"The track name MUST be an invented catchy word (or two) that fits the {genre} aesthetic — "
+        "NOT common English words, and NOT a vibe from an unrelated genre. "
+        "IMPORTANT: Start the name with a DIFFERENT letter each time — vary across the whole alphabet. "
+        "Title, thumbnail, description, hashtags and TikTok caption must ALL be specific to "
+        f"{genre} (no tribal/African motifs unless the genre is Afro House). "
         "Everything else (title, description, tags) must be in English."
     )
     if track_name:
@@ -1150,7 +1481,9 @@ def generate_concept(track_name: str = "", genre: str = "",
     # Force track_name if provided (don't trust AI to follow instructions 100%)
     if track_name:
         data["track_name"] = track_name
-    final_name = data.get("track_name", "Tribal Pulse")
+    # Genre-appropriate fallback name (first example from the profile)
+    _fallback_name = _get_genre_profile(genre)["name_examples"].split(",")[0].strip()
+    final_name = data.get("track_name", _fallback_name)
     # Strip hashtags that AI sometimes appends (e.g. "Gaharé #Afrohouse" → "Gaharé")
     final_name = re.sub(r'\s*#\S+', '', final_name).strip()
     log.info(f"Generated concept: {final_name}")
