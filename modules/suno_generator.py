@@ -126,28 +126,72 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
 
                 # Click Create / Generate button
                 log.info("Clicking Create button...")
+                # Give the UI a moment to enable the Create button after filling
+                # the prompt (Suno often disables it until the textarea has text).
+                time.sleep(1.5)
                 create_selectors = [
+                    'button[data-testid="create-button"]',
+                    'button[aria-label="Create"]',
                     'button:has-text("Create")',
                     'button:has-text("Generate")',
-                    'button[data-testid="create-button"]',
                     'button[type="submit"]',
+                    # Fallbacks that match nested spans / icons inside the button
+                    'button >> text=Create',
+                    'button >> text=Generate',
+                    '[role="button"]:has-text("Create")',
                 ]
 
                 create_clicked = False
                 for sel in create_selectors:
                     try:
-                        btn = page.wait_for_selector(sel, timeout=5_000)
-                        if btn and btn.is_visible():
-                            btn.click()
-                            create_clicked = True
-                            log.info(f"Create button clicked: {sel}")
-                            break
+                        btn = page.wait_for_selector(sel, timeout=3_000, state="visible")
+                        if not btn:
+                            continue
+                        # Skip disabled buttons
+                        if btn.is_disabled():
+                            log.info(f"Selector matched but button is disabled: {sel}")
+                            continue
+                        btn.scroll_into_view_if_needed()
+                        btn.click()
+                        create_clicked = True
+                        log.info(f"Create button clicked: {sel}")
+                        break
                     except PlaywrightTimeout:
+                        continue
+                    except Exception as e:
+                        log.info(f"Selector {sel} failed: {e}")
                         continue
 
                 if not create_clicked:
+                    # Last-resort: enumerate every enabled button and pick one
+                    # whose text contains "create" (case-insensitive).
+                    try:
+                        buttons = page.query_selector_all("button, [role='button']")
+                        log.info(f"Found {len(buttons)} button-like elements; scanning for 'Create'...")
+                        button_texts = []
+                        for b in buttons:
+                            try:
+                                if not b.is_visible() or b.is_disabled():
+                                    continue
+                                txt = (b.inner_text() or "").strip()
+                                if txt:
+                                    button_texts.append(txt)
+                                if txt and "create" in txt.lower() and len(txt) < 30:
+                                    b.scroll_into_view_if_needed()
+                                    b.click()
+                                    create_clicked = True
+                                    log.info(f"Create button clicked via text scan: '{txt}'")
+                                    break
+                            except Exception:
+                                continue
+                        if not create_clicked:
+                            log.error(f"Enabled button texts on page: {button_texts[:30]}")
+                    except Exception as e:
+                        log.error(f"Button text scan failed: {e}")
+
+                if not create_clicked:
                     log.error("Could not find Create button on Suno")
-                    page.screenshot(path=str(OUTPUT_DIR / "debug_suno_create.png"))
+                    page.screenshot(path=str(OUTPUT_DIR / "debug_suno_create.png"), full_page=True)
                     break
 
                 # Wait for generation to complete
