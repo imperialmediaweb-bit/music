@@ -232,6 +232,37 @@ def _add_track_name(image: Image.Image, track_name: str) -> Image.Image:
     )
 
 
+def _add_cover_name_only(image: Image.Image, track_name: str) -> Image.Image:
+    """Overlay ONLY the track name on the cover, no band/glow/divider.
+
+    Minimal clean text with a thin outline for legibility against any background.
+    Used for TuneCore cover art where only the song name should appear.
+    """
+    image = image.convert("RGB")
+    draw = ImageDraw.Draw(image)
+    width, height = image.size
+
+    text = track_name.upper()
+    font_size = int(height * 0.10)
+    font, text_w, text_h, off_x, off_y = _measure_and_scale_text(
+        draw, text, font_size, width, height
+    )
+
+    bbox_left = (width - text_w) // 2
+    bbox_top = int(height * 0.78) - text_h // 2
+    x = bbox_left - off_x
+    y = bbox_top - off_y
+
+    outline_width = max(2, font_size // 20)
+    for dx in range(-outline_width, outline_width + 1):
+        for dy in range(-outline_width, outline_width + 1):
+            if dx * dx + dy * dy <= outline_width * outline_width:
+                draw.text((x + dx, y + dy), text, font=font, fill="black")
+
+    draw.text((x, y), text, font=font, fill="white")
+    return image
+
+
 def _add_artist_name(image: Image.Image, artist_name: str) -> Image.Image:
     """Overlay the artist name above the track name."""
     if THUMBNAIL_TEXT_STYLE == "classic":
@@ -410,8 +441,8 @@ def generate_thumbnail_and_cover(
     cover = base_image.crop((left, top, left + crop_size, top + crop_size))
     # Upscale to 1600x1600 (TuneCore minimum)
     cover = cover.resize((1600, 1600), Image.LANCZOS)
-    # Overlay track name only (TuneCore requires cover with song name only)
-    cover = _add_track_name(cover, track_name)
+    # Overlay ONLY the track name — no band, glow or divider
+    cover = _add_cover_name_only(cover, track_name)
 
     cover_path = OUTPUT_DIR / f"{safe_name}_cover.jpg"
     cover = cover.convert("RGB")
@@ -448,8 +479,8 @@ def generate_cover_art(
     # Upscale to 1600x1600 (TuneCore minimum)
     image = image.resize((1600, 1600), Image.LANCZOS)
 
-    # Overlay track name only (TuneCore requires cover with song name only)
-    image = _add_track_name(image, track_name)
+    # Overlay ONLY the track name — no band, glow or divider
+    image = _add_cover_name_only(image, track_name)
 
     output_path = OUTPUT_DIR / f"{safe_name}_cover.jpg"
     image = image.convert("RGB")
