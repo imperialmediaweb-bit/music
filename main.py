@@ -66,6 +66,11 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
         music_style: Custom music style prompt. Falls back to config or default.
         thumbnail_style: Custom thumbnail prompt. Falls back to config or default.
         fusion: If True, use the fusion concept generator (Afro House × another genre).
+
+    Note:
+        On Suno we skip merging and split the 2 MP3s across the day — the
+        first is uploaded now, the second is queued for a later scheduler slot
+        via `flush-pending`.
     """
     from modules.audio_merger import merge_mp3s
     from modules.concept_generator import generate_concept, generate_fusion_concept
@@ -94,7 +99,13 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
     mp3_files = generate_music_batch(concept, count=gen_count)
     log.info(f"Generated {len(mp3_files)} MP3 files")
 
-    # Step 3: Merge all MP3s into one track
+    # Suno split-upload: each song uploaded separately, second deferred
+    if platform == "suno" and len(mp3_files) >= 2:
+        return _run_split_upload(mp3_files, base_concept=concept,
+                                 genre=genre, music_style=music_style,
+                                 thumbnail_style=thumbnail_style, fusion=fusion)
+
+    # Step 3: Merge all MP3s into one track (non-Suno or single-track result)
     log.info("=" * 60)
     log.info("STEP 3: Merging MP3 files...")
     merged_path = merge_mp3s(mp3_files, output_name=concept.track_name)
@@ -103,6 +114,98 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
     # Step 4-7: Process (duration, thumbnail, video, upload)
     result = process_single_track(merged_path, concept=concept)
     return result
+
+
+def _run_split_upload(mp3_files, base_concept, genre="", music_style="",
+                      thumbnail_style="", fusion=False):
+    """Suno-only: upload each generated MP3 as its own YouTube video.
+
+    First MP3 is uploaded immediately (full pipeline). Second MP3 is prepared
+    (concept/thumbnail/video) and queued via pending_uploads — a later
+    scheduler slot calls `flush-pending` to finish the upload.
+
+    Each MP3 gets its own concept (fresh OpenAI call) and thumbnail (fresh
+    DALL-E call) so the two uploads look like distinct videos on YouTube.
+    """
+    from modules.audio_merger import wav_from_mp3
+    from modules.concept_generator import generate_concept, generate_fusion_concept
+    from modules import pending_uploads
+    from pipeline import prepare_track_assets, upload_prepared_track
+
+    # Only the first pair gets the split — if Suno returned more than 2
+    # (e.g. multiple batches), run the first pair split and merge-upload
+    # the rest via the normal path for simplicity.
+    first_two = mp3_files[:2]
+
+    # Ensure WAV exists alongside each MP3 (ffmpeg — same convention as
+    # audio_merger). Skips if already present.
+    for mp3 in first_two:
+        try:
+            wav_from_mp3(mp3)
+        except Exception as e:
+            log.warning(f"Could not produce WAV for {mp3.name}: {e}")
+
+    results = []
+    for idx, mp3 in enumerate(first_two):
+        log.info("#" * 60)
+        log.info(f"SPLIT TRACK {idx + 1}/2: {mp3.name}")
+        log.info("#" * 60)
+
+        # Generate a fresh concept for each track so YouTube sees two
+        # distinct videos (different title, description, thumbnail).
+        if idx == 0:
+            concept = base_concept
+        else:
+            try:
+                if fusion:
+                    concept = generate_fusion_concept()
+                else:
+                    concept = generate_concept(genre=genre, music_style=music_style,
+                                               thumbnail_style=thumbnail_style)
+                log.info(f"Fresh concept for track 2: {concept.track_name}")
+            except Exception as e:
+                log.warning(f"Could not generate fresh concept for track 2: {e} — reusing first")
+                concept = base_concept
+
+        try:
+            prepared = prepare_track_assets(mp3, concept)
+        except Exception as e:
+            log.error(f"Prep failed for track {idx + 1}: {e}")
+            results.append({"concept": concept.track_name, "errors": [f"prep: {e}"]})
+            continue
+
+        if idx == 0:
+            # Upload first immediately
+            result = upload_prepared_track(prepared)
+            result["concept"] = concept.track_name
+            results.append(result)
+        else:
+            # Queue second for later (flush-pending)
+            try:
+                pending_uploads.enqueue(
+                    concept=concept,
+                    video_path=prepared["video_path"],
+                    thumbnail_path=prepared["thumbnail_path"],
+                    mp3_path=prepared.get("mp3_path"),
+                    wav_path=prepared.get("wav_path"),
+                    cover_path=prepared.get("cover_path"),
+                    duration_str=prepared.get("duration"),
+                )
+                results.append({
+                    "concept": concept.track_name,
+                    "queued": True,
+                    "errors": [],
+                })
+                log.info(f"Track 2 ({concept.track_name}) queued for later upload")
+            except Exception as e:
+                log.error(f"Failed to queue track 2: {e}")
+                results.append({"concept": concept.track_name, "errors": [f"queue: {e}"]})
+
+    # Return the first track's result (keeps the existing error-counting
+    # logic in cmd_run happy). The second is reported via log.
+    primary = results[0] if results else {"errors": ["split: no tracks processed"], "concept": None}
+    primary["split_results"] = results
+    return primary
 
 
 def cmd_login(args):
@@ -679,6 +782,24 @@ def cmd_reupload(args):
         log.info("Done!")
 
 
+def cmd_flush_pending(args):
+    """Upload everything currently queued in output/pending_uploads/.
+
+    Scheduler hook: call this from a late-day slot (e.g. 18:00) so the
+    second track from each Suno split-generation gets uploaded a few hours
+    after the first one.
+    """
+    from pipeline import flush_pending_uploads
+
+    results = flush_pending_uploads()
+    if not results:
+        return
+    failures = [r for r in results if r.get("errors")]
+    log.info(f"Flushed {len(results)} pending upload(s), {len(failures)} error(s)")
+    if failures:
+        sys.exit(1)
+
+
 def cmd_autostart(args):
     """Create Windows Task Scheduler tasks that run the pipeline at scheduled times.
 
@@ -701,10 +822,12 @@ def cmd_autostart(args):
     ))
     task_prefix = "LUTH_Music_Pipeline"
 
-    # (hour, minute, gen_count, extra_cli_args)
+    # (hour, minute, gen_count, extra_cli_args) — use cli_args="__FLUSH__"
+    # for the late-day flush-pending slot (Suno split-upload second half).
     SCHEDULE_SLOTS = [
         (13, 0,  1, "--fusion"),   # 13:00 → FUSION: Afro House × another genre
         (16, 15, 2, ""),           # 16:15 → 2 gen = 4 MP3s
+        (18, 0,  0, "__FLUSH__"),  # 18:00 → flush pending (Suno split 2nd half)
         (19, 0,  4, ""),           # 19:00 → 4 gen = 8 MP3s
     ]
 
@@ -767,16 +890,25 @@ def cmd_autostart(args):
 
     for i, (hour, minute, gen_count, extra_args) in enumerate(SCHEDULE_SLOTS, 1):
         task_name = f"{task_prefix}_{i}"
-        cli_args = f"run -g {gen_count}"
-        if extra_args:
-            cli_args += f" {extra_args}"
+        if extra_args == "__FLUSH__":
+            cli_args = "flush-pending"
+        else:
+            cli_args = f"run -g {gen_count}"
+            if extra_args:
+                cli_args += f" {extra_args}"
 
         # Create a small PS1 script for this slot
         ps1_name = f"music_pipeline_slot_{i}.ps1"
         ps1_path = Path(project_dir) / ps1_name
+        if extra_args == "__FLUSH__":
+            slot_label = "flush-pending (Suno split 2nd half)"
+        elif extra_args == "--fusion":
+            slot_label = f"{gen_count} generation(s) [FUSION]"
+        else:
+            slot_label = f"{gen_count} generation(s)"
         ps1_lines = [
             f'# LUTH Music Pipeline — Slot {i} ({hour}:{minute:02d})',
-            f'# {gen_count} generation(s){" [FUSION]" if extra_args == "--fusion" else ""}',
+            f'# {slot_label}',
             '',
             '$ErrorActionPreference = "Continue"',
             f'Set-Location "{project_dir}"',
@@ -813,9 +945,12 @@ def cmd_autostart(args):
             capture_output=True, text=True,
         )
         if result.returncode == 0:
-            label = f"{time_str} → {gen_count} gen"
-            if extra_args == "--fusion":
-                label += " [FUSION]"
+            if extra_args == "__FLUSH__":
+                label = f"{time_str} → flush-pending"
+            else:
+                label = f"{time_str} → {gen_count} gen"
+                if extra_args == "--fusion":
+                    label += " [FUSION]"
             log.info(f"Task '{task_name}' created: {label}")
         else:
             log.error(f"Failed to create task '{task_name}': {result.stderr.strip()}")
@@ -889,11 +1024,18 @@ def cmd_schedule(args):
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
     # (hour, minute, gen_count, extra_kwargs) — gen_count × 2 MP3s merged into one clip
+    # On Suno (MUSIC_PLATFORM=suno) the 13:00 slot generates 2 songs that are
+    # split: the first uploads immediately, the second is queued and uploaded
+    # at the 18:00 flush slot below.
     SCHEDULE_SLOTS = [
         (13, 0,  1, {"fusion": True}),   # 13:00 → FUSION: Afro House × Japanese/Greek/Latin Folk
         (16, 0,  2, {}),                  # 16:00 → 2 gen = 4 MP3s (ready ~16:15, before 18:00 peak)
         (19, 0,  4, {}),                  # 19:00 → 4 gen = 8 MP3s (ready ~19:15, before 21:00 peak)
     ]
+
+    # Late-day flush slot: picks up any pending uploads queued earlier (e.g.
+    # the second song from a Suno split at 13:00).
+    FLUSH_HOUR, FLUSH_MINUTE = 18, 0
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
     MISFIRE_GRACE = 3600
@@ -941,6 +1083,18 @@ def cmd_schedule(args):
         )
         log.info(f"Scheduled {len(selected_slots)} clips per day: {schedule_desc}")
         log.info(f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s")
+
+        # Flush pending uploads (Suno split-upload second half)
+        from pipeline import flush_pending_uploads
+        scheduler.add_job(
+            flush_pending_uploads,
+            CronTrigger(hour=FLUSH_HOUR, minute=FLUSH_MINUTE, timezone=TIMEZONE),
+            id="flush_pending",
+            name=f"Flush pending uploads ({FLUSH_HOUR}:{FLUSH_MINUTE:02d})",
+            misfire_grace_time=MISFIRE_GRACE,
+            coalesce=True,
+        )
+        log.info(f"Flush slot: {FLUSH_HOUR}:{FLUSH_MINUTE:02d} (uploads any queued tracks)")
 
     def shutdown(signum, frame):
         log.info("Shutting down scheduler...")
@@ -1116,6 +1270,13 @@ def main():
         help="Use fusion concept generator (Afro House × another genre)",
     )
     run_parser.set_defaults(func=cmd_run)
+
+    # flush-pending - upload tracks queued by split-upload mode
+    flush_parser = subparsers.add_parser(
+        "flush-pending",
+        help="Upload tracks queued in output/pending_uploads/ (Suno split-upload second half)",
+    )
+    flush_parser.set_defaults(func=cmd_flush_pending)
 
     # schedule - automatic 4 clips per day
     sched_parser = subparsers.add_parser(

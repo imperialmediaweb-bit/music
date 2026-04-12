@@ -268,6 +268,229 @@ def _format_duration(seconds: float) -> str:
     return f"{mins}:{secs:02d}"
 
 
+def prepare_track_assets(mp3_path: Path, concept) -> dict:
+    """Run steps 1-4 of the pipeline: probe duration → concept → thumbnail → video.
+
+    Does NOT upload anywhere. Used by split-upload mode where the second track
+    is queued for later. Returns a dict with keys: duration, duration_sec,
+    thumbnail_path, cover_path, video_path, wav_path, mp3_path, concept.
+
+    Raises on any step failure — caller decides what to do.
+    """
+    ensure_path()
+    wav_path = mp3_path.with_suffix(".wav")
+    audio_path = wav_path if wav_path.exists() else mp3_path
+
+    log.info("=" * 60)
+    log.info(f"PREP STEP 1: Reading audio: {audio_path.name}")
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json",
+         "-show_format", str(audio_path)],
+        capture_output=True, text=True,
+    )
+    duration_sec = float(json.loads(probe.stdout)["format"]["duration"])
+    duration_str = _format_duration(duration_sec)
+    log.info(f"Duration: {duration_str}")
+
+    # Inject duration into YouTube title/description (same logic as process_single_track)
+    duration_mins = int(duration_sec) // 60
+    if "\U0001f525" in concept.youtube_title:
+        concept.youtube_title = concept.youtube_title.replace(
+            "\U0001f525", f"\U0001f525 {duration_mins} Minutes of", 1
+        )
+    concept.youtube_title = concept.youtube_title[:100]
+    concept.youtube_description = concept.youtube_description.replace(
+        "{duration}", str(duration_mins)
+    )
+    concept.youtube_description += f"\n\nDuration: {duration_str}"
+
+    log.info("=" * 60)
+    log.info("PREP STEP 2: Generating thumbnail + cover art...")
+    thumbnail_path, cover_path = generate_thumbnail_and_cover(
+        concept.thumbnail_prompt, concept.track_name, DEFAULT_ARTIST
+    )
+    log.info(f"Thumbnail: {thumbnail_path} | Cover: {cover_path}")
+
+    log.info("=" * 60)
+    log.info(f"PREP STEP 3: Creating video with {audio_path.suffix} audio...")
+    video_path = create_video(audio_path, thumbnail_path, concept)
+    log.info(f"Video: {video_path}")
+
+    return {
+        "duration": duration_str,
+        "duration_sec": duration_sec,
+        "mp3_path": mp3_path,
+        "wav_path": wav_path if wav_path.exists() else None,
+        "thumbnail_path": Path(thumbnail_path),
+        "cover_path": Path(cover_path) if cover_path else None,
+        "video_path": Path(video_path),
+        "concept": concept,
+    }
+
+
+def upload_prepared_track(prepared: dict) -> dict:
+    """Upload an already-prepared track (video + thumbnail + cover) to all
+    configured platforms. Mirrors steps 5-9 of `process_single_track`.
+
+    `prepared` is the dict returned by `prepare_track_assets` (or loaded from
+    a pending-upload sidecar).
+    """
+    concept = prepared["concept"]
+    video = prepared["video_path"]
+    thumbnail_path = prepared["thumbnail_path"]
+    cover_path = prepared.get("cover_path")
+    wav_path = prepared.get("wav_path")
+    mp3_path = prepared.get("mp3_path")
+
+    result = {
+        "file": str(mp3_path) if mp3_path else None,
+        "concept": concept.track_name,
+        "duration": prepared.get("duration"),
+        "thumbnail_path": str(thumbnail_path) if thumbnail_path else None,
+        "video_path": str(video) if video else None,
+        "youtube_url": None,
+        "tiktok_url": None,
+        "tunecore_url": None,
+        "soundcloud_url": None,
+        "errors": [],
+    }
+
+    # YouTube
+    try:
+        log.info("=" * 60)
+        log.info("Uploading to YouTube...")
+        youtube_url = upload_to_youtube(video, thumbnail_path, concept)
+        result["youtube_url"] = youtube_url
+        if youtube_url:
+            log.info(f"YouTube URL: {youtube_url}")
+        else:
+            result["errors"].append("youtube: upload returned None")
+    except Exception as e:
+        log.error(f"YouTube upload failed: {e}")
+        result["errors"].append(f"youtube: {e}")
+
+    # TikTok
+    if SKIP_TIKTOK:
+        log.info("TikTok SKIPPED (SKIP_TIKTOK=true)")
+    else:
+        try:
+            log.info("=" * 60)
+            log.info("Uploading to TikTok...")
+            tiktok_url = upload_to_tiktok(video, concept)
+            result["tiktok_url"] = tiktok_url
+            if tiktok_url:
+                log.info(f"TikTok: {tiktok_url}")
+            else:
+                result["errors"].append("tiktok: upload returned None")
+        except Exception as e:
+            log.error(f"TikTok upload failed: {e}")
+            result["errors"].append(f"tiktok: {e}")
+
+    # TuneCore
+    if SKIP_TUNECORE:
+        log.info("TuneCore SKIPPED")
+    elif cover_path and wav_path and wav_path.exists():
+        try:
+            log.info("=" * 60)
+            log.info("Uploading to TuneCore...")
+            tc_url = upload_to_tunecore(wav_path, cover_path, concept)
+            result["tunecore_url"] = tc_url
+            if tc_url:
+                log.info(f"TuneCore: {tc_url}")
+            else:
+                result["errors"].append("tunecore: upload returned None")
+        except Exception as e:
+            log.error(f"TuneCore upload failed: {e}")
+            result["errors"].append(f"tunecore: {e}")
+    else:
+        log.warning("TuneCore skipped — WAV or cover art missing")
+
+    # SoundCloud
+    if SKIP_SOUNDCLOUD:
+        log.info("SoundCloud SKIPPED")
+    elif wav_path and wav_path.exists():
+        try:
+            log.info("=" * 60)
+            log.info("Uploading to SoundCloud...")
+            sc_thumb = cover_path if cover_path else None
+            sc_url = upload_to_soundcloud(wav_path, concept, sc_thumb)
+            result["soundcloud_url"] = sc_url
+            if sc_url:
+                log.info(f"SoundCloud: {sc_url}")
+            else:
+                result["errors"].append("soundcloud: upload returned None")
+        except Exception as e:
+            log.error(f"SoundCloud upload failed: {e}")
+            result["errors"].append(f"soundcloud: {e}")
+    else:
+        log.warning("SoundCloud skipped — WAV missing")
+
+    log.info("=" * 60)
+    if result["errors"]:
+        log.warning(f"Completed with errors: {result['errors']}")
+    else:
+        log.info("Upload DONE!")
+    return result
+
+
+def flush_pending_uploads() -> list[dict]:
+    """Upload every track currently in the pending-upload queue.
+
+    Used by the late-day scheduler slot (e.g. 18:00) to finish uploading the
+    second song from each Suno split-generation. Successful entries are
+    removed from the queue; failed entries stay for the next run.
+    """
+    from modules import pending_uploads
+
+    pending = pending_uploads.list_pending()
+    if not pending:
+        log.info("No pending uploads to flush.")
+        return []
+
+    log.info(f"Flushing {len(pending)} pending upload(s)...")
+    results = []
+    for sidecar in pending:
+        log.info("#" * 60)
+        log.info(f"Flushing: {sidecar.name}")
+        try:
+            concept, payload = pending_uploads.load(sidecar)
+            video = Path(payload["video_path"])
+            thumb = Path(payload["thumbnail_path"])
+            cover = Path(payload["cover_path"]) if payload.get("cover_path") else None
+            wav = Path(payload["wav_path"]) if payload.get("wav_path") else None
+            mp3 = Path(payload["mp3_path"]) if payload.get("mp3_path") else None
+
+            if not video.exists():
+                log.error(f"Video missing for {sidecar.name}: {video}")
+                results.append({"sidecar": sidecar.name, "errors": [f"video missing: {video}"]})
+                continue
+
+            prepared = {
+                "concept": concept,
+                "video_path": video,
+                "thumbnail_path": thumb,
+                "cover_path": cover,
+                "wav_path": wav,
+                "mp3_path": mp3,
+                "duration": payload.get("duration"),
+            }
+            result = upload_prepared_track(prepared)
+            result["sidecar"] = sidecar.name
+            results.append(result)
+
+            # Consider it done if YouTube (the primary target) succeeded.
+            # TuneCore/SoundCloud failures are often session issues we can
+            # retry manually — don't block the queue on them.
+            if result.get("youtube_url"):
+                pending_uploads.mark_done(sidecar)
+            else:
+                log.warning(f"Keeping {sidecar.name} in queue — YouTube upload did not succeed")
+        except Exception as e:
+            log.error(f"Failed to flush {sidecar.name}: {e}")
+            results.append({"sidecar": sidecar.name, "errors": [str(e)]})
+    return results
+
+
 def process_single_track(mp3_path: Path, concept=None) -> dict:
     """Process one compiled MP3 file: concept → thumbnail → video → upload.
 

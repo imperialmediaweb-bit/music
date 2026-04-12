@@ -9,6 +9,29 @@ from config import OUTPUT_DIR
 from utils.logger import log
 
 
+def wav_from_mp3(mp3_path: Path) -> Path:
+    """Ensure a PCM WAV exists next to `mp3_path` (same stem, .wav extension).
+
+    Used by split-upload mode where we skip merging but still need a WAV for
+    TuneCore / SoundCloud. Returns the WAV path whether newly created or
+    already present.
+    """
+    wav_path = mp3_path.with_suffix(".wav")
+    if wav_path.exists():
+        return wav_path
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("FFmpeg not found — required for WAV export")
+    log.info(f"Exporting WAV: {wav_path}")
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(mp3_path),
+         "-acodec", "pcm_s16le", str(wav_path)],
+        capture_output=True, text=True, timeout=600,
+    )
+    if result.returncode != 0:
+        log.warning(f"WAV export failed: {result.stderr[-200:]}")
+    return wav_path
+
+
 def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
     """Merge multiple MP3 files into one continuous track (no gaps).
 
