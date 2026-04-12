@@ -8,6 +8,7 @@ Pipeline approach:
 5. Download the generated MP3s from the library
 """
 
+import os
 import re
 import time
 from pathlib import Path
@@ -17,7 +18,10 @@ from config import OUTPUT_DIR, INPUT_DIR, HEADLESS, SUNO_STATE_FILE
 from utils.logger import log
 
 
-GENERATION_WAIT_SEC = 120  # Suno typically takes ~1-2 min per generation
+# How long to wait after clicking Create before navigating to the library.
+# Suno usually finishes in ~2-4 min, but complex prompts with lyrics can
+# take longer. Configurable via SUNO_GENERATION_WAIT_SEC in .env.
+GENERATION_WAIT_SEC = int(os.getenv("SUNO_GENERATION_WAIT_SEC", "240"))
 
 
 def _dismiss_cookie_banner(page) -> None:
@@ -60,6 +64,136 @@ def _dismiss_cookie_banner(page) -> None:
         )
     except Exception:
         pass
+
+
+def _find_song_rows(page) -> list:
+    """Return handles for individual song rows in Suno's workspace list."""
+    for sel in [
+        '[data-testid="song-row"]',
+        '[data-testid="song-card"]',
+        '[role="row"]:has(button[aria-label*="more" i])',
+        'div:has(> button[aria-label*="more" i]):has(a[href*="/song/"])',
+        'a[href*="/song/"]',
+    ]:
+        try:
+            rows = page.query_selector_all(sel)
+            rows = [r for r in rows if r.is_visible()]
+            if rows:
+                log.info(f"Found {len(rows)} song rows via: {sel}")
+                return rows
+        except Exception:
+            continue
+    return []
+
+
+def _download_song_mp3(page, row_handle, target_path: Path) -> bool:
+    """Open the row's ⋯ menu → Download → MP3 Audio, and save the file.
+
+    Returns True if an MP3 landed at target_path, False otherwise.
+    """
+    # Step 1: open the 3-dot menu scoped to THIS row
+    menu_btn = None
+    for sel in [
+        'button[aria-label*="more" i]',
+        'button[aria-haspopup]',
+        '[data-testid*="more" i]',
+        '[data-testid*="menu" i]',
+    ]:
+        try:
+            menu_btn = row_handle.query_selector(sel)
+            if menu_btn and menu_btn.is_visible():
+                break
+            menu_btn = None
+        except Exception:
+            continue
+
+    if not menu_btn:
+        # Fallback: hover the row so the button appears, then last button
+        try:
+            row_handle.hover()
+            page.wait_for_timeout(400)
+            btns = [b for b in row_handle.query_selector_all("button") if b.is_visible()]
+            if btns:
+                menu_btn = btns[-1]  # ⋯ is usually the rightmost button on the row
+        except Exception:
+            pass
+
+    if not menu_btn:
+        log.warning("Could not find ⋯ menu button on song row")
+        return False
+
+    try:
+        menu_btn.scroll_into_view_if_needed()
+        menu_btn.click()
+    except Exception as e:
+        log.warning(f"⋯ menu click failed: {e}")
+        return False
+    page.wait_for_timeout(500)
+
+    # Step 2: hover/click the "Download" item to expand submenu
+    download_item = None
+    for sel in [
+        '[role="menuitem"]:has-text("Download")',
+        'li:has-text("Download")',
+        'button:has-text("Download")',
+        ':text("Download")',
+    ]:
+        try:
+            el = page.wait_for_selector(sel, timeout=2_000, state="visible")
+            if el:
+                download_item = el
+                break
+        except PlaywrightTimeout:
+            continue
+        except Exception:
+            continue
+
+    if not download_item:
+        log.warning("Could not find 'Download' menu item")
+        return False
+
+    try:
+        download_item.hover()
+        page.wait_for_timeout(400)
+    except Exception:
+        pass
+
+    # Step 3: click "MP3 Audio" in the submenu and capture the download
+    mp3_selectors = [
+        '[role="menuitem"]:has-text("MP3")',
+        'li:has-text("MP3 Audio")',
+        'button:has-text("MP3 Audio")',
+        ':text("MP3 Audio")',
+        ':text("MP3")',
+    ]
+
+    for sel in mp3_selectors:
+        try:
+            with page.expect_download(timeout=30_000) as dl_info:
+                mp3_item = page.wait_for_selector(sel, timeout=3_000, state="visible")
+                if not mp3_item:
+                    continue
+                mp3_item.click()
+            download = dl_info.value
+            download.save_as(str(target_path))
+            return True
+        except PlaywrightTimeout:
+            continue
+        except Exception as e:
+            log.info(f"MP3 Audio selector {sel} failed: {e}")
+            continue
+
+    # Fallback: click Download directly (older Suno UIs without submenu)
+    try:
+        with page.expect_download(timeout=30_000) as dl_info:
+            download_item.click()
+        download = dl_info.value
+        download.save_as(str(target_path))
+        return True
+    except Exception:
+        pass
+
+    return False
 
 
 def _validate_mp3(path: Path) -> bool:
@@ -309,68 +443,28 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                 time.sleep(5)
                 _dismiss_cookie_banner(page)
 
-                # Find download buttons for the latest songs
-                # Suno shows songs in a list — look for download/three-dot menus
-                song_cards = page.query_selector_all('[data-testid="song-card"], .song-row, [class*="song"], [class*="track"]')
-                if not song_cards:
-                    # Fallback: try to find any clickable song items
-                    song_cards = page.query_selector_all('a[href*="/song/"]')
+                # Find song rows for the latest 2 songs in the workspace
+                song_rows = _find_song_rows(page)[:2]
+                log.info(f"Downloading latest {len(song_rows)} song row(s)")
 
-                songs_to_download = song_cards[:2]  # Latest 2 songs from this batch
-                log.info(f"Found {len(song_cards)} songs, downloading latest {len(songs_to_download)}")
-
-                for i, card in enumerate(songs_to_download):
+                for i, row in enumerate(song_rows):
+                    mp3_path = download_dir / f"{safe_name}_suno_{batch_idx}_{i}.mp3"
                     try:
-                        card.click()
-                        time.sleep(2)
-
-                        # Look for download option in the song detail/menu
-                        download_selectors = [
-                            'button:has-text("Download")',
-                            'a:has-text("Download")',
-                            '[data-testid="download-button"]',
-                            'button[aria-label*="download" i]',
-                            'a[download]',
-                        ]
-
-                        # Try three-dot menu first
-                        for menu_sel in ['button[aria-label*="more" i]', 'button:has-text("...")', '[data-testid="menu-button"]']:
-                            try:
-                                menu = page.wait_for_selector(menu_sel, timeout=3_000)
-                                if menu:
-                                    menu.click()
-                                    time.sleep(1)
-                                    break
-                            except PlaywrightTimeout:
-                                continue
-
-                        for dl_sel in download_selectors:
-                            try:
-                                with page.expect_download(timeout=30_000) as dl_info:
-                                    dl_btn = page.wait_for_selector(dl_sel, timeout=5_000)
-                                    if dl_btn:
-                                        dl_btn.click()
-
-                                download = dl_info.value
-                                mp3_path = download_dir / f"{safe_name}_suno_{batch_idx}_{i}.mp3"
-                                download.save_as(str(mp3_path))
-
-                                if _validate_mp3(mp3_path):
-                                    all_mp3s.append(mp3_path)
-                                    log.info(f"Downloaded: {mp3_path.name}")
-                                else:
-                                    log.warning(f"Invalid MP3: {mp3_path.name}")
-                                break
-                            except (PlaywrightTimeout, Exception) as e:
-                                continue
-
-                        # Go back to library for next song
-                        page.goto("https://suno.com/me", wait_until="domcontentloaded", timeout=30_000)
-                        time.sleep(2)
-                        _dismiss_cookie_banner(page)
-
+                        ok = _download_song_mp3(page, row, mp3_path)
+                        if ok and _validate_mp3(mp3_path):
+                            all_mp3s.append(mp3_path)
+                            log.info(f"Downloaded: {mp3_path.name}")
+                        else:
+                            log.warning(f"Download failed or invalid MP3 for song {i}")
+                        # Close any open menu before next iteration
+                        page.keyboard.press("Escape")
+                        page.wait_for_timeout(400)
                     except Exception as e:
                         log.warning(f"Failed to download song {i}: {e}")
+                        try:
+                            page.keyboard.press("Escape")
+                        except Exception:
+                            pass
                         continue
 
             except Exception as e:
@@ -431,51 +525,26 @@ def download_existing_tracks(track_name: str = "", max_cards: int = 4) -> list[P
         time.sleep(5)
         _dismiss_cookie_banner(page)
 
-        # Find song cards
-        song_cards = page.query_selector_all('[data-testid="song-card"], .song-row, a[href*="/song/"]')
-        cards_to_process = song_cards[:max_cards]
-        log.info(f"Found {len(song_cards)} songs, processing {len(cards_to_process)}")
+        song_rows = _find_song_rows(page)[:max_cards]
+        log.info(f"Downloading latest {len(song_rows)} song(s) from library")
 
-        for i, card in enumerate(cards_to_process):
+        for i, row in enumerate(song_rows):
+            mp3_path = download_dir / f"{safe_name}_{i}.mp3"
             try:
-                card.click()
-                time.sleep(2)
-
-                # Open menu and click download
-                for menu_sel in ['button[aria-label*="more" i]', 'button:has-text("...")']:
-                    try:
-                        menu = page.wait_for_selector(menu_sel, timeout=3_000)
-                        if menu:
-                            menu.click()
-                            time.sleep(1)
-                            break
-                    except PlaywrightTimeout:
-                        continue
-
-                for dl_sel in ['button:has-text("Download")', 'a:has-text("Download")', 'a[download]']:
-                    try:
-                        with page.expect_download(timeout=30_000) as dl_info:
-                            dl_btn = page.wait_for_selector(dl_sel, timeout=5_000)
-                            if dl_btn:
-                                dl_btn.click()
-
-                        download = dl_info.value
-                        mp3_path = download_dir / f"{safe_name}_{i}.mp3"
-                        download.save_as(str(mp3_path))
-
-                        if _validate_mp3(mp3_path):
-                            all_mp3s.append(mp3_path)
-                            log.info(f"Downloaded: {mp3_path.name}")
-                        break
-                    except (PlaywrightTimeout, Exception):
-                        continue
-
-                page.goto("https://suno.com/me", wait_until="domcontentloaded", timeout=30_000)
-                time.sleep(2)
-                _dismiss_cookie_banner(page)
-
+                ok = _download_song_mp3(page, row, mp3_path)
+                if ok and _validate_mp3(mp3_path):
+                    all_mp3s.append(mp3_path)
+                    log.info(f"Downloaded: {mp3_path.name}")
+                else:
+                    log.warning(f"Download failed or invalid MP3 for song {i}")
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(400)
             except Exception as e:
                 log.warning(f"Failed to download song {i}: {e}")
+                try:
+                    page.keyboard.press("Escape")
+                except Exception:
+                    pass
 
         try:
             context.storage_state(path=str(state_file))

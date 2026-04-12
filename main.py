@@ -574,6 +574,47 @@ def cmd_download(args):
         log.info("Done!")
 
 
+def cmd_suno_download(args):
+    """Download the latest N tracks from Suno library, then run the pipeline.
+
+    Skips music generation. Goes to https://suno.com/me, downloads the
+    latest `--count` MP3s (default 2), merges → thumbnail → video → upload.
+    Useful when you generated songs on Suno manually and just want the
+    pipeline to finish them.
+    """
+    from modules.suno_generator import download_existing_tracks
+    from modules.audio_merger import merge_mp3s
+    from modules.concept_generator import generate_concept
+    from pipeline import process_single_track
+
+    track_name = args.name or ""
+    count = args.count
+
+    log.info("=" * 60)
+    log.info(f"STEP 1: Downloading latest {count} track(s) from Suno library...")
+    mp3_files = download_existing_tracks(track_name, max_cards=count)
+    if not mp3_files:
+        log.error("No MP3 files downloaded from Suno. Is the library empty or the session expired?")
+        sys.exit(1)
+    log.info(f"Downloaded {len(mp3_files)} MP3 files")
+
+    log.info("=" * 60)
+    log.info("STEP 2: Merging MP3 files...")
+    merged_path = merge_mp3s(mp3_files, output_name=track_name or None)
+    log.info(f"Merged file: {merged_path}")
+
+    log.info("=" * 60)
+    log.info("STEP 3-6: Concept → thumbnail → video → upload...")
+    concept = generate_concept(track_name=track_name) if track_name else None
+    result = process_single_track(merged_path, concept=concept)
+
+    if result["errors"]:
+        log.warning(f"Completed with {len(result['errors'])} error(s)")
+        sys.exit(1)
+    else:
+        log.info("Done!")
+
+
 def cmd_run(args):
     """Run full pipeline N times (generate music + merge + process + upload).
 
@@ -1018,6 +1059,21 @@ def main():
         help="Max number of cards to download from (default: 4)",
     )
     dl_parser.set_defaults(func=cmd_download)
+
+    # suno-download - grab the latest N tracks from Suno library and process them
+    suno_dl_parser = subparsers.add_parser(
+        "suno-download",
+        help="Download the latest N tracks from Suno → merge → thumbnail → video → YouTube",
+    )
+    suno_dl_parser.add_argument(
+        "--count", type=int, default=2,
+        help="Number of latest tracks to download from Suno library (default: 2)",
+    )
+    suno_dl_parser.add_argument(
+        "--name", type=str, default=None,
+        help="Optional track name for the merged output (default: AI picks one)",
+    )
+    suno_dl_parser.set_defaults(func=cmd_suno_download)
 
     # reupload - re-upload existing track (skip generation, just upload)
     reupload_parser = subparsers.add_parser(
