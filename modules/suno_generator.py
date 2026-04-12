@@ -92,23 +92,20 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                     log.error("Not logged in to Suno! Run 'python main.py suno-login' first.")
                     break
 
-                # Find and fill the prompt textarea
-                log.info("Filling in music prompt...")
-                prompt_text = concept.music_prompt or concept.description
-
                 # Suno's create page has Simple | Advanced | Sounds tabs.
-                # On Advanced there are TWO textareas (Lyrics + Styles);
-                # the style prompt belongs in Styles (Lyrics stays empty
-                # for instrumental). On Simple there is one combined field.
-                # Prefer Simple — it's unambiguous.
-                on_simple = False
-                for simple_sel in ['button:has-text("Simple")', '[role="tab"]:has-text("Simple")']:
+                # We use Advanced: Lyrics (from OpenAI) + Styles (music_prompt)
+                # + Create. For instrumental genres the lyrics string is empty
+                # and Lyrics stays blank — Suno then generates an instrumental.
+                style_text = concept.music_prompt or concept.description
+                lyrics_text = (concept.lyrics or "").strip()
+
+                # Switch to Advanced tab
+                for adv_sel in ['button:has-text("Advanced")', '[role="tab"]:has-text("Advanced")']:
                     try:
-                        tab = page.wait_for_selector(simple_sel, timeout=2_000)
+                        tab = page.wait_for_selector(adv_sel, timeout=2_000)
                         if tab and tab.is_visible():
                             tab.click()
-                            on_simple = True
-                            log.info("Switched to Suno 'Simple' tab")
+                            log.info("Switched to Suno 'Advanced' tab")
                             time.sleep(1.0)
                             break
                     except PlaywrightTimeout:
@@ -116,65 +113,76 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                     except Exception:
                         continue
 
-                prompt_filled = False
-                if on_simple:
-                    # Simple mode: one prompt textarea
-                    for sel in [
-                        'textarea[placeholder*="song" i]',
-                        'textarea[placeholder*="describe" i]',
-                        'textarea[placeholder*="style" i]',
-                        'textarea',
-                    ]:
-                        try:
-                            el = page.wait_for_selector(sel, timeout=3_000, state="visible")
-                            if el:
-                                el.click()
-                                el.fill(prompt_text)
-                                prompt_filled = True
-                                log.info(f"Prompt filled (Simple) using selector: {sel}")
-                                break
-                        except PlaywrightTimeout:
-                            continue
+                # Locate the Lyrics textarea (1st) and Styles textarea (2nd)
+                lyrics_ta = None
+                styles_ta = None
+                for sel in [
+                    'section:has(:text("Lyrics")) textarea',
+                    'div:has(> :text("Lyrics")) textarea',
+                    'textarea[placeholder*="lyrics" i]',
+                    'textarea[placeholder*="instrumental" i]',
+                ]:
+                    try:
+                        el = page.wait_for_selector(sel, timeout=2_000, state="visible")
+                        if el:
+                            lyrics_ta = el
+                            log.info(f"Lyrics textarea located: {sel}")
+                            break
+                    except PlaywrightTimeout:
+                        continue
+                    except Exception:
+                        continue
+
+                for sel in [
+                    'section:has(:text("Styles")) textarea',
+                    'div:has(> :text("Styles")) textarea',
+                    'textarea[placeholder*="style" i]',
+                    'textarea[placeholder*="genre" i]',
+                ]:
+                    try:
+                        el = page.wait_for_selector(sel, timeout=2_000, state="visible")
+                        if el:
+                            styles_ta = el
+                            log.info(f"Styles textarea located: {sel}")
+                            break
+                    except PlaywrightTimeout:
+                        continue
+                    except Exception:
+                        continue
+
+                # Fallback by order (Lyrics first, Styles second) if the
+                # structural selectors above didn't match
+                if not lyrics_ta or not styles_ta:
+                    textareas = [t for t in page.query_selector_all("textarea") if t.is_visible()]
+                    log.info(f"Advanced fallback: {len(textareas)} visible textareas")
+                    if len(textareas) >= 2:
+                        lyrics_ta = lyrics_ta or textareas[0]
+                        styles_ta = styles_ta or textareas[1]
+
+                if not styles_ta:
+                    log.error("Could not find Styles textarea on Suno Advanced tab")
+                    page.screenshot(path=str(OUTPUT_DIR / "debug_suno_prompt.png"), full_page=True)
+                    break
+
+                # Fill Lyrics (or leave empty for instrumental)
+                if lyrics_ta and lyrics_text:
+                    try:
+                        lyrics_ta.click()
+                        lyrics_ta.fill(lyrics_text)
+                        log.info(f"Lyrics filled ({len(lyrics_text)} chars)")
+                    except Exception as e:
+                        log.warning(f"Lyrics fill failed: {e}")
                 else:
-                    # Advanced mode fallback: target the Styles textarea only.
-                    # It is the textarea under the "Styles" accordion section.
-                    styles_selectors = [
-                        # Explicit: section labelled Styles contains this textarea
-                        'section:has(:text("Styles")) textarea',
-                        'div:has(> :text("Styles")) textarea',
-                        # Placeholder hints
-                        'textarea[placeholder*="style" i]',
-                        'textarea[placeholder*="genre" i]',
-                    ]
-                    for sel in styles_selectors:
-                        try:
-                            el = page.wait_for_selector(sel, timeout=3_000, state="visible")
-                            if el:
-                                el.click()
-                                el.fill(prompt_text)
-                                prompt_filled = True
-                                log.info(f"Prompt filled (Advanced/Styles) using selector: {sel}")
-                                break
-                        except PlaywrightTimeout:
-                            continue
-                        except Exception:
-                            continue
+                    log.info("Lyrics left empty (instrumental)")
 
-                    # Last resort: pick the SECOND textarea (first is Lyrics)
-                    if not prompt_filled:
-                        textareas = page.query_selector_all("textarea")
-                        log.info(f"Advanced fallback: found {len(textareas)} textareas")
-                        if len(textareas) >= 2:
-                            try:
-                                textareas[1].click()
-                                textareas[1].fill(prompt_text)
-                                prompt_filled = True
-                                log.info("Prompt filled (Advanced) via 2nd textarea (Styles)")
-                            except Exception as e:
-                                log.warning(f"2nd textarea fill failed: {e}")
-
-                if not prompt_filled:
-                    log.error("Could not find prompt input on Suno create page")
+                # Fill Styles (required for Create button to enable)
+                try:
+                    styles_ta.click()
+                    styles_ta.fill(style_text)
+                    log.info(f"Styles filled ({len(style_text)} chars)")
+                    prompt_filled = True
+                except Exception as e:
+                    log.error(f"Styles fill failed: {e}")
                     page.screenshot(path=str(OUTPUT_DIR / "debug_suno_prompt.png"), full_page=True)
                     break
 
