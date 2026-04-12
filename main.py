@@ -7,6 +7,23 @@ import signal
 import sys
 from pathlib import Path
 
+# Extract --profile from sys.argv BEFORE importing config, so config.py picks
+# up the correct profile-specific .env.<profile> file. Removing the flag from
+# sys.argv keeps argparse unaware of it (no declaration needed on every
+# subparser, and no risk of breaking existing commands).
+_idx = 0
+while _idx < len(sys.argv):
+    _arg = sys.argv[_idx]
+    if _arg == "--profile" and _idx + 1 < len(sys.argv):
+        os.environ["LUTH_PROFILE"] = sys.argv[_idx + 1]
+        del sys.argv[_idx : _idx + 2]
+        break
+    if _arg.startswith("--profile="):
+        os.environ["LUTH_PROFILE"] = _arg.split("=", 1)[1]
+        del sys.argv[_idx]
+        break
+    _idx += 1
+
 from config import (
     SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE,
     SUNO_STATE_FILE, UDIO_STATE_FILE, TUNECORE_STATE_FILE, SOUNDCLOUD_STATE_FILE,

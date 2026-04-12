@@ -2,7 +2,14 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Optional profile (e.g. "darkhouse") selects an additional .env.<profile> file
+# that is loaded BEFORE .env. Variables in the profile take precedence; .env
+# fills in everything the profile does not override. When LUTH_PROFILE is unset,
+# behavior is identical to loading just .env.
+_profile = os.getenv("LUTH_PROFILE", "").strip()
+if _profile:
+    load_dotenv(Path(__file__).parent / f".env.{_profile}", override=False)
+load_dotenv(override=False)
 
 BASE_DIR = Path(__file__).parent
 
