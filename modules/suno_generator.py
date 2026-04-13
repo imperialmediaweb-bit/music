@@ -502,6 +502,30 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                 for i in range(target):
                     mp3_path = download_dir / f"{safe_name}_suno_{batch_idx}_{i}.mp3"
 
+                    # Guard: the download action sometimes navigates the page
+                    # away from /me (e.g. Suno fires a full-page redirect to
+                    # the MP3 URL). If we're no longer on the library, go back
+                    # before trying to find the next song's menu button.
+                    try:
+                        current_url = page.url or ""
+                    except Exception:
+                        current_url = ""
+                    if "suno.com/me" not in current_url:
+                        log.info(
+                            f"Page left library (url={current_url!r}) — "
+                            "navigating back to /me"
+                        )
+                        try:
+                            page.goto(
+                                "https://suno.com/me",
+                                wait_until="domcontentloaded",
+                                timeout=60_000,
+                            )
+                            page.wait_for_timeout(3000)
+                            _dismiss_cookie_banner(page)
+                        except Exception as e:
+                            log.warning(f"Failed to return to /me: {e}")
+
                     # Re-query every time: the DOM changes after menu open/close
                     fresh_buttons = _find_song_menu_buttons(page)[:target]
                     # If the target song isn't visible yet, give Suno more time
