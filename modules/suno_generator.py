@@ -571,7 +571,10 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                             page.keyboard.press("Escape")
                         except Exception:
                             pass
-                        page.wait_for_timeout(600)
+                        # Pace downloads: wait 5 s between songs so Suno has
+                        # time to settle (menu close, DOM re-render, any
+                        # redirect) before the next download attempt.
+                        page.wait_for_timeout(5000)
 
                 log.info(
                     f"Batch {batch_idx + 1}: downloaded "
