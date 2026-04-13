@@ -115,12 +115,15 @@ def _find_song_menu_buttons(page) -> list:
     return []
 
 
-def _wait_for_two_songs(page, timeout_sec: int = 120) -> list:
+def _wait_for_two_songs(page, timeout_sec: int = 300) -> list:
     """Poll the library until at least 2 song ⋯ menu buttons are visible.
 
     Suno renders songs one-by-one as they finish generating. If we query too
     early we may only see 1 button, miss the second song, and download half
     of what we paid for. Re-query the DOM every 5 s up to timeout.
+
+    Default 300 s (5 min) — the second song can lag noticeably behind the
+    first on long / complex generations.
     """
     deadline = time.time() + timeout_sec
     last_count = 0
@@ -131,6 +134,13 @@ def _wait_for_two_songs(page, timeout_sec: int = 120) -> list:
         if len(buttons) != last_count:
             log.info(f"Only {len(buttons)} song(s) visible in library — waiting for second...")
             last_count = len(buttons)
+        # Nudge Suno into re-rendering by reloading the library every 30s
+        try:
+            if int(time.time() - (deadline - timeout_sec)) % 30 == 0:
+                page.reload(wait_until="domcontentloaded", timeout=30_000)
+                page.wait_for_timeout(2000)
+        except Exception:
+            pass
         time.sleep(5)
     # Timeout — return whatever we have (caller handles 0/1)
     return _find_song_menu_buttons(page)
@@ -480,38 +490,57 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                 # download each in turn. Re-query the DOM for every iteration
                 # because Suno re-renders the list after each menu close, which
                 # invalidates previously captured element handles.
-                initial_buttons = _wait_for_two_songs(page, timeout_sec=120)
-                expected = min(2, len(initial_buttons)) if initial_buttons else 0
-                if expected < 2:
-                    log.warning(
-                        f"Only {expected} song(s) visible on library after wait — "
-                        "downloading what's there"
-                    )
-                expected = max(expected, len(initial_buttons))
-                # Cap at 2 — we only want the pair from this batch
-                expected = min(expected, 2)
-                log.info(f"Attempting to download {expected} song(s) from this batch")
+                initial_buttons = _wait_for_two_songs(page, timeout_sec=300)
+                log.info(f"Library shows {len(initial_buttons)} song button(s) after wait")
 
-                for i in range(expected):
+                # We always want the pair from this batch (2 songs per Create).
+                # Try for 2 even if only 1 was visible — _find_song_menu_buttons
+                # is re-queried inside the loop, and we extend the wait if the
+                # second hasn't rendered yet.
+                target = 2
+                downloaded_this_batch = 0
+                for i in range(target):
                     mp3_path = download_dir / f"{safe_name}_suno_{batch_idx}_{i}.mp3"
+
                     # Re-query every time: the DOM changes after menu open/close
-                    fresh_buttons = _find_song_menu_buttons(page)[:2]
+                    fresh_buttons = _find_song_menu_buttons(page)[:target]
+                    # If the target song isn't visible yet, give Suno more time
                     if i >= len(fresh_buttons):
-                        log.warning(
-                            f"Song {i} no longer visible on re-query "
-                            f"({len(fresh_buttons)} button(s) found) — stopping"
+                        log.info(
+                            f"Song {i + 1}/{target} not visible yet "
+                            f"({len(fresh_buttons)} button(s) found) — "
+                            "waiting up to 180s more"
                         )
-                        break
+                        extra_deadline = time.time() + 180
+                        while time.time() < extra_deadline:
+                            time.sleep(10)
+                            try:
+                                page.reload(wait_until="domcontentloaded", timeout=30_000)
+                                page.wait_for_timeout(2000)
+                                _dismiss_cookie_banner(page)
+                            except Exception:
+                                pass
+                            fresh_buttons = _find_song_menu_buttons(page)[:target]
+                            if len(fresh_buttons) > i:
+                                log.info(f"Song {i + 1} now visible — proceeding")
+                                break
+                        if i >= len(fresh_buttons):
+                            log.warning(
+                                f"Song {i + 1}/{target} never appeared — stopping batch"
+                            )
+                            break
+
                     menu_btn = fresh_buttons[i]
                     try:
                         ok = _download_song_mp3(page, menu_btn, mp3_path)
                         if ok and _validate_mp3(mp3_path):
                             all_mp3s.append(mp3_path)
+                            downloaded_this_batch += 1
                             log.info(f"Downloaded: {mp3_path.name}")
                         else:
-                            log.warning(f"Download failed or invalid MP3 for song {i}")
+                            log.warning(f"Download failed or invalid MP3 for song {i + 1}")
                     except Exception as e:
-                        log.warning(f"Failed to download song {i}: {e}")
+                        log.warning(f"Failed to download song {i + 1}: {e}")
                     finally:
                         # Always close any open menu before next iteration
                         try:
@@ -519,6 +548,11 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                         except Exception:
                             pass
                         page.wait_for_timeout(600)
+
+                log.info(
+                    f"Batch {batch_idx + 1}: downloaded "
+                    f"{downloaded_this_batch}/{target} songs"
+                )
 
             except Exception as e:
                 log.error(f"Suno batch {batch_idx + 1} failed: {e}")

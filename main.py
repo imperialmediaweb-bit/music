@@ -27,7 +27,7 @@ while _idx < len(sys.argv):
 from config import (
     SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE,
     SUNO_STATE_FILE, UDIO_STATE_FILE, TUNECORE_STATE_FILE, SOUNDCLOUD_STATE_FILE,
-    MUSIC_PLATFORM, SONGS_PER_CLIP,
+    MUSIC_PLATFORM, SONGS_PER_CLIP, SUNO_GEN_COUNT, SUNO_SPLIT_UPLOAD,
 )
 from utils.logger import log
 
@@ -80,6 +80,12 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
     if songs:
         gen_count = max(1, songs // 2)  # Each generation = 2 songs
 
+    # Suno-only override: SUNO_GEN_COUNT lets Dark House generate multiple
+    # batches (e.g. 4 = 8 songs) for a long merged mix, without affecting the
+    # Afro House path.
+    if platform == "suno" and SUNO_GEN_COUNT > 0:
+        gen_count = SUNO_GEN_COUNT
+
     generate_music_batch = _get_music_generator(platform)
 
     # Step 1: Generate concept first (for the music prompt)
@@ -99,8 +105,10 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
     mp3_files = generate_music_batch(concept, count=gen_count)
     log.info(f"Generated {len(mp3_files)} MP3 files")
 
-    # Suno split-upload: each song uploaded separately, second deferred
-    if platform == "suno" and len(mp3_files) >= 2:
+    # Suno split-upload: each song uploaded separately, second deferred.
+    # Disabled when SUNO_SPLIT_UPLOAD=false (e.g. Dark House long mixes —
+    # merge all songs into a single 20-30 min track).
+    if platform == "suno" and SUNO_SPLIT_UPLOAD and len(mp3_files) >= 2:
         return _run_split_upload(mp3_files, base_concept=concept,
                                  genre=genre, music_style=music_style,
                                  thumbnail_style=thumbnail_style, fusion=fusion)

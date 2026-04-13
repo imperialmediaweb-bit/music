@@ -36,6 +36,14 @@ MUSIC_PLATFORM = os.getenv("MUSIC_PLATFORM", "aimusicfactory")
 # Default number of songs to generate per clip (2, 4, 6, 8)
 SONGS_PER_CLIP = int(os.getenv("SONGS_PER_CLIP", "2"))
 
+# Suno-specific: number of times to click "Create" (each = 2 songs).
+# Overrides SONGS_PER_CLIP on Suno when set. Default 1 keeps old behavior.
+SUNO_GEN_COUNT = int(os.getenv("SUNO_GEN_COUNT", "0"))
+# Suno-specific: split each generated song into its own YouTube video (default).
+# Set to "false" (e.g. for Dark House long mixes) to merge all songs into one
+# long track and upload a single video.
+SUNO_SPLIT_UPLOAD = os.getenv("SUNO_SPLIT_UPLOAD", "true").lower() == "true"
+
 # Music genre (used for concept generation)
 MUSIC_GENRE = os.getenv("MUSIC_GENRE", "Afro House")
 # Custom music style prompt (overrides default genre-based style)
