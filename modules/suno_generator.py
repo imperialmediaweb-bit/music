@@ -17,6 +17,84 @@ from modules.concept_generator import MusicConcept
 from config import OUTPUT_DIR, INPUT_DIR, HEADLESS, SUNO_STATE_FILE
 from utils.logger import log
 
+# Optional: playwright-stealth to reduce bot-detection signals so Suno shows
+# its hCaptcha ("click everything made for flying") less often. Falls back
+# silently if the package is not installed.
+try:
+    from playwright_stealth import stealth_sync as _stealth_sync
+except ImportError:
+    try:
+        from playwright_stealth import stealth as _stealth_sync  # older API
+    except ImportError:
+        _stealth_sync = None
+
+
+# How long to wait (seconds) for the user to solve a CAPTCHA when one appears.
+# Zero disables the wait — the pipeline will crash as before.
+CAPTCHA_WAIT_SEC = int(os.getenv("SUNO_CAPTCHA_WAIT_SEC", "300"))
+
+
+def _apply_stealth(page) -> None:
+    """Attempt to apply playwright-stealth patches; no-op if unavailable."""
+    if _stealth_sync is None:
+        return
+    try:
+        _stealth_sync(page)
+    except Exception as e:
+        log.info(f"playwright-stealth failed to apply: {e}")
+
+
+def _captcha_visible(page) -> bool:
+    """Return True if Suno's hCaptcha (or similar) overlay is on the page."""
+    selectors = [
+        'iframe[src*="hcaptcha"]',
+        'iframe[src*="captcha"]',
+        'iframe[title*="captcha" i]',
+        'iframe[title*="hcaptcha" i]',
+        'div#hcaptcha',
+        'div.h-captcha',
+        ':text("Click on everything made for")',
+        ':text("Please verify you are human")',
+        ':text("Verify you are human")',
+    ]
+    for sel in selectors:
+        try:
+            el = page.query_selector(sel)
+            if el:
+                try:
+                    if el.is_visible():
+                        return True
+                except Exception:
+                    return True
+        except Exception:
+            continue
+    return False
+
+
+def _wait_for_captcha_solve(page, timeout_sec: int = CAPTCHA_WAIT_SEC) -> bool:
+    """Block until the user solves a visible CAPTCHA (or timeout).
+
+    Returns True once no CAPTCHA is visible, False on timeout.
+    """
+    if not _captcha_visible(page):
+        return True
+    log.warning(
+        "=" * 60 + "\n"
+        "CAPTCHA detected on Suno. Please solve it manually in the browser.\n"
+        f"Waiting up to {timeout_sec}s for you to finish.\n"
+        + "=" * 60
+    )
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        time.sleep(3)
+        if not _captcha_visible(page):
+            log.info("CAPTCHA cleared — resuming automation")
+            # Give Suno a beat to re-enable the UI after verification
+            page.wait_for_timeout(1500)
+            return True
+    log.error(f"CAPTCHA still present after {timeout_sec}s — giving up")
+    return False
+
 
 # How long to wait after clicking Create before navigating to the library.
 # Suno usually finishes in ~2-4 min, but complex prompts with lyrics can
@@ -296,6 +374,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
 
         # Set up download handling
         page = context.new_page()
+        _apply_stealth(page)
 
         for batch_idx in range(count):
             log.info(f"--- Suno batch {batch_idx + 1}/{count} ---")
@@ -306,6 +385,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                 page.goto("https://suno.com/create", wait_until="domcontentloaded", timeout=60_000)
                 time.sleep(3)
                 _dismiss_cookie_banner(page)
+                _wait_for_captcha_solve(page)
 
                 # Check if we're logged in (look for the create form)
                 if page.url and "login" in page.url.lower():
@@ -485,6 +565,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                 page.goto("https://suno.com/me", wait_until="domcontentloaded", timeout=60_000)
                 time.sleep(5)
                 _dismiss_cookie_banner(page)
+                _wait_for_captcha_solve(page)
 
                 # Wait until BOTH songs from this Create are visible, then
                 # download each in turn. Re-query the DOM for every iteration
@@ -634,10 +715,12 @@ def download_existing_tracks(track_name: str = "", max_cards: int = 4) -> list[P
 
         context = browser.new_context(**context_opts)
         page = context.new_page()
+        _apply_stealth(page)
 
         page.goto("https://suno.com/me", wait_until="domcontentloaded", timeout=60_000)
         time.sleep(5)
         _dismiss_cookie_banner(page)
+        _wait_for_captcha_solve(page)
 
         menu_buttons = _find_song_menu_buttons(page)[:max_cards]
         log.info(f"Downloading latest {len(menu_buttons)} song(s) from library")
