@@ -27,32 +27,39 @@ class MusicConcept:
 
 # Default style prompts per genre (used when no custom prompt is set)
 DEFAULT_AFRO_HOUSE_STYLE = (
-    "Create a progressive Afro House track infused with heavy car bass and deep, "
-    "psychedelic tribal energy. The tempo is 122 BPM, blending organic percussion "
-    "(congas, shakers, djembe, bongos) with massive analog low-end — the kind of "
-    "bass that moves both air and soul. Layer psychedelic textures, evolving "
-    "atmospheric pads, and subtle vocal tribal chants that echo through wide stereo "
-    "space. Introduce dark, evolving synth arps and progressive transitions that "
-    "rise gradually toward a cinematic, festival-style drop. The groove should feel "
-    "spiritual yet raw, balancing Afro rhythms with deep car bass resonance, perfect "
-    "for big sound systems and open-air sets. The overall sound is deep, hypnotic, "
-    "and cinematic, mastered for warmth, clarity, and sub-bass impact."
+    "Create a progressive Afro House × Deep Bass House remix-style track infused "
+    "with massive car bass and deep, psychedelic tribal energy. Tempo 122 BPM. "
+    "Blend organic percussion (congas, shakers, djembe, bongos, log drums) with "
+    "modern deep house production: rolling 4-on-the-floor kick, plucked deep "
+    "house bassline that hits in the chest, side-chained sub-bass, and warm "
+    "analog low-end. Layer psychedelic textures, evolving atmospheric pads, "
+    "filter sweeps, and subtle vocal tribal chants that echo through wide "
+    "stereo space. Introduce dark, evolving synth arps, tape-style risers, and "
+    "remix-style breakdowns/build-ups that drop into a cinematic festival-style "
+    "groove. The vibe should feel like a deep house remix of a sacred Afro "
+    "anthem — spiritual yet club-ready, balancing Afro rhythms with deep bass "
+    "house resonance, perfect for big sound systems, car audio, and open-air "
+    "sets. Mastered loud and warm with serious sub-bass impact."
 )
 
 DEFAULT_THUMBNAIL_PROMPT = (
-    "A dramatic, high-detail AUTHENTIC African tribal mask centered on a deep dark background. "
+    "A dramatic, hyper-detailed AUTHENTIC African tribal mask centered on a deep dark background, "
+    "designed as a SCROLL-STOPPING YouTube thumbnail for an Afro House × Deep Bass House remix. "
     "Each mask must be COMPLETELY UNIQUE — vary the tribe/region inspiration: "
     "Yoruba, Dogon, Fang, Punu, Dan, Kuba, Chokwe, Makonde, Baule, Songye, Luba, Bamana. "
-    "Use authentic patterns, materials and colors from real African art traditions: "
-    "carved wood with natural patina, cowrie shells, raffia, brass ornaments, scarification marks, "
-    "geometric tribal patterns, ritual paint in ochre/indigo/kaolin white. "
-    "CRITICAL FOR THUMBNAILS: The mask must have GLOWING EYES with intense supernatural energy "
-    "(neon gold, electric blue, or fiery orange glow). Use EXTREME HIGH CONTRAST — dark background "
-    "with BRIGHT vivid glowing elements that POP. Add dramatic rim lighting, volumetric smoke, "
-    "floating embers and mystical particles. The mask should take up 60-70% of the frame. "
+    "Authentic patterns, materials and colors from real African art traditions: carved wood "
+    "with rich patina, cowrie shells, raffia, brass ornaments, scarification marks, geometric "
+    "tribal patterns, ritual paint in ochre/indigo/kaolin white. "
+    "CRITICAL CTR DETAILS: The mask MUST have EXTREMELY INTENSE GLOWING EYES with supernatural "
+    "energy (neon gold, electric blue, fiery orange, or molten lava red — choose ONE per image, "
+    "make it look ALIVE and otherworldly). EXTREME HIGH CONTRAST — pitch-dark background with "
+    "explosive bursts of saturated color (magenta, electric blue, glowing amber). Dramatic rim "
+    "lighting from one side, volumetric smoke, floating embers, mystical particles, festival "
+    "laser beams cutting through haze, sub-bass shockwave ripples in the air. The mask takes up "
+    "60-70% of the frame, perfectly CENTERED, hyper-sharp focus on the face. "
     "No text or letters on the image. "
-    "The overall style is cinematic, vivid, dark, and powerful — like a sacred artifact photographed "
-    "in dramatic spotlight lighting. Afro House music album cover aesthetic. 4K quality, ultra detailed."
+    "Cinematic 8K poster quality — sacred artifact meets deep bass house album cover. The image "
+    "must POP at small sizes (mobile YouTube feed) and feel both ancient/spiritual and club-ready."
 )
 
 # ── Fusion genres for the 13:00 slot (Afro House × another genre) ──
@@ -916,20 +923,32 @@ GENRE_PROFILES: dict[str, dict] = {
             "rivers, spirits, or ancestral places — rhythmic, two syllables preferred"
         ),
         "name_examples": "Bakari, Djenné, Kisumu, Makossa, Ngoma, Safiri, Tabora, Owari, Gajani, Lumba, Echoro, Haruna, Fikiri, Zaharu",
-        "power_words": "ADDICTIVE, LEGENDARY, FORBIDDEN, GODLY, SACRED, PRIMAL, EPIC, INSANE, MASSIVE, UNREAL, TRIBAL, ANCESTRAL, SPIRITUAL, HYPNOTIC",
+        "power_words": "ADDICTIVE, LEGENDARY, FORBIDDEN, GODLY, SACRED, PRIMAL, EPIC, INSANE, MASSIVE, UNREAL, TRIBAL, ANCESTRAL, SPIRITUAL, HYPNOTIC, DEEP, REMIX",
+        # Compilation-mix titles in the same style as the Dark House channel,
+        # tuned for an Afro House × Deep Bass House Remix vibe. {mix_number}
+        # is auto-incremented per run via _next_mix_number(genre).
         "title_formulas": (
-            "- TRACKNAME 🔥 The Most ADDICTIVE {genre} Track of 2026 | [Mood] Extended Mix | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 This {genre} Track Will POSSESS Your Soul | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 SACRED Tribal Journey | Deep {genre} You MUST Hear | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 PRIMAL {genre} Energy | Your New Obsession | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 LEGENDARY African Energy | {genre} Extended 2026 | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 GODLY {genre} Mix | Tribal Beats From Another Dimension | {genre_hashtag}"
+            "- TRACKNAME 🔥 Afro House Mix • Deep Bass / Tribal Energy / Car Audio #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Afro Deep House Remix • Sacred Tribal / Festival Drop #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Afro House Mix • Hypnotic Drums / Primal Energy / Sunset Set #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Deep Bass Afro House Remix • Open-Air / Spiritual Groove #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Afro House Mix • Massive Car Bass / Tribal Chants #{mix_number} 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The Most ADDICTIVE Afro Deep House Remix of 2026 #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 GODLY Afro House × Deep Bass Remix • Festival Energy #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Afro House Mix • Ancestral Drums / Deep House Drop #{mix_number} | {genre_hashtag}"
         ),
         "thumbnail_core": (
             "An authentic African tribal mask (Yoruba, Dogon, Fang, Punu, Dan, Kuba, Chokwe, "
-            "Makonde, Baule, Songye, Luba, or Bamana) with GLOWING supernatural eyes, carved wood, "
-            "cowrie shells, raffia, brass ornaments, ritual paint. Dark background, volumetric smoke, "
-            "embers and mystical particles. Centered composition, 60-70% frame."
+            "Makonde, Baule, Songye, Luba, or Bamana) with EXTREMELY INTENSE GLOWING supernatural "
+            "eyes (neon gold, electric blue, fiery orange or molten lava red — must look like the "
+            "mask is ALIVE). Carved wood with rich patina, cowrie shells, raffia, brass ornaments, "
+            "ritual paint in ochre/indigo/kaolin white, scarification marks. Hyper-detailed face "
+            "(60-70% of the frame), DRAMATIC RIM LIGHTING from one side, deep dark background "
+            "with explosive bursts of color (saturated magenta, electric blue, glowing amber). "
+            "Volumetric smoke, floating embers, mystical particles, sub-bass shockwave ripples in "
+            "the air, festival laser beams cutting through the haze. Cinematic 8K poster quality, "
+            "ultra HIGH CONTRAST so it POPS as a YouTube thumbnail at small sizes. Centered, "
+            "powerful, sacred yet club-ready — like an Afro House × deep bass remix album cover."
         ),
         "related_genres": "deep house, tribal house, organic house, melodic house, african house music, afro tribal, ethnic house, progressive house",
         "use_cases": "gym workout music, driving music, DJ sets, festival music, meditation, car bass music, late night vibes, sunset sessions",
