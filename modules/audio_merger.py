@@ -27,10 +27,13 @@ def get_duration(audio_path: Path) -> float:
 
 
 def trim_silence(audio_path: Path) -> Path:
-    """Strip leading and trailing silence from an audio file in-place.
+    """Strip silence from start, end, AND middle of an audio file in-place.
 
-    Uses ffmpeg's silenceremove filter:
+    Uses ffmpeg's silenceremove filter in three passes:
     - Leading: remove silence below -50 dB
+    - Middle: collapse ANY silence longer than 2.5 s (below -50 dB) to
+      0.5 s — keeps musical breathing room but stays well under TuneCore's
+      5 s rejection threshold
     - Trailing: reverse → remove leading silence → reverse back
 
     Returns the same path (overwritten). On failure, the original file is
@@ -45,7 +48,13 @@ def trim_silence(audio_path: Path) -> Path:
         [
             "ffmpeg", "-y", "-i", str(audio_path),
             "-af", (
-                "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB,"
+                # Strip leading silence + collapse ALL mid-track silences
+                # (stop_periods=-1) down to 0.5 s each — well under TuneCore's
+                # 5 s rejection threshold.
+                "silenceremove="
+                "start_periods=1:start_duration=0.1:start_threshold=-50dB:"
+                "stop_periods=-1:stop_duration=0.5:stop_threshold=-50dB,"
+                # Strip trailing silence (reverse → trim leading → reverse back)
                 "areverse,"
                 "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB,"
                 "areverse"
