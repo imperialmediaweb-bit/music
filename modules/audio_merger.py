@@ -1,5 +1,6 @@
 """Merge multiple MP3 files into one continuous track using FFmpeg."""
 
+import json
 import subprocess
 import shutil
 import tempfile
@@ -7,6 +8,83 @@ from pathlib import Path
 
 from config import OUTPUT_DIR
 from utils.logger import log
+
+TUNECORE_MIN_DURATION_SEC = 65
+
+
+def get_duration(audio_path: Path) -> float:
+    """Return duration in seconds of an audio file (MP3/WAV)."""
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", str(audio_path)],
+            capture_output=True, text=True, timeout=30,
+        )
+        return float(json.loads(probe.stdout)["format"]["duration"])
+    except Exception as e:
+        log.warning(f"Could not probe duration for {audio_path}: {e}")
+        return 0.0
+
+
+def trim_silence(audio_path: Path) -> Path:
+    """Strip leading and trailing silence from an audio file in-place.
+
+    Uses ffmpeg's silenceremove filter:
+    - Leading: remove silence below -50 dB
+    - Trailing: reverse → remove leading silence → reverse back
+
+    Returns the same path (overwritten). On failure, the original file is
+    left untouched and a warning is logged.
+    """
+    if not audio_path.exists():
+        return audio_path
+
+    tmp_path = audio_path.with_suffix(f".trimmed{audio_path.suffix}")
+
+    result = subprocess.run(
+        [
+            "ffmpeg", "-y", "-i", str(audio_path),
+            "-af", (
+                "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB,"
+                "areverse,"
+                "silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB,"
+                "areverse"
+            ),
+            str(tmp_path),
+        ],
+        capture_output=True, text=True, timeout=300,
+    )
+
+    if result.returncode != 0:
+        log.warning(f"Silence trim failed: {result.stderr[-200:]}")
+        tmp_path.unlink(missing_ok=True)
+        return audio_path
+
+    before = get_duration(audio_path)
+    after = get_duration(tmp_path)
+    trimmed = before - after
+
+    if trimmed > 0.5:
+        shutil.move(str(tmp_path), str(audio_path))
+        log.info(f"Trimmed {trimmed:.1f}s of silence from {audio_path.name} "
+                 f"({before:.1f}s → {after:.1f}s)")
+    else:
+        tmp_path.unlink(missing_ok=True)
+        log.info(f"No significant silence found in {audio_path.name}")
+
+    return audio_path
+
+
+def is_tunecore_ready(audio_path: Path) -> bool:
+    """Return True if the audio meets TuneCore requirements (≥60s, no long silence)."""
+    dur = get_duration(audio_path)
+    if dur < TUNECORE_MIN_DURATION_SEC:
+        log.warning(
+            f"TuneCore: {audio_path.name} is only {dur:.1f}s — "
+            f"minimum is {TUNECORE_MIN_DURATION_SEC}s for singles. Skipping TuneCore."
+        )
+        return False
+    return True
 
 
 def wav_from_mp3(mp3_path: Path) -> Path:
@@ -49,7 +127,6 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
 
     if len(mp3_files) == 1:
         log.info("Only 1 MP3 file, no merging needed")
-        # Still export WAV for TuneCore distribution
         single = mp3_files[0]
         wav_path = OUTPUT_DIR / f"{single.stem}.wav"
         if not wav_path.exists():
@@ -61,6 +138,7 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
             )
             if wav_result.returncode == 0:
                 log.info(f"WAV saved: {wav_path}")
+                trim_silence(wav_path)
             else:
                 log.warning(f"WAV export failed: {wav_result.stderr[-200:]}")
         return single
@@ -131,6 +209,7 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
         )
         if wav_result.returncode == 0:
             log.info(f"WAV saved: {wav_path}")
+            trim_silence(wav_path)
         else:
             log.warning(f"WAV export failed: {wav_result.stderr[-200:]}")
 

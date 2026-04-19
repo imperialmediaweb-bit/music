@@ -386,9 +386,18 @@ def upload_prepared_track(prepared: dict) -> dict:
             log.error(f"TikTok upload failed: {e}")
             result["errors"].append(f"tiktok: {e}")
 
+    # Trim silence from WAV before TuneCore/SoundCloud upload
+    _tc_ready = False
+    if wav_path and wav_path.exists():
+        from modules.audio_merger import trim_silence, is_tunecore_ready
+        trim_silence(wav_path)
+        _tc_ready = is_tunecore_ready(wav_path)
+
     # TuneCore
     if SKIP_TUNECORE:
         log.info("TuneCore SKIPPED")
+    elif not _tc_ready:
+        log.warning("TuneCore SKIPPED — audio does not meet requirements (silence/duration)")
     elif cover_path and wav_path and wav_path.exists():
         try:
             log.info("=" * 60)
@@ -648,10 +657,24 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         log.info("=" * 60)
         log.info("STEP 7: Cover art already generated in Step 3 — skipping")
 
+    # Step 7½: Trim silence from WAV before TuneCore/SoundCloud
+    # TuneCore rejects tracks with >5s of silence anywhere in the audio.
+    if wav_path.exists():
+        from modules.audio_merger import trim_silence, is_tunecore_ready
+        log.info("=" * 60)
+        log.info("STEP 7½: Trimming silence from WAV for TuneCore/SoundCloud...")
+        trim_silence(wav_path)
+        _tc_ready = is_tunecore_ready(wav_path)
+    else:
+        _tc_ready = False
+
     # Step 8: Upload to TuneCore
     if SKIP_TUNECORE:
         log.info("=" * 60)
         log.info("STEP 8: TuneCore SKIPPED (SKIP_TUNECORE=true)")
+    elif not _tc_ready:
+        log.warning("STEP 8: TuneCore SKIPPED — audio does not meet requirements (silence/duration)")
+        result["errors"].append("tunecore: audio failed silence/duration check")
     elif cover_path and wav_path.exists():
         try:
             log.info("=" * 60)
