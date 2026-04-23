@@ -1646,7 +1646,10 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
     seen_progress = False
 
     # Give TuneCore a moment to start processing the file
-    page.wait_for_timeout(3000)
+    page.wait_for_timeout(5000)
+
+    # Minimum wait — WAV processing on TuneCore takes 1-2 min even when upload bar finishes
+    MIN_WAIT_S = 120
 
     while time.time() - start < timeout:
         try:
@@ -1662,18 +1665,21 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
                 if (/upload\\s*complete|successfully\\s*uploaded/i.test(body))
                     return 'completed';
 
-                // Enabled Continue/Save button = upload done
+                // ONLY consider "Save & Continue" / "Continue" buttons — NOT plain "Save"
+                // (Save is always enabled once form is filled and does NOT indicate
+                // upload is done). The 2026 UI has Save and Save & Continue separately.
                 const btns = document.querySelectorAll('button, a, [role="button"]');
                 for (const b of btns) {
                     const t = (b.innerText || b.textContent || '').trim().toLowerCase();
-                    if (!t.includes('continue') && !t.includes('save')) continue;
+                    // Require "continue" — that's the button gated by upload
+                    if (!t.includes('continue')) continue;
                     if (b.offsetWidth === 0) continue;
                     const cls = b.className || '';
                     const disabled = b.disabled
                         || b.getAttribute('disabled') !== null
                         || b.getAttribute('aria-disabled') === 'true'
                         || /Mui-disabled|disabled/i.test(cls);
-                    if (!disabled) return 'button_enabled';
+                    if (!disabled) return 'continue_enabled';
                 }
 
                 // MUI LinearProgress / progress bar visible?
@@ -1685,9 +1691,18 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
                 return 'waiting';
             }""")
 
-            if upload_state == 'completed' or upload_state == 'button_enabled':
+            elapsed = time.time() - start
+
+            if upload_state == 'completed':
                 log.info(f"  Upload done: {upload_state}")
                 return
+            if upload_state == 'continue_enabled':
+                # Require minimum wait so we don't exit on a transient false-positive
+                if elapsed >= MIN_WAIT_S:
+                    log.info(f"  Upload done: continue button enabled after {int(elapsed)}s")
+                    return
+                else:
+                    log.info(f"  Continue enabled at {int(elapsed)}s — waiting for min {MIN_WAIT_S}s")
             if upload_state == 'in_progress':
                 seen_progress = True
         except Exception:
