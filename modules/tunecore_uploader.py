@@ -976,38 +976,65 @@ def _fill_new_track_fields(page):
 
     The April-2026 TuneCore redesign moved these into step 3/4 as
     separate MUI sections with dropdowns and radio groups.
+
+    DOM structure (from DevTools):
+      Performer Roles: MUI Select → <ul role="listbox" aria-labelledby="songRoles.performer">
+        <li role="option" data-value="97">accordion</li>
+        <li role="option" data-value="100">synthesizer</li> ...
+      Radio sections: MUI RadioGroup with <input type="radio"> inside <label>
     """
 
-    # ── Performer Roles (multi-select checkbox dropdown) ──
-    # At least 1 required. "synthesizer" fits electronic / house music.
+    # ── Performer Roles (MUI multi-select) ──
+    # Open via aria-labelledby="songRoles.performer", then click "synthesizer"
     try:
         opened = page.evaluate("""() => {
-            const els = document.querySelectorAll('label, legend, span, div, p');
-            for (const el of els) {
+            // Strategy 1: click the MUI Select trigger by aria-labelledby
+            const trigger = document.querySelector(
+                '[aria-labelledby*="songRoles.performer"][role="combobox"], '
+              + '[aria-labelledby*="songRoles.performer"].MuiSelect-select, '
+              + '[aria-labelledby*="songRoles.performer"]');
+            if (trigger && trigger.getAttribute('role') !== 'listbox') {
+                trigger.click();
+                return 'aria';
+            }
+            // Strategy 2: find label with id containing songRoles.performer
+            const label = document.getElementById('songRoles.performer')
+                       || document.querySelector('[id*="songRoles"][id*="performer"]');
+            if (label) {
+                const ctrl = label.closest('.MuiFormControl-root') || label.parentElement;
+                const sel = ctrl?.querySelector(
+                    '[role="combobox"], .MuiSelect-select, [aria-haspopup="listbox"]');
+                if (sel) { sel.click(); return 'label_id'; }
+                label.click();
+                return 'label_click';
+            }
+            // Strategy 3: text-based search for "Performer Roles"
+            const allEls = document.querySelectorAll('label, legend, span, p, div');
+            for (const el of allEls) {
+                if (el.offsetWidth === 0) continue;
                 const t = el.textContent.trim();
-                if (!/^Performer\\s*Roles?/i.test(t) || el.offsetWidth === 0) continue;
-                const ctrl = el.closest('.MuiFormControl-root')
-                           || el.parentElement?.closest('.MuiFormControl-root')
-                           || el.parentElement;
-                if (!ctrl) continue;
-                const trigger = ctrl.querySelector(
-                    '[role="combobox"], [role="button"], .MuiSelect-select, '
-                  + 'select, [aria-haspopup]');
-                if (trigger) { trigger.click(); return 'opened'; }
+                if (!/^Performer\\s*Roles/i.test(t)) continue;
+                if (t.length > 30) continue;
+                const ctrl = el.closest('.MuiFormControl-root') || el.parentElement;
+                const sel = ctrl?.querySelector(
+                    '[role="combobox"], .MuiSelect-select, [aria-haspopup]');
+                if (sel) { sel.click(); return 'text'; }
                 el.click();
-                return 'clicked_label';
+                return 'text_click';
             }
             return null;
         }""")
+        log.info(f"  Performer Roles: open={opened}")
 
         if opened:
-            page.wait_for_timeout(1000)
-            picked = False
+            page.wait_for_timeout(1500)
 
+            # Click "synthesizer" option in the MUI listbox
+            picked = False
             try:
-                synth = page.locator("[role='option'], [role='menuitem'], li, label").filter(
-                    has_text=re.compile(r"synthesizer", re.IGNORECASE)).first
-                if synth.is_visible(timeout=2000):
+                synth = page.locator("[role='option']").filter(
+                    has_text=re.compile(r"^synthesizer$", re.IGNORECASE)).first
+                if synth.is_visible(timeout=3000):
                     synth.click()
                     picked = True
                     log.info("  Performer Roles: selected 'synthesizer'")
@@ -1016,18 +1043,16 @@ def _fill_new_track_fields(page):
 
             if not picked:
                 picked_js = page.evaluate("""() => {
-                    const items = document.querySelectorAll(
-                        '[role="option"], [role="menuitem"], [role="menuitemcheckbox"], li');
-                    for (const it of items) {
-                        if (it.offsetWidth === 0 && it.offsetHeight === 0) continue;
-                        const t = (it.textContent || '').trim().toLowerCase();
-                        if (t.includes('synthesizer')) { it.click(); return 'synthesizer'; }
+                    const opts = document.querySelectorAll('[role="option"]');
+                    for (const o of opts) {
+                        if (/^synthesizer$/i.test(o.textContent.trim())) {
+                            o.click(); return 'synthesizer';
+                        }
                     }
-                    for (const it of items) {
-                        if (it.offsetWidth === 0 && it.offsetHeight === 0) continue;
-                        const t = (it.textContent || '').trim().toLowerCase();
-                        if (t && t.length < 40 && !t.includes('choose') && !t.includes('select')) {
-                            it.click(); return 'first:' + t;
+                    // Fallback: pick first unchecked option
+                    for (const o of opts) {
+                        if (o.getAttribute('aria-selected') !== 'true') {
+                            o.click(); return 'first:' + o.textContent.trim();
                         }
                     }
                     return null;
@@ -1036,6 +1061,7 @@ def _fill_new_track_fields(page):
                     log.info(f"  Performer Roles: {picked_js} (JS)")
                     picked = True
 
+            # Close the dropdown
             page.keyboard.press("Escape")
             page.wait_for_timeout(500)
 
@@ -1046,153 +1072,108 @@ def _fill_new_track_fields(page):
     except Exception as e:
         log.warning(f"  Performer Roles failed: {e}")
 
-    # ── Producer / Engineer Roles ──
-    try:
-        result = page.evaluate("""() => {
-            const els = document.querySelectorAll('label, legend, span, div, p');
-            for (const el of els) {
-                const t = el.textContent.trim();
-                if (!/Producer.*Engineer.*Role/i.test(t) || el.offsetWidth === 0) continue;
-                const ctrl = el.closest('.MuiFormControl-root')
-                           || el.parentElement?.closest('.MuiFormControl-root')
-                           || el.parentElement;
-                if (!ctrl) continue;
-                const trigger = ctrl.querySelector(
-                    '[role="combobox"], .MuiSelect-select, select, [aria-haspopup]');
-                const val = (trigger?.textContent || '').trim().toLowerCase();
-                if (val && val !== '' && !val.includes('select') && !val.includes('choose'))
-                    return 'already:' + val;
-                if (trigger) { trigger.click(); return 'opened'; }
-                return 'no_trigger';
-            }
-            return 'not_found';
-        }""")
-        log.info(f"  Producer/Engineer Roles: {result}")
-        if result == 'opened':
-            page.wait_for_timeout(1000)
-            try:
-                opt = page.locator("[role='option'], [role='menuitem'], li").filter(
-                    has_text=re.compile(r"^producer$", re.IGNORECASE)).first
-                if opt.is_visible(timeout=2000):
-                    opt.click()
-                    log.info("  Producer/Engineer Roles: selected 'producer'")
-            except Exception:
-                page.evaluate("""() => {
-                    const items = document.querySelectorAll('[role="option"], [role="menuitem"], li');
-                    for (const it of items) {
-                        if (it.offsetWidth > 0 && /^producer$/i.test(it.textContent.trim())) {
-                            it.click(); return;
-                        }
-                    }
-                }""")
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-    except Exception as e:
-        log.warning(f"  Producer/Engineer Roles failed: {e}")
-
-    # ── More Options (performer) ──
-    try:
-        result = page.evaluate("""() => {
-            const els = document.querySelectorAll('label, legend, span, div, p');
-            for (const el of els) {
-                const t = el.textContent.trim();
-                if (!/^More\\s*Options?$/i.test(t) || el.offsetWidth === 0) continue;
-                const ctrl = el.closest('.MuiFormControl-root')
-                           || el.parentElement?.closest('.MuiFormControl-root')
-                           || el.parentElement;
-                if (!ctrl) continue;
-                const trigger = ctrl.querySelector(
-                    '[role="combobox"], .MuiSelect-select, select, [aria-haspopup]');
-                const val = (trigger?.textContent || '').trim().toLowerCase();
-                if (val && val !== '' && !val.includes('select') && !val.includes('choose'))
-                    return 'already:' + val;
-                if (trigger) { trigger.click(); return 'opened'; }
-                return 'no_trigger';
-            }
-            return 'not_found';
-        }""")
-        log.info(f"  More Options: {result}")
-        if result == 'opened':
-            page.wait_for_timeout(1000)
-            try:
-                opt = page.locator("[role='option'], [role='menuitem'], li").filter(
-                    has_text=re.compile(r"^performer$", re.IGNORECASE)).first
-                if opt.is_visible(timeout=2000):
-                    opt.click()
-                    log.info("  More Options: selected 'performer'")
-            except Exception:
-                page.evaluate("""() => {
-                    const items = document.querySelectorAll('[role="option"], [role="menuitem"], li');
-                    for (const it of items) {
-                        if (it.offsetWidth > 0 && /^performer$/i.test(it.textContent.trim())) {
-                            it.click(); return;
-                        }
-                    }
-                }""")
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-    except Exception as e:
-        log.warning(f"  More Options failed: {e}")
-
-    # ── Radio sections: Release History, Copyright, Lyrics ──
-    # Each section has a heading + Yes/No radio group (MUI RadioGroup).
-    _RADIO_SECTIONS = [
-        ("Release History",     r"Release History|previously released",  r"^No$"),
-        ("Copyright Ownership", r"Copyright Ownership|cover of another", r"^No$"),
-        ("Lyrics",              r"^Lyrics|track have lyrics",            r"No.*instrumental|^No"),
-    ]
-    for label, heading_re, answer_re in _RADIO_SECTIONS:
+    # ── Producer / Engineer Roles + More Options ──
+    # These are usually auto-filled ("producer", "performer") when an artist
+    # profile is linked. Only fill if empty.
+    for role_label_id, role_name, display_name in [
+        ("songRoles.producerEngineer", "producer",  "Producer/Engineer Roles"),
+        ("songRoles.moreOptions",      "performer", "More Options"),
+    ]:
         try:
             result = page.evaluate("""(args) => {
-                const { headingRe, answerRe } = args;
-                const hpat = new RegExp(headingRe, 'i');
-                const apat = new RegExp(answerRe, 'i');
-                const headings = document.querySelectorAll(
-                    'h1,h2,h3,h4,h5,h6,legend,label,span,div,p,strong');
-                for (const h of headings) {
-                    if (!hpat.test(h.textContent.trim()) || h.offsetWidth === 0) continue;
-                    const section = h.closest(
-                        'fieldset, section, [class*="section"], .MuiFormControl-root'
-                    ) || h.parentElement?.parentElement || h.parentElement;
-                    if (!section) continue;
-                    // Try input[type=radio]
-                    const radios = section.querySelectorAll('input[type="radio"]');
-                    for (const r of radios) {
-                        const lbl = r.closest('label')
-                                 || r.closest('.MuiFormControlLabel-root')
-                                 || r.parentElement;
-                        const lt = (lbl?.textContent || '').trim();
-                        if (apat.test(lt)) {
-                            if (!r.checked) r.click();
-                            return 'radio:' + lt;
-                        }
-                    }
-                    // Fallback: click the label element that matches
-                    const labels = section.querySelectorAll(
-                        'label, .MuiFormControlLabel-root');
-                    for (const l of labels) {
-                        if (apat.test(l.textContent.trim())) {
-                            l.click();
-                            return 'label:' + l.textContent.trim();
-                        }
-                    }
+                const { labelId, roleName } = args;
+                // Find by aria-labelledby
+                const trigger = document.querySelector(
+                    '[aria-labelledby*="' + labelId + '"]');
+                if (trigger) {
+                    const txt = trigger.textContent.trim().toLowerCase();
+                    if (txt && txt !== '' && !txt.includes('select') && !txt.includes('choose'))
+                        return 'already:' + txt;
+                    trigger.click();
+                    return 'opened';
                 }
                 return 'not_found';
-            }""", {"headingRe": heading_re, "answerRe": answer_re})
-            log.info(f"  {label}: {result}")
-
-            if result == 'not_found':
-                # Playwright fallback: click label containing the answer text
+            }""", {"labelId": role_label_id, "roleName": role_name})
+            log.info(f"  {display_name}: {result}")
+            if result == 'opened':
+                page.wait_for_timeout(1000)
                 try:
-                    lbl = page.locator("label, .MuiFormControlLabel-root").filter(
-                        has_text=re.compile(answer_re, re.IGNORECASE)).first
-                    if lbl.is_visible(timeout=2000):
-                        lbl.click()
-                        log.info(f"  {label}: Playwright label click")
+                    opt = page.locator("[role='option']").filter(
+                        has_text=re.compile(f"^{role_name}$", re.IGNORECASE)).first
+                    if opt.is_visible(timeout=2000):
+                        opt.click()
+                        log.info(f"  {display_name}: selected '{role_name}'")
                 except Exception:
                     pass
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(500)
         except Exception as e:
-            log.warning(f"  {label} failed: {e}")
+            log.warning(f"  {display_name} failed: {e}")
+
+    # ── Radio sections: Release History, Copyright, Lyrics ──
+    # Broad approach: find ALL radio inputs, check their label context,
+    # and click the right "No" options.
+    try:
+        radio_results = page.evaluate("""() => {
+            const results = {};
+            const radios = document.querySelectorAll('input[type="radio"]');
+            for (const r of radios) {
+                const label = r.closest('label')
+                           || r.closest('.MuiFormControlLabel-root')
+                           || r.parentElement;
+                const labelText = (label?.textContent || '').trim();
+
+                // Walk up to find the section heading
+                let node = r.parentElement;
+                let sectionText = '';
+                for (let i = 0; i < 10 && node; i++) {
+                    const t = node.textContent || '';
+                    if (/Release History/i.test(t)) { sectionText = 'release_history'; break; }
+                    if (/Copyright Ownership|cover of another/i.test(t)) { sectionText = 'copyright'; break; }
+                    if (/Lyrics.*\\*|Does this track have lyrics/i.test(t)) { sectionText = 'lyrics'; break; }
+                    node = node.parentElement;
+                }
+                if (!sectionText) continue;
+
+                // Click "No" or "No, it's instrumental"
+                if (sectionText === 'lyrics' && /instrumental|^No/i.test(labelText)) {
+                    if (!r.checked) { r.click(); results[sectionText] = 'clicked:' + labelText; }
+                    else { results[sectionText] = 'already:' + labelText; }
+                } else if (sectionText !== 'lyrics' && /^No$/i.test(labelText)) {
+                    if (!r.checked) { r.click(); results[sectionText] = 'clicked:' + labelText; }
+                    else { results[sectionText] = 'already:' + labelText; }
+                }
+            }
+            return results;
+        }""")
+        for section, result in radio_results.items():
+            log.info(f"  {section}: {result}")
+        for expected in ['release_history', 'copyright', 'lyrics']:
+            if expected not in radio_results:
+                log.warning(f"  {expected}: radio not found — trying Playwright fallback")
+                if expected == 'lyrics':
+                    try:
+                        lbl = page.locator("label, .MuiFormControlLabel-root").filter(
+                            has_text=re.compile(r"instrumental", re.IGNORECASE)).first
+                        if lbl.is_visible(timeout=2000):
+                            lbl.click()
+                            log.info(f"  {expected}: Playwright click")
+                    except Exception:
+                        pass
+                else:
+                    try:
+                        # Find "No" labels that are near the expected heading
+                        no_labels = page.locator("label, .MuiFormControlLabel-root").filter(
+                            has_text=re.compile(r"^No$", re.IGNORECASE))
+                        for i in range(no_labels.count()):
+                            lbl = no_labels.nth(i)
+                            if lbl.is_visible(timeout=500):
+                                lbl.click()
+                                page.wait_for_timeout(300)
+                    except Exception:
+                        pass
+    except Exception as e:
+        log.warning(f"  Radio sections failed: {e}")
 
     page.wait_for_timeout(1000)
 
