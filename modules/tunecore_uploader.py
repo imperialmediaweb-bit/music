@@ -1268,218 +1268,121 @@ def _fill_new_track_fields(page):
 
     # ── Unified MUI multi-select role picker ──
     def _pick_role(label_id: str, role_name: str, data_value: str, display: str):
-        """Open MUI multi-select by aria-labelledby, click option by TEXT, verify."""
-        # 1. Find trigger and check if already selected
-        check = page.evaluate("""(args) => {
-            const { labelId, roleName } = args;
-            const trigger = document.querySelector(
-                '[aria-labelledby="' + labelId + '"][role="combobox"]')
-                || document.querySelector('[aria-labelledby*="' + labelId + '"]');
-            if (!trigger) return { status: 'no_trigger' };
-            const txt = trigger.textContent.trim().toLowerCase();
-            // Known placeholder texts that mean "empty"
-            const placeholders = [
-                'performer roles', 'producer / engineer roles',
-                'producer/engineer roles', 'more options',
-            ];
-            if (placeholders.includes(txt)) return { status: 'needs_open', txt };
-            if (txt === roleName.toLowerCase()) return { status: 'already', txt };
-            if (txt.split(',').map(s => s.trim()).includes(roleName.toLowerCase()))
-                return { status: 'already', txt };
-            return { status: 'needs_open', txt };
-        }""", {"labelId": label_id, "roleName": role_name})
+        """Open MUI multi-select, click option by TEXT using Playwright native click."""
+        trigger_sel = f'[aria-labelledby="{label_id}"][role="combobox"]'
 
-        if check.get('status') == 'no_trigger':
+        # 0. Quick check: is it already selected?
+        try:
+            current = (page.locator(trigger_sel).first.text_content(timeout=2000) or "").strip().lower()
+        except Exception:
             log.warning(f"  {display}: trigger not found")
             return False
-        if check.get('status') == 'already':
-            log.info(f"  {display}: already has '{check.get('txt')}'")
+
+        placeholders = {'performer roles', 'producer / engineer roles',
+                        'producer/engineer roles', 'more options'}
+        if current not in placeholders and role_name.lower() in current:
+            log.info(f"  {display}: already has '{current}'")
             return True
 
-        log.info(f"  {display}: opening (current='{check.get('txt')}')...")
+        log.info(f"  {display}: opening (current='{current}')...")
 
-        # 2. Open the dropdown
+        # 1. Open dropdown with Playwright native click
         try:
-            trigger_loc = page.locator(
-                f'[aria-labelledby="{label_id}"][role="combobox"]').first
-            trigger_loc.scroll_into_view_if_needed(timeout=2000)
-            trigger_loc.click()
-            page.wait_for_timeout(1500)
+            page.locator(trigger_sel).first.click(timeout=3000)
         except Exception as e:
-            log.warning(f"  {display}: could not click trigger: {e}")
+            log.warning(f"  {display}: trigger click failed: {e}")
             return False
 
-        # 3. Log all available options for debugging
-        all_opts = page.evaluate("""() => {
-            const opts = document.querySelectorAll('[role="option"]');
-            return [...opts].map(o => ({
-                text: o.textContent.trim(),
-                dv: o.getAttribute('data-value'),
-                checked: o.getAttribute('aria-selected') === 'true'
-            }));
-        }""")
-        if all_opts:
-            log.info(f"  {display}: {len(all_opts)} options available")
-            for o in all_opts[:5]:
-                log.info(f"    - '{o.get('text')}' dv={o.get('dv')} sel={o.get('checked')}")
-            if len(all_opts) > 5:
-                log.info(f"    ... and {len(all_opts) - 5} more")
-
-        # 4. Click option with multi-strategy fuzzy matching in JS
-        picked = False
+        # 2. Wait for options to render (MUI portal)
         try:
-            pick_result = page.evaluate("""(args) => {
-                const { roleName, dataValue } = args;
-                const opts = [...document.querySelectorAll('[role="option"]')];
-                if (!opts.length) return { picked: false, reason: 'no_options' };
-                const target = roleName.toLowerCase().trim();
+            page.wait_for_selector('[role="option"]', state='visible', timeout=5000)
+        except Exception:
+            log.warning(f"  {display}: options did not appear")
+            return False
 
-                const click = (opt, how) => {
-                    opt.scrollIntoView({block: 'nearest'});
-                    opt.click();
-                    return {
-                        picked: true,
-                        how,
-                        text: opt.textContent.trim(),
-                        dv: opt.getAttribute('data-value'),
-                    };
-                };
+        page.wait_for_timeout(300)
 
-                // Normalize option text: strip checkbox icons, lowercase, trim
-                const normText = (el) => el.textContent
-                    .replace(/[☐-☑✓-✔✅❌]/g, '')
-                    .trim().toLowerCase();
+        # 3. Log what's available (for debugging)
+        all_opts = page.evaluate("""() => [...document.querySelectorAll('[role="option"]')]
+            .map(o => o.textContent.trim())""")
+        log.info(f"  {display}: {len(all_opts)} options: {all_opts[:10]}")
 
-                // Strategy 1: EXACT match
-                for (const opt of opts) {
-                    if (normText(opt) === target) return click(opt, 'exact');
-                }
-
-                // Only skip qualified variants if the target is unqualified.
-                // E.g. target "producer" should skip "co-producer", but target
-                // "co-producer" should match "co-producer" (exact via strategy 1).
-                const qualifiedPrefixes = ['co-', 'co ', 'assistant ', 'vocal ',
-                    'executive ', 'associate '];
-                const targetIsQualified = qualifiedPrefixes.some(p => target.startsWith(p));
-
-                // Strategy 2: option's main word is target (e.g. "music producer" → producer)
-                for (const opt of opts) {
-                    const txt = normText(opt);
-                    if (!targetIsQualified
-                        && qualifiedPrefixes.some(p => txt.startsWith(p))) continue;
-                    const words = txt.split(/[\s-]+/);
-                    if (words[words.length - 1] === target) return click(opt, 'last-word');
-                }
-
-                // Strategy 3: data-value match (legacy)
-                if (dataValue) {
-                    const dv = opts.find(o => o.getAttribute('data-value') === dataValue);
-                    if (dv) return click(dv, 'data-value');
-                }
-
-                // Strategy 4: option contains target as whole word (loose fallback)
-                for (const opt of opts) {
-                    const txt = normText(opt);
-                    if (!targetIsQualified
-                        && qualifiedPrefixes.some(p => txt.startsWith(p))) continue;
-                    const words = txt.split(/[\s-]+/);
-                    if (words.includes(target)) return click(opt, 'whole-word');
-                }
-
-                // Not found — return list of all options for debugging
-                return {
-                    picked: false,
-                    reason: 'no_match',
-                    available: opts.map(o => ({
-                        text: o.textContent.trim(),
-                        dv: o.getAttribute('data-value')
-                    }))
-                };
-            }""", {"roleName": role_name, "dataValue": data_value})
-
-            if pick_result and pick_result.get('picked'):
-                picked = True
-                log.info(f"  {display}: clicked '{pick_result.get('text')}' "
-                         f"(data-value={pick_result.get('dv')}) via {pick_result.get('how')}")
-            else:
-                log.warning(f"  {display}: no match found; reason={pick_result.get('reason')}")
-                avail = pick_result.get('available', []) if pick_result else []
-                for o in avail[:15]:
-                    log.warning(f"    opt: '{o.get('text')}' dv={o.get('dv')}")
+        # 4. Click the option using Playwright's native click (real mouse events)
+        # Use regex for exact match (handles whitespace + case)
+        picked = False
+        pattern = re.compile(rf"^\s*{re.escape(role_name)}\s*$", re.IGNORECASE)
+        try:
+            opt = page.locator('[role="option"]').filter(has_text=pattern).first
+            opt.wait_for(state='visible', timeout=3000)
+            opt.scroll_into_view_if_needed(timeout=2000)
+            opt.click(timeout=3000)
+            picked = True
+            log.info(f"  {display}: Playwright clicked '{role_name}'")
         except Exception as e:
-            log.info(f"  {display}: JS multi-strategy failed: {e}")
+            log.info(f"  {display}: Playwright exact-text click failed: {e}")
 
-        # FALLBACK: Playwright locator by text
+        # Fallback 1: get_by_role
         if not picked:
             try:
-                opt = page.locator('[role="option"]').filter(
-                    has_text=re.compile(f"^{re.escape(role_name)}$", re.IGNORECASE)).first
-                opt.wait_for(state='visible', timeout=2000)
+                opt = page.get_by_role("option", name=pattern).first
                 opt.scroll_into_view_if_needed(timeout=2000)
-                opt.click()
-                page.wait_for_timeout(500)
+                opt.click(timeout=3000)
                 picked = True
-                log.info(f"  {display}: clicked '{role_name}' (Playwright text filter)")
+                log.info(f"  {display}: get_by_role clicked '{role_name}'")
             except Exception as e:
-                log.info(f"  {display}: Playwright text filter failed: {e}")
+                log.info(f"  {display}: get_by_role failed: {e}")
 
-        # 5. Close the dropdown by clicking outside (Escape can un-save in MUI)
-        page.wait_for_timeout(500)
-        try:
-            page.locator('body').click(position={"x": 5, "y": 5}, force=True)
-        except Exception:
-            page.keyboard.press("Escape")
+        # Fallback 2: JS dispatchEvent to trigger React synthetic events properly
+        if not picked:
+            js_result = page.evaluate("""(roleName) => {
+                const target = roleName.toLowerCase().trim();
+                const opts = [...document.querySelectorAll('[role="option"]')];
+                for (const opt of opts) {
+                    const txt = opt.textContent.trim().toLowerCase();
+                    if (txt === target) {
+                        opt.scrollIntoView({block: 'center'});
+                        // Dispatch full pointer event sequence for React
+                        const rect = opt.getBoundingClientRect();
+                        const x = rect.left + rect.width / 2;
+                        const y = rect.top + rect.height / 2;
+                        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
+                            opt.dispatchEvent(new MouseEvent(type, {
+                                bubbles: true, cancelable: true, view: window,
+                                clientX: x, clientY: y, button: 0
+                            }));
+                        }
+                        return { picked: true, text: opt.textContent.trim() };
+                    }
+                }
+                return { picked: false, avail: opts.map(o => o.textContent.trim()) };
+            }""", role_name)
+            if js_result and js_result.get('picked'):
+                picked = True
+                log.info(f"  {display}: JS dispatchEvent clicked '{js_result.get('text')}'")
+            elif js_result:
+                log.warning(f"  {display}: not found. Available: {js_result.get('avail')}")
+
         page.wait_for_timeout(800)
 
-        # 6. Verify the selection stuck (exclude placeholder text)
-        verified = page.evaluate("""(args) => {
-            const { labelId, roleName } = args;
-            const trigger = document.querySelector(
-                '[aria-labelledby="' + labelId + '"][role="combobox"]')
-                || document.querySelector('[aria-labelledby*="' + labelId + '"]');
-            if (!trigger) return false;
-            const txt = trigger.textContent.trim().toLowerCase();
-            const placeholders = [
-                'performer roles', 'producer / engineer roles',
-                'producer/engineer roles', 'more options',
-            ];
-            if (placeholders.includes(txt)) return false;
-            return txt.includes(roleName.toLowerCase());
-        }""", {"labelId": label_id, "roleName": role_name})
+        # 5. Close dropdown — press Escape on the option itself (safer than body click)
+        try:
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(500)
+        except Exception:
+            pass
 
-        if verified:
-            log.info(f"  {display}: VERIFIED '{role_name}' is selected")
+        # 6. Verify
+        try:
+            final_txt = (page.locator(trigger_sel).first.text_content(timeout=2000) or "").strip().lower()
+        except Exception:
+            final_txt = ""
+
+        if final_txt not in placeholders and role_name.lower() in final_txt:
+            log.info(f"  {display}: VERIFIED '{final_txt}' contains '{role_name}'")
+            return True
         else:
-            log.warning(f"  {display}: selection NOT verified — '{role_name}' not in trigger text")
-            # Retry once: reopen and try again
-            log.info(f"  {display}: RETRYING...")
-            try:
-                trigger_loc = page.locator(
-                    f'[aria-labelledby="{label_id}"][role="combobox"]').first
-                trigger_loc.click()
-                page.wait_for_timeout(1500)
-                pick2 = page.evaluate("""(roleName) => {
-                    const opts = document.querySelectorAll('[role="option"]');
-                    const target = roleName.toLowerCase().trim();
-                    for (const opt of opts) {
-                        const txt = opt.textContent.trim().toLowerCase();
-                        if (txt === target) {
-                            opt.scrollIntoView({block: 'nearest'});
-                            opt.click();
-                            return true;
-                        }
-                    }
-                    return false;
-                }""", role_name)
-                page.wait_for_timeout(500)
-                page.locator('body').click(position={"x": 5, "y": 5}, force=True)
-                page.wait_for_timeout(800)
-                if pick2:
-                    log.info(f"  {display}: RETRY picked '{role_name}'")
-                    verified = True
-            except Exception as e2:
-                log.warning(f"  {display}: retry failed: {e2}")
-        return verified
+            log.warning(f"  {display}: NOT verified — trigger shows '{final_txt}'")
+            return False
 
     # ── Performer Roles (synthesizer=100) ──
     _pick_role("songRoles.performer", "synthesizer", "100", "Performer Roles")
