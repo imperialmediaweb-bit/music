@@ -466,11 +466,21 @@ def generate_cover_art(
     log.info(f"Generating 1600x1600 cover art for TuneCore: {track_name}")
     safe_name = _safe_filename(track_name)
 
+    # TuneCore rejects covers with ANY text other than the title/artist name.
+    # Enforce a strict no-text constraint on the DALL-E prompt.
+    no_text_rule = (
+        " ABSOLUTELY NO TEXT, NO LETTERS, NO WORDS, NO WRITING, NO SIGNAGE,"
+        " NO GRAFFITI, NO LOGOS, NO TYPOGRAPHY, NO NUMBERS, NO SYMBOLS,"
+        " NO CAPTIONS anywhere in the image. The image must be PURELY visual"
+        " with zero written content of any kind."
+    )
+    cover_prompt = thumbnail_prompt.rstrip('. ') + '.' + no_text_rule
+
     try:
         if not OPENAI_API_KEY:
             raise RuntimeError("OPENAI_API_KEY not set")
         client = OpenAI(api_key=OPENAI_API_KEY)
-        image = _dall_e_generate(client, thumbnail_prompt, "1024x1024")
+        image = _dall_e_generate(client, cover_prompt, "1024x1024")
     except Exception as e:
         log.warning(f"DALL-E cover art failed: {e}")
         log.info("Using fallback gradient cover art...")

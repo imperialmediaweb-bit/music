@@ -1325,35 +1325,93 @@ def _fill_new_track_fields(page):
             if len(all_opts) > 5:
                 log.info(f"    ... and {len(all_opts) - 5} more")
 
-        # 4. Click option — PRIMARY: match by exact text content
+        # 4. Click option with multi-strategy fuzzy matching in JS
         picked = False
         try:
-            pick_result = page.evaluate("""(roleName) => {
-                const opts = document.querySelectorAll('[role="option"]');
+            pick_result = page.evaluate("""(args) => {
+                const { roleName, dataValue } = args;
+                const opts = [...document.querySelectorAll('[role="option"]')];
+                if (!opts.length) return { picked: false, reason: 'no_options' };
                 const target = roleName.toLowerCase().trim();
+
+                const click = (opt, how) => {
+                    opt.scrollIntoView({block: 'nearest'});
+                    opt.click();
+                    return {
+                        picked: true,
+                        how,
+                        text: opt.textContent.trim(),
+                        dv: opt.getAttribute('data-value'),
+                    };
+                };
+
+                // Normalize option text: strip checkbox icons, lowercase, trim
+                const normText = (el) => el.textContent
+                    .replace(/[☐-☑✓-✔✅❌]/g, '')
+                    .trim().toLowerCase();
+
+                // Strategy 1: EXACT match
                 for (const opt of opts) {
-                    const txt = opt.textContent.trim().toLowerCase();
-                    if (txt === target) {
-                        opt.scrollIntoView({block: 'nearest'});
-                        opt.click();
-                        return { picked: true, text: txt, dv: opt.getAttribute('data-value') };
-                    }
+                    if (normText(opt) === target) return click(opt, 'exact');
                 }
-                return { picked: false };
-            }""", role_name)
+
+                // Strategy 2: option's main word is target (e.g. "music producer" → producer)
+                // Split by space, check if LAST word is target and option doesn't start with "co-" or "assistant"
+                for (const opt of opts) {
+                    const txt = normText(opt);
+                    if (txt.startsWith('co-') || txt.startsWith('assistant ')
+                        || txt.startsWith('co ') || txt.startsWith('vocal ')
+                        || txt.startsWith('executive ') || txt.startsWith('associate ')) {
+                        continue;
+                    }
+                    const words = txt.split(/[\s-]+/);
+                    if (words[words.length - 1] === target) return click(opt, 'last-word');
+                }
+
+                // Strategy 3: data-value match (legacy)
+                if (dataValue) {
+                    const dv = opts.find(o => o.getAttribute('data-value') === dataValue);
+                    if (dv) return click(dv, 'data-value');
+                }
+
+                // Strategy 4: option contains target as whole word (loose fallback)
+                for (const opt of opts) {
+                    const txt = normText(opt);
+                    if (txt.startsWith('co-') || txt.startsWith('co ')
+                        || txt.startsWith('assistant ')) continue;
+                    const words = txt.split(/[\s-]+/);
+                    if (words.includes(target)) return click(opt, 'whole-word');
+                }
+
+                // Not found — return list of all options for debugging
+                return {
+                    picked: false,
+                    reason: 'no_match',
+                    available: opts.map(o => ({
+                        text: o.textContent.trim(),
+                        dv: o.getAttribute('data-value')
+                    }))
+                };
+            }""", {"roleName": role_name, "dataValue": data_value})
+
             if pick_result and pick_result.get('picked'):
                 picked = True
                 log.info(f"  {display}: clicked '{pick_result.get('text')}' "
-                         f"(data-value={pick_result.get('dv')}) by exact text match")
+                         f"(data-value={pick_result.get('dv')}) via {pick_result.get('how')}")
+            else:
+                log.warning(f"  {display}: no match found; reason={pick_result.get('reason')}")
+                avail = pick_result.get('available', []) if pick_result else []
+                for o in avail[:15]:
+                    log.warning(f"    opt: '{o.get('text')}' dv={o.get('dv')}")
         except Exception as e:
-            log.info(f"  {display}: text-match click failed: {e}")
+            log.info(f"  {display}: JS multi-strategy failed: {e}")
 
-        # FALLBACK 1: Playwright locator by text
+        # FALLBACK: Playwright locator by text
         if not picked:
             try:
                 opt = page.locator('[role="option"]').filter(
                     has_text=re.compile(f"^{re.escape(role_name)}$", re.IGNORECASE)).first
-                opt.wait_for(state='visible', timeout=3000)
+                opt.wait_for(state='visible', timeout=2000)
                 opt.scroll_into_view_if_needed(timeout=2000)
                 opt.click()
                 page.wait_for_timeout(500)
@@ -1361,19 +1419,6 @@ def _fill_new_track_fields(page):
                 log.info(f"  {display}: clicked '{role_name}' (Playwright text filter)")
             except Exception as e:
                 log.info(f"  {display}: Playwright text filter failed: {e}")
-
-        # FALLBACK 2: data-value selector (legacy, data-values may change)
-        if not picked:
-            try:
-                opt = page.locator(f'[role="option"][data-value="{data_value}"]').first
-                opt.wait_for(state='visible', timeout=2000)
-                opt.scroll_into_view_if_needed(timeout=2000)
-                opt.click()
-                page.wait_for_timeout(500)
-                picked = True
-                log.info(f"  {display}: clicked data-value={data_value} (fallback)")
-            except Exception as e:
-                log.info(f"  {display}: data-value fallback also failed: {e}")
 
         # 5. Close the dropdown by clicking outside (Escape can un-save in MUI)
         page.wait_for_timeout(500)
