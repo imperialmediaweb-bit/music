@@ -970,6 +970,233 @@ def _fill_choose_sections(page, artist: str):
             break
 
 
+def _fill_new_track_fields(page):
+    """Fill TuneCore 2026 UI fields: Performer Roles, Producer/Engineer Roles,
+    Release History, Copyright Ownership, and Lyrics radio buttons.
+
+    The April-2026 TuneCore redesign moved these into step 3/4 as
+    separate MUI sections with dropdowns and radio groups.
+    """
+
+    # ── Performer Roles (multi-select checkbox dropdown) ──
+    # At least 1 required. "synthesizer" fits electronic / house music.
+    try:
+        opened = page.evaluate("""() => {
+            const els = document.querySelectorAll('label, legend, span, div, p');
+            for (const el of els) {
+                const t = el.textContent.trim();
+                if (!/^Performer\\s*Roles?/i.test(t) || el.offsetWidth === 0) continue;
+                const ctrl = el.closest('.MuiFormControl-root')
+                           || el.parentElement?.closest('.MuiFormControl-root')
+                           || el.parentElement;
+                if (!ctrl) continue;
+                const trigger = ctrl.querySelector(
+                    '[role="combobox"], [role="button"], .MuiSelect-select, '
+                  + 'select, [aria-haspopup]');
+                if (trigger) { trigger.click(); return 'opened'; }
+                el.click();
+                return 'clicked_label';
+            }
+            return null;
+        }""")
+
+        if opened:
+            page.wait_for_timeout(1000)
+            picked = False
+
+            try:
+                synth = page.locator("[role='option'], [role='menuitem'], li, label").filter(
+                    has_text=re.compile(r"synthesizer", re.IGNORECASE)).first
+                if synth.is_visible(timeout=2000):
+                    synth.click()
+                    picked = True
+                    log.info("  Performer Roles: selected 'synthesizer'")
+            except Exception:
+                pass
+
+            if not picked:
+                picked_js = page.evaluate("""() => {
+                    const items = document.querySelectorAll(
+                        '[role="option"], [role="menuitem"], [role="menuitemcheckbox"], li');
+                    for (const it of items) {
+                        if (it.offsetWidth === 0 && it.offsetHeight === 0) continue;
+                        const t = (it.textContent || '').trim().toLowerCase();
+                        if (t.includes('synthesizer')) { it.click(); return 'synthesizer'; }
+                    }
+                    for (const it of items) {
+                        if (it.offsetWidth === 0 && it.offsetHeight === 0) continue;
+                        const t = (it.textContent || '').trim().toLowerCase();
+                        if (t && t.length < 40 && !t.includes('choose') && !t.includes('select')) {
+                            it.click(); return 'first:' + t;
+                        }
+                    }
+                    return null;
+                }""")
+                if picked_js:
+                    log.info(f"  Performer Roles: {picked_js} (JS)")
+                    picked = True
+
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(500)
+
+            if not picked:
+                log.warning("  Performer Roles: could not select any option")
+        else:
+            log.info("  Performer Roles: dropdown not found (may be old UI)")
+    except Exception as e:
+        log.warning(f"  Performer Roles failed: {e}")
+
+    # ── Producer / Engineer Roles ──
+    try:
+        result = page.evaluate("""() => {
+            const els = document.querySelectorAll('label, legend, span, div, p');
+            for (const el of els) {
+                const t = el.textContent.trim();
+                if (!/Producer.*Engineer.*Role/i.test(t) || el.offsetWidth === 0) continue;
+                const ctrl = el.closest('.MuiFormControl-root')
+                           || el.parentElement?.closest('.MuiFormControl-root')
+                           || el.parentElement;
+                if (!ctrl) continue;
+                const trigger = ctrl.querySelector(
+                    '[role="combobox"], .MuiSelect-select, select, [aria-haspopup]');
+                const val = (trigger?.textContent || '').trim().toLowerCase();
+                if (val && val !== '' && !val.includes('select') && !val.includes('choose'))
+                    return 'already:' + val;
+                if (trigger) { trigger.click(); return 'opened'; }
+                return 'no_trigger';
+            }
+            return 'not_found';
+        }""")
+        log.info(f"  Producer/Engineer Roles: {result}")
+        if result == 'opened':
+            page.wait_for_timeout(1000)
+            try:
+                opt = page.locator("[role='option'], [role='menuitem'], li").filter(
+                    has_text=re.compile(r"^producer$", re.IGNORECASE)).first
+                if opt.is_visible(timeout=2000):
+                    opt.click()
+                    log.info("  Producer/Engineer Roles: selected 'producer'")
+            except Exception:
+                page.evaluate("""() => {
+                    const items = document.querySelectorAll('[role="option"], [role="menuitem"], li');
+                    for (const it of items) {
+                        if (it.offsetWidth > 0 && /^producer$/i.test(it.textContent.trim())) {
+                            it.click(); return;
+                        }
+                    }
+                }""")
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(500)
+    except Exception as e:
+        log.warning(f"  Producer/Engineer Roles failed: {e}")
+
+    # ── More Options (performer) ──
+    try:
+        result = page.evaluate("""() => {
+            const els = document.querySelectorAll('label, legend, span, div, p');
+            for (const el of els) {
+                const t = el.textContent.trim();
+                if (!/^More\\s*Options?$/i.test(t) || el.offsetWidth === 0) continue;
+                const ctrl = el.closest('.MuiFormControl-root')
+                           || el.parentElement?.closest('.MuiFormControl-root')
+                           || el.parentElement;
+                if (!ctrl) continue;
+                const trigger = ctrl.querySelector(
+                    '[role="combobox"], .MuiSelect-select, select, [aria-haspopup]');
+                const val = (trigger?.textContent || '').trim().toLowerCase();
+                if (val && val !== '' && !val.includes('select') && !val.includes('choose'))
+                    return 'already:' + val;
+                if (trigger) { trigger.click(); return 'opened'; }
+                return 'no_trigger';
+            }
+            return 'not_found';
+        }""")
+        log.info(f"  More Options: {result}")
+        if result == 'opened':
+            page.wait_for_timeout(1000)
+            try:
+                opt = page.locator("[role='option'], [role='menuitem'], li").filter(
+                    has_text=re.compile(r"^performer$", re.IGNORECASE)).first
+                if opt.is_visible(timeout=2000):
+                    opt.click()
+                    log.info("  More Options: selected 'performer'")
+            except Exception:
+                page.evaluate("""() => {
+                    const items = document.querySelectorAll('[role="option"], [role="menuitem"], li');
+                    for (const it of items) {
+                        if (it.offsetWidth > 0 && /^performer$/i.test(it.textContent.trim())) {
+                            it.click(); return;
+                        }
+                    }
+                }""")
+            page.keyboard.press("Escape")
+            page.wait_for_timeout(500)
+    except Exception as e:
+        log.warning(f"  More Options failed: {e}")
+
+    # ── Radio sections: Release History, Copyright, Lyrics ──
+    # Each section has a heading + Yes/No radio group (MUI RadioGroup).
+    _RADIO_SECTIONS = [
+        ("Release History",     r"Release History|previously released",  r"^No$"),
+        ("Copyright Ownership", r"Copyright Ownership|cover of another", r"^No$"),
+        ("Lyrics",              r"^Lyrics|track have lyrics",            r"No.*instrumental|^No"),
+    ]
+    for label, heading_re, answer_re in _RADIO_SECTIONS:
+        try:
+            result = page.evaluate("""(args) => {
+                const { headingRe, answerRe } = args;
+                const hpat = new RegExp(headingRe, 'i');
+                const apat = new RegExp(answerRe, 'i');
+                const headings = document.querySelectorAll(
+                    'h1,h2,h3,h4,h5,h6,legend,label,span,div,p,strong');
+                for (const h of headings) {
+                    if (!hpat.test(h.textContent.trim()) || h.offsetWidth === 0) continue;
+                    const section = h.closest(
+                        'fieldset, section, [class*="section"], .MuiFormControl-root'
+                    ) || h.parentElement?.parentElement || h.parentElement;
+                    if (!section) continue;
+                    // Try input[type=radio]
+                    const radios = section.querySelectorAll('input[type="radio"]');
+                    for (const r of radios) {
+                        const lbl = r.closest('label')
+                                 || r.closest('.MuiFormControlLabel-root')
+                                 || r.parentElement;
+                        const lt = (lbl?.textContent || '').trim();
+                        if (apat.test(lt)) {
+                            if (!r.checked) r.click();
+                            return 'radio:' + lt;
+                        }
+                    }
+                    // Fallback: click the label element that matches
+                    const labels = section.querySelectorAll(
+                        'label, .MuiFormControlLabel-root');
+                    for (const l of labels) {
+                        if (apat.test(l.textContent.trim())) {
+                            l.click();
+                            return 'label:' + l.textContent.trim();
+                        }
+                    }
+                }
+                return 'not_found';
+            }""", {"headingRe": heading_re, "answerRe": answer_re})
+            log.info(f"  {label}: {result}")
+
+            if result == 'not_found':
+                # Playwright fallback: click label containing the answer text
+                try:
+                    lbl = page.locator("label, .MuiFormControlLabel-root").filter(
+                        has_text=re.compile(answer_re, re.IGNORECASE)).first
+                    if lbl.is_visible(timeout=2000):
+                        lbl.click()
+                        log.info(f"  {label}: Playwright label click")
+                except Exception:
+                    pass
+        except Exception as e:
+            log.warning(f"  {label} failed: {e}")
+
+    page.wait_for_timeout(1000)
+
+
 def _upload_file(page, file_path: Path):
     """Upload a file via input[type=file] or file chooser dialog."""
     log.info(f"  _upload_file: looking for file input for {file_path.name}...")
@@ -1165,6 +1392,11 @@ def _detect_page(page) -> str:
             hasWriterField: anyVisible('input[name*="songwriter" i]', 'input[name*="writer" i]'),
             hasRoleField: has('input[name="role"]') || has('select[name="role"]')
                 || has('input[name="creativeRole"]') || has('select[name="creativeRole"]'),
+            // 2026 UI: new sections on track-details page
+            hasPerformerRoles: body.includes('performer roles'),
+            hasReleaseHistory: body.includes('release history')
+                || body.includes('previously released'),
+            hasLyricsSection: body.includes('does this track have lyrics'),
             hasFileInput: has('input[type="file"]'),
             // UPLOAD STEREO button (label.song-file-upload-button > div.stereo-asset-upload-btn)
             hasStereoUploadBtn: visible('div.stereo-asset-upload-btn')
@@ -1223,6 +1455,9 @@ def _detect_page(page) -> str:
     if state.get('hasSongsApp') or (state.get('isTracksUrl') and not state.get('isDashboard')):
         return 'track_details'
     if state.get('hasWriterField') or state.get('hasRoleField'):
+        return 'track_details'
+    # 2026 UI: Performer Roles / Release History / Lyrics sections → track details
+    if state.get('hasPerformerRoles') or state.get('hasReleaseHistory') or state.get('hasLyricsSection'):
         return 'track_details'
     if state.get('hasAddTrackBtn'):
         return 'add_track'
@@ -1697,19 +1932,21 @@ def _do_upload(
 
                     # ── TRACK DETAILS (smart fill) ──
                     # TuneCore React app #songs_app on /singles/{id}/tracks
-                    # Real DOM (from HTML source): jQuery + React, NOT Material UI.
-                    # data-songs JSON has current state: explicit, instrumental, etc.
-                    # Sections: Song Title, Songwriter*, Song Artists & Creatives,
-                    #   Performing Artists*, Producers & Engineers*, Copyright Ownership*,
-                    #   Instrumental, Explicit, ISRC, Language, Lyrics, TikTok
-                    # Smart: reads data-songs + DOM to detect what's filled.
+                    # Old UI: jQuery + React (data-songs JSON).
+                    # 2026 UI: MUI-based step 3/4 with Songwriters, Artists &
+                    #   Contributors (Performer Roles, Producer/Engineer Roles,
+                    #   More Options), Release History, Copyright Ownership, Lyrics.
                     elif state == 'track_details':
                         log.info("  Filling track details (AGGRESSIVE — fill everything)...")
                         _dump_page_state(page, "Track Details — before fill")
 
-                        # Wait for React #songs_app to render
+                        # Wait for page content to render (old UI: #songs_app, new: MUI form)
                         try:
-                            page.wait_for_selector('#songs_app', timeout=15_000)
+                            page.wait_for_selector(
+                                '#songs_app, .MuiFormControl-root, '
+                                'input[placeholder*="Legal First"], '
+                                'input[name*="artistContributor" i]',
+                                timeout=15_000)
                             page.wait_for_timeout(3000)
                         except Exception:
                             page.wait_for_timeout(5000)
@@ -1733,17 +1970,54 @@ def _do_upload(
                             except Exception:
                                 continue
 
-                        # ── 2. Songwriter — Playwright locator fill (NOT JS focus) ──
+                        # ── 2. Songwriter ──
+                        # Old UI: input with placeholder "Legal First..."
+                        # New 2026 UI: plain text input near "Songwriters" heading
                         try:
-                            sw_el = page.locator('input[placeholder*="Legal First"]').first
-                            if sw_el.is_visible(timeout=3000):
+                            sw_el = None
+                            # Try old selector first
+                            try:
+                                cand = page.locator('input[placeholder*="Legal First"]').first
+                                if cand.is_visible(timeout=2000):
+                                    sw_el = cand
+                            except Exception:
+                                pass
+
+                            # Fallback: find input near "Songwriters" heading (2026 UI)
+                            if not sw_el:
+                                sw_state = page.evaluate("""() => {
+                                    const headings = document.querySelectorAll(
+                                        'h1,h2,h3,h4,h5,h6,legend,label,span,div,p,strong');
+                                    for (const h of headings) {
+                                        if (!/^Songwriters?\\s*\\*?$/i.test(h.textContent.trim())) continue;
+                                        if (h.offsetWidth === 0) continue;
+                                        const section = h.closest(
+                                            'fieldset, section, [class*="section"], .MuiFormControl-root'
+                                        ) || h.parentElement?.parentElement || h.parentElement;
+                                        if (!section) continue;
+                                        const inputs = section.querySelectorAll(
+                                            'input[type="text"], input:not([type])');
+                                        for (const inp of inputs) {
+                                            if (inp.offsetWidth > 0) {
+                                                if (inp.value.trim()) return 'filled:' + inp.value.trim();
+                                                inp.setAttribute('data-sw-fill', 'true');
+                                                return 'empty';
+                                            }
+                                        }
+                                    }
+                                    return null;
+                                }""")
+                                if sw_state == 'empty':
+                                    sw_el = page.locator('[data-sw-fill="true"]').first
+                                elif sw_state and str(sw_state).startswith('filled:'):
+                                    log.info(f"  Songwriter: already '{sw_state[7:]}'")
+
+                            if sw_el:
                                 sw_val = sw_el.input_value()
                                 if sw_val.strip():
                                     log.info(f"  Songwriter: already '{sw_val}'")
                                 else:
                                     sw_el.scroll_into_view_if_needed(timeout=2000)
-
-                                    # Method 1: Playwright click + fill (best React compat)
                                     sw_el.click()
                                     page.wait_for_timeout(500)
                                     sw_el.fill(artist)
@@ -1753,37 +2027,34 @@ def _do_upload(
 
                                     sw_check = sw_el.input_value()
                                     if sw_check.strip():
-                                        log.info(f"  Songwriter: '{sw_check}' (Playwright fill)")
+                                        log.info(f"  Songwriter: '{sw_check}' (fill)")
                                     else:
-                                        # Method 2: press_sequentially — char by char, fires all events
-                                        log.info("  Songwriter fill didn't stick, trying press_sequentially...")
                                         sw_el.click()
                                         page.wait_for_timeout(300)
                                         sw_el.press_sequentially(artist, delay=60)
                                         page.wait_for_timeout(500)
                                         page.keyboard.press("Tab")
                                         page.wait_for_timeout(800)
-
                                         sw_check = sw_el.input_value()
                                         if sw_check.strip():
                                             log.info(f"  Songwriter: '{sw_check}' (press_sequentially)")
                                         else:
-                                            # Method 3: React native value setter as last resort
-                                            log.info("  Songwriter press_sequentially didn't stick, trying native setter...")
-                                            page.evaluate("""(name) => {
-                                                const inp = document.querySelector('input[placeholder*="Legal First"]');
+                                            page.evaluate("""(args) => {
+                                                const inp = document.querySelector(
+                                                    '[data-sw-fill="true"]')
+                                                    || document.querySelector('input[placeholder*="Legal First"]');
                                                 if (!inp) return;
                                                 const setter = Object.getOwnPropertyDescriptor(
                                                     HTMLInputElement.prototype, 'value').set;
-                                                setter.call(inp, name);
+                                                setter.call(inp, args);
                                                 inp.dispatchEvent(new Event('input', {bubbles: true}));
                                                 inp.dispatchEvent(new Event('change', {bubbles: true}));
                                                 inp.dispatchEvent(new Event('blur', {bubbles: true}));
                                             }""", artist)
                                             page.wait_for_timeout(500)
-                                            log.info(f"  Songwriter: native setter applied '{artist}'")
-                            else:
-                                log.warning("  Songwriter: input not visible")
+                                            log.info(f"  Songwriter: native setter '{artist}'")
+                            elif not (sw_state and str(sw_state).startswith('filled:')):
+                                log.warning("  Songwriter: input not found")
                         except Exception as e:
                             log.warning(f"  Songwriter failed: {e}")
                         page.wait_for_timeout(1000)
@@ -1796,9 +2067,31 @@ def _do_upload(
                             try:
                                 empty_arts = page.locator(
                                     'input[placeholder*="Artist/Creative"], '
-                                    'input[placeholder*="Add Artist"]'
+                                    'input[placeholder*="Add Artist"], '
+                                    'input[name*="artistContributor" i], '
+                                    'input[name*="artist_contributor" i]'
                                 )
                                 art_count = empty_arts.count()
+                                # Fallback: find inputs near "Artist" headings (2026 UI)
+                                if art_count == 0:
+                                    page.evaluate("""() => {
+                                        const headings = document.querySelectorAll(
+                                            'label, legend, span, div, p, h4, h5');
+                                        for (const h of headings) {
+                                            const t = h.textContent.trim();
+                                            if (!/Artist.*Contributor.*Name/i.test(t)) continue;
+                                            if (h.offsetWidth === 0) continue;
+                                            const ctrl = h.closest('.MuiFormControl-root')
+                                                       || h.parentElement;
+                                            if (!ctrl) continue;
+                                            const inp = ctrl.querySelector('input');
+                                            if (inp && inp.offsetWidth > 0 && !inp.value.trim()) {
+                                                inp.setAttribute('data-art-fill', 'true');
+                                            }
+                                        }
+                                    }""")
+                                    empty_arts = page.locator('[data-art-fill="true"]')
+                                    art_count = empty_arts.count()
                                 log.info(f"  Artist round {fill_round}: {art_count} inputs found")
 
                                 for i in range(art_count):
@@ -1854,6 +2147,12 @@ def _do_upload(
                         # ── 4. Fill ALL role dropdowns showing CHOOSE ──
                         # Simple approach: find CHOOSE text, click to open, pick option
                         _fill_choose_sections(page, artist)
+                        page.wait_for_timeout(500)
+
+                        # ── 4b. New 2026 UI fields ──
+                        # Performer Roles, Producer/Engineer, Release History,
+                        # Copyright, Lyrics radio buttons.
+                        _fill_new_track_fields(page)
                         page.wait_for_timeout(500)
 
                         # ── 5. Copyright → No ──
