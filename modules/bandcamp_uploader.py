@@ -12,15 +12,13 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 from modules.concept_generator import MusicConcept
-from config import BANDCAMP_STATE_FILE, BANDCAMP_TRACK_PRICE, HEADLESS
+from config import (
+    BANDCAMP_STATE_FILE, BANDCAMP_TRACK_PRICE, BANDCAMP_ARTIST_SUBDOMAIN, HEADLESS,
+)
 from utils.logger import log
 
 BANDCAMP_HOME = "https://bandcamp.com"
-# Bandcamp's artist tools live under the artist subdomain
-# (e.g. https://groovegenix.bandcamp.com/tools). The generic /tools URL on
-# bandcamp.com redirects and often lands on login. We detect the subdomain
-# at runtime from cookies + navigation.
-BANDCAMP_TOOLS_URL = "https://bandcamp.com/tools"
+BANDCAMP_DASHBOARD_URL = f"https://{BANDCAMP_ARTIST_SUBDOMAIN}.bandcamp.com/dashboard"
 MAX_RETRIES = 2
 
 
@@ -94,12 +92,11 @@ def _do_upload(
         page = context.new_page()
 
         try:
-            # Start at the Bandcamp home feed — after login, Bandcamp shows
-            # the user's dashboard here with a link to the artist's tools.
-            log.info(f"Navigating to {BANDCAMP_HOME}...")
-            page.goto(BANDCAMP_HOME + "/", wait_until="domcontentloaded", timeout=60_000)
+            # Go straight to the artist dashboard (e.g. groovegenix.bandcamp.com/dashboard)
+            log.info(f"Navigating to {BANDCAMP_DASHBOARD_URL}...")
+            page.goto(BANDCAMP_DASHBOARD_URL, wait_until="domcontentloaded", timeout=60_000)
             page.wait_for_timeout(3_000)
-            page.screenshot(path=str(debug_dir / "debug_bandcamp_01_home.png"))
+            page.screenshot(path=str(debug_dir / "debug_bandcamp_01_dashboard.png"))
 
             if _is_logged_out(page):
                 log.error("Bandcamp session expired. Run: python main.py bandcamp-login")
@@ -108,37 +105,22 @@ def _do_upload(
 
             _dismiss_banners(page)
 
-            # Resolve the artist subdomain (e.g. https://groovegenix.bandcamp.com)
-            # from the dashboard, then navigate to <subdomain>/tools.
-            artist_tools_url = _resolve_artist_tools_url(page)
-            if artist_tools_url:
-                log.info(f"Artist tools URL: {artist_tools_url}")
-                page.goto(artist_tools_url, wait_until="domcontentloaded", timeout=60_000)
-                page.wait_for_timeout(3_000)
-                page.screenshot(path=str(debug_dir / "debug_bandcamp_02_tools.png"))
-                if _is_logged_out(page):
-                    log.error("Bandcamp redirected to login despite saved session.")
-                    page.screenshot(path=str(debug_dir / "debug_bandcamp_login_redirect.png"))
-                    return None
-
-            # Open the "add new album" form. Bandcamp exposes this from the
-            # artist tools page; the link varies a bit by account type, so we
-            # try several entry points.
-            add_url = _find_add_album_url(page)
-            if add_url:
-                log.info(f"Opening album form: {add_url}")
-                page.goto(add_url, wait_until="domcontentloaded", timeout=60_000)
-            else:
-                # Fallback: click a button/link matching "new album"
-                log.info("Falling back to clicking 'add new album' link...")
-                clicked = _click_new_album_link(page)
-                if not clicked:
-                    page.screenshot(path=str(debug_dir / "debug_bandcamp_no_add_link.png"))
-                    raise RuntimeError(
-                        "Could not find the 'add new album' entry point on Bandcamp"
-                    )
+            # Click the "+ Add" link in the header to open the album/track form
+            log.info("Clicking '+ Add' in the dashboard header...")
+            clicked = _click_add_button(page)
+            if not clicked:
+                page.screenshot(path=str(debug_dir / "debug_bandcamp_no_add_link.png"))
+                raise RuntimeError(
+                    "Could not find the '+ Add' button on the Bandcamp dashboard"
+                )
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_timeout(4_000)
+            page.screenshot(path=str(debug_dir / "debug_bandcamp_02_add_clicked.png"))
+
+            # "+ Add" often shows a chooser (Album vs Track). Pick "Track" for a
+            # single-track release, or fall through if it landed on the form.
+            _pick_track_option(page)
+            page.wait_for_timeout(2_000)
             page.screenshot(path=str(debug_dir / "debug_bandcamp_03_album_form.png"))
 
             _dismiss_banners(page)
@@ -215,35 +197,73 @@ def _is_logged_out(page) -> bool:
     }"""))
 
 
-def _resolve_artist_tools_url(page) -> str | None:
-    """Find the artist's `<subdomain>.bandcamp.com/tools` URL from the dashboard.
+def _click_add_button(page) -> bool:
+    """Click the '+ Add' nav link on the artist dashboard."""
+    # Prefer role-based lookup so Playwright dispatches real events
+    for pattern in [r"^\s*\+\s*Add\s*$", r"^\s*Add\s*$"]:
+        try:
+            loc = page.get_by_role("link", name=re.compile(pattern, re.I))
+            if loc.count() > 0:
+                loc.first.click(timeout=5_000)
+                return True
+        except Exception:
+            pass
+        try:
+            loc = page.get_by_role("button", name=re.compile(pattern, re.I))
+            if loc.count() > 0:
+                loc.first.click(timeout=5_000)
+                return True
+        except Exception:
+            pass
 
-    Bandcamp's logged-in home has a user-menu link to the artist profile
-    (e.g. https://groovegenix.bandcamp.com). We pick the first artist-like
-    subdomain we find and append /tools.
-    """
-    url = page.evaluate("""() => {
-        const links = [...document.querySelectorAll('a[href]')];
-        // 1) An explicit "tools" link.
-        const toolsLink = links.find(a => {
-            const href = (a.getAttribute('href') || '').toLowerCase();
-            return /^https?:\\/\\/[^/]+\\.bandcamp\\.com\\/tools(\\/|$)/.test(href);
+    # Fallback: JS scan for an anchor/button whose text is "+ Add" or "Add"
+    clicked = page.evaluate("""() => {
+        const els = [...document.querySelectorAll('a, button')];
+        const add = els.find(e => {
+            if (e.offsetParent === null) return false;
+            const t = (e.textContent || '').trim();
+            return t === '+ Add' || t === 'Add' || t === '+ add' || t.toLowerCase() === 'add';
         });
-        if (toolsLink) return toolsLink.getAttribute('href');
-        // 2) Any link to an artist subdomain (not www, not bandcamp.com).
-        const artistLink = links.find(a => {
-            const href = (a.getAttribute('href') || '');
-            const m = href.match(/^https?:\\/\\/([^/]+)\\.bandcamp\\.com(\\/|$)/i);
-            return m && m[1] !== 'www' && m[1] !== 'blog' && m[1] !== 'daily';
+        if (add) { add.click(); return true; }
+        return false;
+    }""")
+    return bool(clicked)
+
+
+def _pick_track_option(page) -> None:
+    """After '+ Add', Bandcamp opens a dropdown with 'Album' / 'Track' — pick Track."""
+    page.wait_for_timeout(800)  # let the dropdown render
+
+    # Strategy 1: role-based lookups on common dropdown element types
+    for role in ("menuitem", "link", "button", "option"):
+        for pattern in (r"^\s*Track\s*$", r"add\s+(?:a\s+)?(?:new\s+)?track"):
+            try:
+                loc = page.get_by_role(role, name=re.compile(pattern, re.I))
+                if loc.count() > 0 and loc.first.is_visible():
+                    loc.first.click(timeout=3_000)
+                    log.info(f"Selected 'Track' via {role}")
+                    return
+            except Exception:
+                continue
+
+    # Strategy 2: any visible element whose text is exactly "Track"
+    clicked = page.evaluate("""() => {
+        const all = [...document.querySelectorAll('a, button, li, [role="menuitem"], [role="option"]')];
+        const track = all.find(e => {
+            if (e.offsetParent === null) return false;
+            const t = (e.textContent || '').trim().toLowerCase();
+            return t === 'track' || t === 'new track' || t === 'add a track'
+                || t === 'add track' || t === 'single track';
         });
-        if (artistLink) {
-            const href = artistLink.getAttribute('href');
-            const m = href.match(/^(https?:\\/\\/[^/]+\\.bandcamp\\.com)/i);
-            if (m) return m[1] + '/tools';
-        }
+        if (track) { track.click(); return track.tagName; }
         return null;
     }""")
-    return url
+    if clicked:
+        log.info(f"Selected 'Track' via JS click on <{clicked}>")
+        return
+
+    # If the chooser didn't appear, we're probably already on the form.
+    log.info("Track option not found — assuming form is already open")
 
 
 def _dismiss_banners(page) -> None:
