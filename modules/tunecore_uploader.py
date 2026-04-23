@@ -2267,22 +2267,103 @@ def _do_upload(
                             if not wav_ok:
                                 log.info("  TuneCore-specific selectors failed — trying generic _upload_file")
                                 wav_ok = _upload_file(page, wav_path)
+
                             if not wav_ok:
-                                log.warning(f"  WAV upload failed for '{wav_path.name}' — skipping...")
-                                continue
-                            log.info("  Waiting for WAV upload (~5 min)...")
+                                # Hard fail — don't silently advance with Audio ❌
+                                try:
+                                    page.screenshot(
+                                        path=str(OUTPUT_DIR / "debug_tunecore_wav_no_input.png"),
+                                        full_page=True,
+                                    )
+                                except Exception:
+                                    pass
+                                raise RuntimeError(
+                                    f"WAV upload failed — no file input accepted '{wav_path.name}'. "
+                                    f"See output/debug_tunecore_wav_no_input.png"
+                                )
+
+                            log.info("  Waiting for WAV upload (~6 min)...")
                             _wait_for_upload(page, timeout=360, file_was_set=wav_ok)
+
+                            # After upload, capture any TuneCore error banner (silence,
+                            # duration, format) so we know WHY audio is rejected instead
+                            # of silently clicking Continue over a broken file.
+                            wav_error = None
+                            try:
+                                wav_error = page.evaluate("""() => {
+                                    const selectors = [
+                                        '.error', '.alert-danger', '[class*="error" i]',
+                                        '[class*="invalid" i]', '[role="alert"]',
+                                    ];
+                                    for (const sel of selectors) {
+                                        for (const el of document.querySelectorAll(sel)) {
+                                            const t = (el.innerText || '').trim();
+                                            if (t && t.length < 500 &&
+                                                /silen|duration|second|format|fail|invalid|reject/i.test(t)) {
+                                                return t.slice(0, 300);
+                                            }
+                                        }
+                                    }
+                                    return null;
+                                }""")
+                            except Exception:
+                                pass
+                            if wav_error:
+                                try:
+                                    page.screenshot(
+                                        path=str(OUTPUT_DIR / "debug_tunecore_wav_error.png"),
+                                        full_page=True,
+                                    )
+                                except Exception:
+                                    pass
+                                raise RuntimeError(
+                                    f"TuneCore rejected WAV: {wav_error} — "
+                                    f"see output/debug_tunecore_wav_error.png"
+                                )
 
                             cont = _find_clickable(page, [
                                 "button:has-text('Continue')", "button:has-text('Next')",
                                 "a:has-text('Continue')",
                             ])
-                            if cont:
-                                cont.click()
-                                page.wait_for_timeout(5000)
-                                log.info("  Clicked Continue after WAV")
+                            if not cont:
+                                try:
+                                    page.screenshot(
+                                        path=str(OUTPUT_DIR / "debug_tunecore_wav_no_continue.png"),
+                                        full_page=True,
+                                    )
+                                except Exception:
+                                    pass
+                                raise RuntimeError(
+                                    "WAV uploaded but Continue button not found — "
+                                    "draft would show Audio ❌. "
+                                    "See output/debug_tunecore_wav_no_continue.png"
+                                )
+                            cont.click()
+                            page.wait_for_timeout(5000)
+                            log.info("  Clicked Continue after WAV")
+
+                            # Verify we actually advanced past upload_wav. If we're
+                            # still on this state, the click didn't save.
+                            page.wait_for_timeout(3000)
+                            still_on_upload = _detect_page(page) == 'upload_wav'
+                            if still_on_upload:
+                                try:
+                                    page.screenshot(
+                                        path=str(OUTPUT_DIR / "debug_tunecore_wav_stuck.png"),
+                                        full_page=True,
+                                    )
+                                except Exception:
+                                    pass
+                                raise RuntimeError(
+                                    "Still on upload_wav state after clicking Continue — "
+                                    "WAV did not save. See output/debug_tunecore_wav_stuck.png"
+                                )
                         except Exception as e:
-                            log.warning(f"  Upload WAV step failed: {e} — skipping...")
+                            log.error(f"  Upload WAV step failed: {e}")
+                            # Break the state loop — don't pretend the upload worked.
+                            # The outer retry loop can try again (Strategy 2 handles
+                            # transient failures). Audio ❌ is better surfaced than hidden.
+                            raise
 
                     # ── ARTWORK ──
                     elif state == 'artwork':
