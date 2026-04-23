@@ -480,6 +480,75 @@ def cmd_tunecore_latest(args):
         sys.exit(1)
 
 
+def cmd_bandcamp_latest(args):
+    """Find the most recent WAV + cover in output/ and upload to Bandcamp.
+
+    Usage: python main.py bandcamp-latest
+    """
+    from config import OUTPUT_DIR
+    from modules.bandcamp_uploader import upload_to_bandcamp
+    from modules.concept_generator import MusicConcept
+
+    image_files = sorted(
+        list(OUTPUT_DIR.glob("*_cover.jpg")) + list(OUTPUT_DIR.glob("*_cover.png"))
+        + list(OUTPUT_DIR.glob("*_thumbnail.jpg")) + list(OUTPUT_DIR.glob("*_thumbnail.png")),
+        key=lambda f: f.stat().st_mtime, reverse=True,
+    )
+    if not image_files:
+        log.error(f"No cover art or thumbnails found in {OUTPUT_DIR}")
+        sys.exit(1)
+
+    cover_path = image_files[0]
+    log.info(f"Latest image: {cover_path.name}")
+
+    stem = cover_path.stem
+    for tag in ("_thumbnail", "_cover"):
+        stem = stem.replace(tag, "")
+    track_name = stem.replace("_", " ")
+    log.info(f"Track name: {track_name}")
+
+    wav_path = None
+    for name_variant in [stem, track_name.replace(" ", "_")]:
+        candidate = OUTPUT_DIR / f"{name_variant}.wav"
+        if candidate.exists():
+            wav_path = candidate
+            break
+
+    if not wav_path:
+        wav_files = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda f: f.stat().st_mtime, reverse=True)
+        if wav_files:
+            wav_path = wav_files[0]
+            log.warning(f"No WAV for '{track_name}', using latest: {wav_path.name}")
+
+    if not wav_path:
+        log.error(f"No WAV files found in {OUTPUT_DIR}")
+        sys.exit(1)
+
+    log.info(f"WAV file: {wav_path.name}")
+    log.info(f"Cover art: {cover_path.name}")
+
+    concept = MusicConcept(
+        track_name=track_name,
+        genre="Afro House",
+        mood="",
+        description="",
+        music_prompt="",
+        hashtags=[],
+        thumbnail_prompt="",
+        youtube_title=track_name,
+        youtube_description="",
+        youtube_tags=[],
+        tiktok_caption="",
+    )
+
+    result = upload_to_bandcamp(wav_path, cover_path, concept)
+    if result:
+        log.info(f"Done! Bandcamp result: {result}")
+    else:
+        log.error("Bandcamp upload failed — check logs and screenshots in output/")
+        sys.exit(1)
+
+
 def cmd_soundcloud_login(args):
     """Open browser to log into SoundCloud and save session state.
 
@@ -1266,6 +1335,12 @@ def main():
         "tunecore-latest",
         help="Find latest WAV + cover art in output/ and upload to TuneCore",
     ).set_defaults(func=cmd_tunecore_latest)
+
+    # bandcamp-latest - auto-find latest WAV + cover and upload to Bandcamp
+    subparsers.add_parser(
+        "bandcamp-latest",
+        help="Find latest WAV + cover art in output/ and upload to Bandcamp",
+    ).set_defaults(func=cmd_bandcamp_latest)
 
     # soundcloud-login - save SoundCloud session state
     soundcloud_login_parser = subparsers.add_parser(
