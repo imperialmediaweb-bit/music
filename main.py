@@ -93,10 +93,21 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
                                    thumbnail_style=thumbnail_style)
     log.info(f"Track name: {concept.track_name}")
 
-    # Step 2: Generate music
+    # Step 2: Generate music (fall back to Suno if aimusicfactory fails —
+    # out of credits, captcha, UI broken, whatever)
     log.info("=" * 60)
     log.info(f"STEP 2: Generating music on {platform} ({gen_count} generation(s) = {gen_count * 2} songs)...")
-    mp3_files = generate_music_batch(concept, count=gen_count)
+    try:
+        mp3_files = generate_music_batch(concept, count=gen_count)
+    except Exception as e:
+        if platform == "aimusicfactory":
+            log.warning(f"aimusicfactory generation failed ({e}) — falling back to Suno")
+            platform = "suno"
+            generate_music_batch = _get_music_generator("suno")
+            log.info(f"STEP 2 (retry): Generating music on suno ({gen_count} generation(s) = {gen_count * 2} songs)...")
+            mp3_files = generate_music_batch(concept, count=gen_count)
+        else:
+            raise
     log.info(f"Generated {len(mp3_files)} MP3 files")
 
     # Step 3: Merge all MP3s into one track
