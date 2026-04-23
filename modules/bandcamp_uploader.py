@@ -77,22 +77,24 @@ def _do_upload(
     with sync_playwright() as p:
         # Match the login browser (real Chrome) so the saved cookies validate.
         # Fall back to bundled Chromium if Chrome is not installed.
+        launch_kwargs = dict(
+            headless=HEADLESS,
+            args=["--disable-blink-features=AutomationControlled"],
+            ignore_default_args=["--enable-automation"],
+        )
         try:
-            browser = p.chromium.launch(
-                headless=HEADLESS,
-                channel="chrome",
-                args=["--disable-blink-features=AutomationControlled"],
-            )
+            browser = p.chromium.launch(channel="chrome", **launch_kwargs)
         except Exception:
             log.info("Chrome channel not available — falling back to bundled Chromium")
-            browser = p.chromium.launch(
-                headless=HEADLESS,
-                args=["--disable-blink-features=AutomationControlled"],
-            )
+            browser = p.chromium.launch(**launch_kwargs)
         context = browser.new_context(
             storage_state=str(BANDCAMP_STATE_FILE),
             viewport={"width": 1920, "height": 1080},
             accept_downloads=False,
+        )
+        # Hide navigator.webdriver so Bandcamp's reCAPTCHA doesn't trip.
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
         )
         page = context.new_page()
 

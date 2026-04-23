@@ -540,13 +540,21 @@ def cmd_bandcamp_login(args):
     log.info("Log in with your Bandcamp account, then come back here.")
 
     with sync_playwright() as p:
+        # Bandcamp's login page uses reCAPTCHA, which flags the browser if
+        # navigator.webdriver is true or if Playwright's default automation
+        # flags are present. Strip them so the manual login can submit.
         browser = p.chromium.launch(
             headless=False,
             channel="chrome",
             args=["--disable-blink-features=AutomationControlled"],
+            ignore_default_args=["--enable-automation"],
         )
         context = browser.new_context(
             viewport={"width": 1920, "height": 1080},
+        )
+        # Hide navigator.webdriver before any page script runs
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
         )
         page = context.new_page()
         page.goto("https://bandcamp.com/login", wait_until="domcontentloaded", timeout=60_000)
