@@ -27,7 +27,7 @@ while _idx < len(sys.argv):
 from config import (
     SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE,
     SUNO_STATE_FILE, UDIO_STATE_FILE, TUNECORE_STATE_FILE, SOUNDCLOUD_STATE_FILE,
-    BANDCAMP_STATE_FILE, MUSIC_PLATFORM, SONGS_PER_CLIP,
+    BANDCAMP_STATE_FILE, BANDCAMP_USER_DATA_DIR, MUSIC_PLATFORM, SONGS_PER_CLIP,
 )
 from utils.logger import log
 
@@ -527,36 +527,37 @@ def cmd_soundcloud_login(args):
 
 
 def cmd_bandcamp_login(args):
-    """Open browser to log into Bandcamp and save session state.
+    """Open browser to log into Bandcamp and save a persistent profile.
 
-    These cookies are needed for automated track uploads to Bandcamp.
+    Bandcamp's reCAPTCHA blocks fresh/automation-fingerprinted browsers, so
+    we keep a real Chrome profile under BANDCAMP_USER_DATA_DIR. Both the
+    login step and the uploader reuse that directory — cookies, localStorage
+    and reCAPTCHA trust score persist naturally.
     """
     from playwright.sync_api import sync_playwright
 
     state_file = BANDCAMP_STATE_FILE
     state_file.parent.mkdir(parents=True, exist_ok=True)
+    user_data_dir = BANDCAMP_USER_DATA_DIR
+    user_data_dir.mkdir(parents=True, exist_ok=True)
 
     log.info("Opening Chrome browser for Bandcamp login...")
+    log.info(f"Persistent profile: {user_data_dir}")
     log.info("Log in with your Bandcamp account, then come back here.")
 
     with sync_playwright() as p:
-        # Bandcamp's login page uses reCAPTCHA, which flags the browser if
-        # navigator.webdriver is true or if Playwright's default automation
-        # flags are present. Strip them so the manual login can submit.
-        browser = p.chromium.launch(
+        context = p.chromium.launch_persistent_context(
+            user_data_dir=str(user_data_dir),
             headless=False,
             channel="chrome",
+            viewport={"width": 1920, "height": 1080},
             args=["--disable-blink-features=AutomationControlled"],
             ignore_default_args=["--enable-automation"],
         )
-        context = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-        )
-        # Hide navigator.webdriver before any page script runs
         context.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
         )
-        page = context.new_page()
+        page = context.pages[0] if context.pages else context.new_page()
         page.goto("https://bandcamp.com/login", wait_until="domcontentloaded", timeout=60_000)
 
         log.info("=" * 60)
@@ -568,11 +569,13 @@ def cmd_bandcamp_login(args):
 
         input("\n>>> Press ENTER here after you've logged in... ")
 
+        # Also save a storage_state snapshot for compatibility / inspection
         context.storage_state(path=str(state_file))
-        log.info(f"Bandcamp session saved to: {state_file}")
+        log.info(f"Bandcamp profile saved to: {user_data_dir}")
+        log.info(f"(storage_state snapshot: {state_file})")
         log.info("You can now run the pipeline and Bandcamp uploads will work!")
 
-        browser.close()
+        context.close()
 
 
 def cmd_suno_login(args):
