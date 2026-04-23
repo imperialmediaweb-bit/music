@@ -541,7 +541,7 @@ def cmd_bandcamp_latest(args):
         tiktok_caption="",
     )
 
-    result = upload_to_bandcamp(wav_path, cover_path, concept)
+    result = upload_to_bandcamp(wav_path, concept, cover_path)
     if result:
         log.info(f"Done! Bandcamp result: {result}")
     else:
