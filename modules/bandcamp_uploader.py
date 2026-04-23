@@ -12,9 +12,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 from modules.concept_generator import MusicConcept
-from config import (
-    BANDCAMP_STATE_FILE, BANDCAMP_USER_DATA_DIR, BANDCAMP_TRACK_PRICE, HEADLESS,
-)
+from config import BANDCAMP_STATE_FILE, BANDCAMP_TRACK_PRICE, HEADLESS
 from utils.logger import log
 
 BANDCAMP_HOME = "https://bandcamp.com"
@@ -45,9 +43,9 @@ def upload_to_bandcamp(
     """
     log.info(f"Uploading to Bandcamp: {concept.track_name}")
 
-    if not BANDCAMP_USER_DATA_DIR.exists() or not any(BANDCAMP_USER_DATA_DIR.iterdir()):
+    if not BANDCAMP_STATE_FILE.exists() or BANDCAMP_STATE_FILE.stat().st_size < 10:
         log.error(
-            f"Bandcamp profile not found: {BANDCAMP_USER_DATA_DIR}\n"
+            f"Bandcamp session not found: {BANDCAMP_STATE_FILE}\n"
             "Run: python main.py bandcamp-login"
         )
         return None
@@ -77,29 +75,23 @@ def _do_upload(
     debug_dir = Path("output")
 
     with sync_playwright() as p:
-        # Reuse the persistent Chrome profile from `bandcamp-login` so
-        # Bandcamp's reCAPTCHA scores the browser as trusted.
-        persistent_kwargs = dict(
-            user_data_dir=str(BANDCAMP_USER_DATA_DIR),
+        # Same setup as TuneCore: bundled Chromium + storage_state + stealth
+        # init script. Real Chrome is NOT required.
+        browser = p.chromium.launch(
             headless=HEADLESS,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            storage_state=str(BANDCAMP_STATE_FILE),
             viewport={"width": 1920, "height": 1080},
             accept_downloads=False,
-            args=["--disable-blink-features=AutomationControlled"],
-            ignore_default_args=["--enable-automation"],
         )
-        try:
-            context = p.chromium.launch_persistent_context(
-                channel="chrome", **persistent_kwargs
-            )
-        except Exception:
-            log.info("Chrome channel not available — falling back to bundled Chromium")
-            context = p.chromium.launch_persistent_context(**persistent_kwargs)
-        # Hide navigator.webdriver so Bandcamp's reCAPTCHA doesn't trip.
-        context.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-        )
-        page = context.pages[0] if context.pages else context.new_page()
-        browser = None  # persistent context has no separate browser handle
+        context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+            window.chrome = { runtime: {} };
+        """)
+        page = context.new_page()
 
         try:
             # Start at the Bandcamp home feed — after login, Bandcamp shows
@@ -182,11 +174,8 @@ def _do_upload(
             # ── Publish ──
             album_url = _publish(page, concept.track_name, debug_dir)
 
-            # Persist storage_state snapshot (profile dir handles the rest)
-            try:
-                context.storage_state(path=str(BANDCAMP_STATE_FILE))
-            except Exception:
-                pass
+            # Save refreshed session
+            context.storage_state(path=str(BANDCAMP_STATE_FILE))
             page.screenshot(path=str(debug_dir / "debug_bandcamp_04_done.png"))
 
             if album_url:
@@ -203,7 +192,7 @@ def _do_upload(
                 pass
             raise
         finally:
-            context.close()
+            browser.close()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────

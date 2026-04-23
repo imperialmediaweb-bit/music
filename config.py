@@ -28,12 +28,6 @@ UDIO_STATE_FILE = Path(os.getenv("UDIO_STATE_FILE", BASE_DIR / "cookies" / "udio
 TUNECORE_STATE_FILE = Path(os.getenv("TUNECORE_STATE_FILE", BASE_DIR / "cookies" / "tunecore_state.json"))
 SOUNDCLOUD_STATE_FILE = Path(os.getenv("SOUNDCLOUD_STATE_FILE", BASE_DIR / "cookies" / "soundcloud_state.json"))
 BANDCAMP_STATE_FILE = Path(os.getenv("BANDCAMP_STATE_FILE", BASE_DIR / "cookies" / "bandcamp_state.json"))
-# Bandcamp's reCAPTCHA refuses a blank browser, so we keep a persistent
-# Chrome profile here. Gets populated on `bandcamp-login` and reused by the
-# uploader so the session (and reCAPTCHA trust score) survives across runs.
-BANDCAMP_USER_DATA_DIR = Path(os.getenv(
-    "BANDCAMP_USER_DATA_DIR", BASE_DIR / "cookies" / "bandcamp_chrome_profile"
-))
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "output"))
 INPUT_DIR = Path(os.getenv("INPUT_DIR", BASE_DIR / "input"))
 HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
