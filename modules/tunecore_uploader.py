@@ -1298,42 +1298,63 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
     page.wait_for_timeout(3000)
 
     while time.time() - start < timeout:
-        # Check TuneCore-specific "X / Y Completed" pattern (e.g. "1 / 1 Completed")
         try:
-            completed_status = page.evaluate("""() => {
+            upload_state = page.evaluate("""() => {
                 const body = document.body?.innerText || '';
-                const match = body.match(/(\\d+)\\s*\\/\\s*(\\d+)\\s*Completed/i);
-                if (match) return { done: parseInt(match[1]), total: parseInt(match[2]) };
-                return null;
+
+                // "X / Y Completed"
+                const m = body.match(/(\\d+)\\s*\\/\\s*(\\d+)\\s*Completed/i);
+                if (m && parseInt(m[1]) >= parseInt(m[2]) && parseInt(m[2]) > 0)
+                    return 'completed';
+
+                // Success keywords
+                if (/upload\\s*complete|successfully\\s*uploaded/i.test(body))
+                    return 'completed';
+
+                // Enabled Continue/Save button = upload done
+                const btns = document.querySelectorAll('button, a, [role="button"]');
+                for (const b of btns) {
+                    const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                    if (!t.includes('continue') && !t.includes('save')) continue;
+                    if (b.offsetWidth === 0) continue;
+                    const cls = b.className || '';
+                    const disabled = b.disabled
+                        || b.getAttribute('disabled') !== null
+                        || b.getAttribute('aria-disabled') === 'true'
+                        || /Mui-disabled|disabled/i.test(cls);
+                    if (!disabled) return 'button_enabled';
+                }
+
+                // MUI LinearProgress / progress bar visible?
+                const prog = document.querySelector(
+                    '[class*="progress" i], [class*="Progress" i], '
+                  + '[role="progressbar"], .MuiLinearProgress-root');
+                if (prog && prog.offsetWidth > 0) return 'in_progress';
+
+                return 'waiting';
             }""")
-            if completed_status and completed_status['total'] > 0:
-                if completed_status['done'] >= completed_status['total']:
-                    log.info(f"  Upload complete: {completed_status['done']}/{completed_status['total']} Completed")
-                    return
+
+            if upload_state == 'completed' or upload_state == 'button_enabled':
+                log.info(f"  Upload done: {upload_state}")
+                return
+            if upload_state == 'in_progress':
+                seen_progress = True
         except Exception:
             pass
 
-        # Check for generic success indicators (skip "Complete" — matches "0/1 Completed")
-        for text in ["Upload complete", "Uploaded", "Success", "100%"]:
+        # Progress bar was visible before but now gone
+        if seen_progress:
             try:
-                if page.locator(f"text={text}").first.is_visible(timeout=500):
-                    log.info(f"  Upload complete: found '{text}'")
+                still = page.evaluate("""() => {
+                    const p = document.querySelector(
+                        '[class*="progress" i], [role="progressbar"], .MuiLinearProgress-root');
+                    return p && p.offsetWidth > 0;
+                }""")
+                if not still:
+                    log.info("  Upload progress bar gone — upload complete")
                     return
             except Exception:
-                continue
-
-        # Check progress bar — only trust "gone" if we saw it appear first
-        try:
-            progress = page.locator("[class*='progress']").first
-            if progress.is_visible(timeout=1000):
-                seen_progress = True
-                log.info("  Upload progress bar visible...")
-            elif seen_progress:
-                # Was visible before, now gone => upload finished
-                log.info("  Upload progress bar gone — upload complete")
-                return
-        except Exception:
-            pass
+                pass
 
         page.wait_for_timeout(5000)
         elapsed = int(time.time() - start)
@@ -2640,17 +2661,25 @@ def _do_upload(
                             while time.time() < enabled_deadline:
                                 try:
                                     continue_enabled = page.evaluate("""() => {
-                                        const btns = Array.from(document.querySelectorAll('button, a'));
+                                        const btns = Array.from(document.querySelectorAll(
+                                            'button, a, [role="button"]'));
                                         for (const b of btns) {
-                                            const t = (b.innerText || '').trim();
-                                            if (/^(Continue|Next)$/i.test(t)) {
-                                                const cls = b.className || '';
-                                                const disabled = b.disabled ||
-                                                    b.getAttribute('disabled') !== null ||
-                                                    /Mui-disabled|disabled/.test(cls);
-                                                if (!disabled) return true;
-                                            }
+                                            const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                                            if (!t.includes('continue') && !t.includes('next')
+                                                && !t.includes('save')) continue;
+                                            if (b.offsetWidth === 0) continue;
+                                            const cls = b.className || '';
+                                            const disabled = b.disabled
+                                                || b.getAttribute('disabled') !== null
+                                                || b.getAttribute('aria-disabled') === 'true'
+                                                || /Mui-disabled|disabled/i.test(cls);
+                                            if (!disabled) return true;
                                         }
+                                        // Also check for "X / Y Completed" pattern
+                                        const body = document.body?.innerText || '';
+                                        const m = body.match(/(\\d+)\\s*\\/\\s*(\\d+)\\s*Completed/i);
+                                        if (m && parseInt(m[1]) >= parseInt(m[2]) && parseInt(m[2]) > 0)
+                                            return true;
                                         return false;
                                     }""")
                                 except Exception:
