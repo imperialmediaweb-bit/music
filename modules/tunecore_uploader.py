@@ -1355,15 +1355,18 @@ def _fill_new_track_fields(page):
                     if (normText(opt) === target) return click(opt, 'exact');
                 }
 
+                // Only skip qualified variants if the target is unqualified.
+                // E.g. target "producer" should skip "co-producer", but target
+                // "co-producer" should match "co-producer" (exact via strategy 1).
+                const qualifiedPrefixes = ['co-', 'co ', 'assistant ', 'vocal ',
+                    'executive ', 'associate '];
+                const targetIsQualified = qualifiedPrefixes.some(p => target.startsWith(p));
+
                 // Strategy 2: option's main word is target (e.g. "music producer" → producer)
-                // Split by space, check if LAST word is target and option doesn't start with "co-" or "assistant"
                 for (const opt of opts) {
                     const txt = normText(opt);
-                    if (txt.startsWith('co-') || txt.startsWith('assistant ')
-                        || txt.startsWith('co ') || txt.startsWith('vocal ')
-                        || txt.startsWith('executive ') || txt.startsWith('associate ')) {
-                        continue;
-                    }
+                    if (!targetIsQualified
+                        && qualifiedPrefixes.some(p => txt.startsWith(p))) continue;
                     const words = txt.split(/[\s-]+/);
                     if (words[words.length - 1] === target) return click(opt, 'last-word');
                 }
@@ -1377,8 +1380,8 @@ def _fill_new_track_fields(page):
                 // Strategy 4: option contains target as whole word (loose fallback)
                 for (const opt of opts) {
                     const txt = normText(opt);
-                    if (txt.startsWith('co-') || txt.startsWith('co ')
-                        || txt.startsWith('assistant ')) continue;
+                    if (!targetIsQualified
+                        && qualifiedPrefixes.some(p => txt.startsWith(p))) continue;
                     const words = txt.split(/[\s-]+/);
                     if (words.includes(target)) return click(opt, 'whole-word');
                 }
@@ -1481,8 +1484,8 @@ def _fill_new_track_fields(page):
     # ── Performer Roles (synthesizer=100) ──
     _pick_role("songRoles.performer", "synthesizer", "100", "Performer Roles")
 
-    # ── Producer / Engineer Roles (producer=146) ──
-    _pick_role("songRoles.production_and_engineering", "producer", "146",
+    # ── Producer / Engineer Roles (co-producer) ──
+    _pick_role("songRoles.production_and_engineering", "co-producer", "",
                "Producer/Engineer Roles")
 
     # ── More Options (performer=1) ──
