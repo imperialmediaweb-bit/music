@@ -1266,152 +1266,104 @@ def _fill_new_track_fields(page):
       Radio sections: MUI RadioGroup with <input type="radio"> inside <label>
     """
 
-    # ── Performer Roles (MUI multi-select) ──
-    # Open via aria-labelledby="songRoles.performer", then click "synthesizer"
-    try:
-        opened = page.evaluate("""() => {
-            // Strategy 1: click the MUI Select trigger by aria-labelledby
+    # ── Unified MUI multi-select role picker ──
+    def _pick_role(label_id: str, role_name: str, data_value: str, display: str):
+        """Open MUI multi-select by aria-labelledby, click option by data-value, verify."""
+        # 1. Find trigger and check if already selected
+        check = page.evaluate("""(args) => {
+            const { labelId, roleName } = args;
             const trigger = document.querySelector(
-                '[aria-labelledby*="songRoles.performer"][role="combobox"], '
-              + '[aria-labelledby*="songRoles.performer"].MuiSelect-select, '
-              + '[aria-labelledby*="songRoles.performer"]');
-            if (trigger && trigger.getAttribute('role') !== 'listbox') {
-                trigger.click();
-                return 'aria';
-            }
-            // Strategy 2: find label with id containing songRoles.performer
-            const label = document.getElementById('songRoles.performer')
-                       || document.querySelector('[id*="songRoles"][id*="performer"]');
-            if (label) {
-                const ctrl = label.closest('.MuiFormControl-root') || label.parentElement;
-                const sel = ctrl?.querySelector(
-                    '[role="combobox"], .MuiSelect-select, [aria-haspopup="listbox"]');
-                if (sel) { sel.click(); return 'label_id'; }
-                label.click();
-                return 'label_click';
-            }
-            // Strategy 3: text-based search for "Performer Roles"
-            const allEls = document.querySelectorAll('label, legend, span, p, div');
-            for (const el of allEls) {
-                if (el.offsetWidth === 0) continue;
-                const t = el.textContent.trim();
-                if (!/^Performer\\s*Roles/i.test(t)) continue;
-                if (t.length > 30) continue;
-                const ctrl = el.closest('.MuiFormControl-root') || el.parentElement;
-                const sel = ctrl?.querySelector(
-                    '[role="combobox"], .MuiSelect-select, [aria-haspopup]');
-                if (sel) { sel.click(); return 'text'; }
-                el.click();
-                return 'text_click';
-            }
-            return null;
-        }""")
-        log.info(f"  Performer Roles: open={opened}")
+                '[aria-labelledby="' + labelId + '"][role="combobox"]')
+                || document.querySelector('[aria-labelledby*="' + labelId + '"]');
+            if (!trigger) return { status: 'no_trigger' };
+            const txt = trigger.textContent.trim().toLowerCase();
+            if (txt === roleName.toLowerCase()) return { status: 'already', txt };
+            if (txt.split(',').map(s => s.trim()).includes(roleName.toLowerCase()))
+                return { status: 'already', txt };
+            return { status: 'needs_open', txt };
+        }""", {"labelId": label_id, "roleName": role_name})
 
-        if opened:
-            page.wait_for_timeout(1500)
+        if check.get('status') == 'no_trigger':
+            log.warning(f"  {display}: trigger not found")
+            return False
+        if check.get('status') == 'already':
+            log.info(f"  {display}: already has '{check.get('txt')}'")
+            return True
 
-            # Click "synthesizer" option in the MUI listbox
-            picked = False
-            try:
-                synth = page.locator("[role='option']").filter(
-                    has_text=re.compile(r"^synthesizer$", re.IGNORECASE)).first
-                if synth.is_visible(timeout=3000):
-                    synth.click()
-                    picked = True
-                    log.info("  Performer Roles: selected 'synthesizer'")
-            except Exception:
-                pass
+        log.info(f"  {display}: opening (current='{check.get('txt')}')...")
 
-            if not picked:
-                picked_js = page.evaluate("""() => {
-                    // Try by data-value="100" (synthesizer ID from HTML source)
-                    const byId = document.querySelector('[role="option"][data-value="100"]');
-                    if (byId) { byId.click(); return 'synthesizer (data-value=100)'; }
-                    // Try by text content
-                    const opts = document.querySelectorAll('[role="option"]');
-                    for (const o of opts) {
-                        if (/^synthesizer$/i.test(o.textContent.trim())) {
-                            o.click(); return 'synthesizer (text)';
-                        }
-                    }
-                    return null;
-                }""")
-                if picked_js:
-                    log.info(f"  Performer Roles: {picked_js} (JS)")
-                    picked = True
-
-            # Close the dropdown
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-
-            if not picked:
-                log.warning("  Performer Roles: could not select any option")
-        else:
-            log.info("  Performer Roles: dropdown not found (may be old UI)")
-    except Exception as e:
-        log.warning(f"  Performer Roles failed: {e}")
-
-    # ── Producer / Engineer Roles + More Options ──
-    # These are usually auto-filled ("producer", "performer") when an artist
-    # profile is linked. Only fill if empty.
-    ROLE_DATA_VALUES = {
-        "producer": "146",
-        "performer": "1",
-    }
-    for role_label_id, role_name, display_name in [
-        ("songRoles.production_and_engineering", "producer",  "Producer/Engineer Roles"),
-        ("songRoles.other",                      "performer", "More Options"),
-    ]:
+        # 2. Open the dropdown
         try:
-            result = page.evaluate("""(args) => {
-                const { labelId, roleName } = args;
-                // Find the MUI Select trigger by aria-labelledby
-                const trigger = document.querySelector(
-                    '[aria-labelledby*="' + labelId + '"]');
-                if (!trigger) return 'not_found';
-                const txt = trigger.textContent.trim().toLowerCase();
-                // Check if already has a REAL selection (not placeholder text)
-                // Placeholder = label text like "producer / engineer roles", "more options"
-                if (txt && txt === roleName) return 'already:' + txt;
-                // If trigger text matches any known role value, it's filled
-                const knownRoles = ['producer','performer','mixer','engineer',
-                    'remixer','composer','lyricist','arranger'];
-                if (knownRoles.some(r => txt === r)) return 'already:' + txt;
-                trigger.click();
-                return 'opened';
-            }""", {"labelId": role_label_id, "roleName": role_name})
-            log.info(f"  {display_name}: {result}")
-            if result == 'opened':
-                page.wait_for_timeout(1000)
-                # Try by data-value ID first, then by text
-                data_val = ROLE_DATA_VALUES.get(role_name)
-                picked = False
-                if data_val:
-                    picked = page.evaluate(f"""() => {{
-                        const opt = document.querySelector(
-                            '[role="option"][data-value="{data_val}"]');
-                        if (opt) {{ opt.click(); return true; }}
-                        return false;
-                    }}""")
-                    if picked:
-                        log.info(f"  {display_name}: '{role_name}' (data-value={data_val})")
-                if not picked:
-                    try:
-                        opt = page.locator("[role='option']").filter(
-                            has_text=re.compile(f"^{role_name}$", re.IGNORECASE)).first
-                        if opt.is_visible(timeout=2000):
-                            opt.click()
-                            picked = True
-                            log.info(f"  {display_name}: '{role_name}' (text)")
-                    except Exception:
-                        pass
-                page.keyboard.press("Escape")
-                page.wait_for_timeout(500)
-                if not picked:
-                    log.warning(f"  {display_name}: could not select '{role_name}'")
+            trigger_loc = page.locator(
+                f'[aria-labelledby="{label_id}"][role="combobox"]').first
+            trigger_loc.scroll_into_view_if_needed(timeout=2000)
+            trigger_loc.click()
+            page.wait_for_timeout(1500)
         except Exception as e:
-            log.warning(f"  {display_name} failed: {e}")
+            log.warning(f"  {display}: could not click trigger: {e}")
+            return False
+
+        # 3. Click the option by data-value (robust — no text matching)
+        picked = False
+        try:
+            opt = page.locator(f'[role="option"][data-value="{data_value}"]').first
+            opt.wait_for(state='visible', timeout=3000)
+            opt.scroll_into_view_if_needed(timeout=2000)
+            opt.click()
+            page.wait_for_timeout(500)
+            picked = True
+            log.info(f"  {display}: clicked option data-value={data_value} ({role_name})")
+        except Exception as e:
+            log.info(f"  {display}: Playwright data-value click failed: {e}")
+
+        # Fallback: JS click on the data-value option
+        if not picked:
+            picked_js = page.evaluate("""(dv) => {
+                const opt = document.querySelector(
+                    '[role="option"][data-value="' + dv + '"]');
+                if (!opt) return false;
+                opt.scrollIntoView({block: 'nearest'});
+                opt.click();
+                return true;
+            }""", data_value)
+            if picked_js:
+                log.info(f"  {display}: JS click on data-value={data_value}")
+                picked = True
+
+        # 4. Close the dropdown by clicking outside (Escape can un-save in MUI)
+        page.wait_for_timeout(500)
+        try:
+            page.locator('body').click(position={"x": 5, "y": 5}, force=True)
+        except Exception:
+            page.keyboard.press("Escape")
+        page.wait_for_timeout(800)
+
+        # 5. Verify the selection stuck
+        verified = page.evaluate("""(args) => {
+            const { labelId, roleName } = args;
+            const trigger = document.querySelector(
+                '[aria-labelledby="' + labelId + '"][role="combobox"]')
+                || document.querySelector('[aria-labelledby*="' + labelId + '"]');
+            if (!trigger) return false;
+            const txt = trigger.textContent.trim().toLowerCase();
+            return txt.includes(roleName.toLowerCase());
+        }""", {"labelId": label_id, "roleName": role_name})
+
+        if verified:
+            log.info(f"  {display}: VERIFIED '{role_name}' is selected")
+        else:
+            log.warning(f"  {display}: selection NOT verified — '{role_name}' not in trigger text")
+        return verified
+
+    # ── Performer Roles (synthesizer=100) ──
+    _pick_role("songRoles.performer", "synthesizer", "100", "Performer Roles")
+
+    # ── Producer / Engineer Roles (producer=146) ──
+    _pick_role("songRoles.production_and_engineering", "producer", "146",
+               "Producer/Engineer Roles")
+
+    # ── More Options (performer=1) ──
+    _pick_role("songRoles.other", "performer", "1", "More Options")
 
     # ── Radio sections: Release History, Copyright, Lyrics ──
     # Broad approach: find ALL radio inputs, check their label context,
