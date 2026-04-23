@@ -258,6 +258,7 @@ def continue_tunecore_draft(
         cover_path=cover_path or Path("/dev/null"),
         concept=concept,
         artist=artist,
+        continue_draft_name=track_name,
     )
 
 
@@ -1883,6 +1884,7 @@ def _do_upload(
     cover_path: Path,
     concept: MusicConcept,
     artist: str,
+    continue_draft_name: str | None = None,
 ) -> str | None:
     """Upload to TuneCore using adaptive page detection.
 
@@ -2088,6 +2090,62 @@ def _do_upload(
                 try:
                     # ── DASHBOARD ──
                     if state == 'dashboard':
+                        # If we're continuing an existing draft, find it by name and click it
+                        if continue_draft_name:
+                            log.info(f"  Looking for existing draft '{continue_draft_name}'...")
+                            # Restore navbar so we can filter/navigate if needed
+                            page.evaluate("""() => {
+                                for (const sel of ['#v2-nav-mountpoint', '.nav-nav85', '[class*="nav-nav"]']) {
+                                    for (const el of document.querySelectorAll(sel)) {
+                                        el.style.display = '';
+                                    }
+                                }
+                            }""")
+                            page.wait_for_timeout(1500)
+
+                            # Find row/card containing the draft name and its edit link
+                            clicked = page.evaluate("""(name) => {
+                                const want = name.trim().toLowerCase();
+                                // Strategy 1: find an anchor/button whose text includes the name
+                                const els = [...document.querySelectorAll('a, button, [role="button"], [role="link"]')];
+                                for (const el of els) {
+                                    const t = (el.textContent || '').trim().toLowerCase();
+                                    if (el.offsetWidth > 0 && t.includes(want)) {
+                                        el.scrollIntoView({block: 'center'});
+                                        el.click();
+                                        return 'clicked:' + el.tagName + ':' + t.slice(0, 50);
+                                    }
+                                }
+                                // Strategy 2: find any element with the name, then click its closest link
+                                const all = [...document.querySelectorAll('td, div, span, p, h1, h2, h3, h4, h5, h6')];
+                                for (const el of all) {
+                                    const t = (el.textContent || '').trim().toLowerCase();
+                                    if (el.offsetWidth > 0 && t === want) {
+                                        const link = el.closest('a') || el.closest('[role="link"]')
+                                            || el.closest('tr')?.querySelector('a')
+                                            || el.closest('div')?.querySelector('a');
+                                        if (link) {
+                                            link.scrollIntoView({block: 'center'});
+                                            link.click();
+                                            return 'linked:' + link.tagName + ':' + t;
+                                        }
+                                    }
+                                }
+                                return null;
+                            }""", continue_draft_name)
+                            if clicked:
+                                log.info(f"  Clicked existing draft: {clicked}")
+                                page.wait_for_timeout(4000)
+                                # Clear continue flag so we don't loop forever looking for the draft
+                                continue_draft_name = None
+                                continue
+                            else:
+                                log.warning(
+                                    f"  Draft '{continue_draft_name}' not found on dashboard. "
+                                    "Falling back to creating new release."
+                                )
+                                continue_draft_name = None
+
                         log.info("  Creating new release...")
 
                         # Restore navbar first — "Add Release" button lives inside it
