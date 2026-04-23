@@ -522,14 +522,24 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
         page.screenshot(path=str(OUTPUT_DIR / "debug_no_cards.png"))
         return []
 
-    # Filter: prefer cards matching our track name, otherwise take latest
+    # Only use cards whose name EXACTLY matches the fresh track we just
+    # generated. If none match, generation failed silently on the site
+    # (UI change, credits out, captcha, button not clicked) — fail loudly
+    # instead of falling back to older cards, or the pipeline uploads stale
+    # music to YouTube.
     name_matches = [c for c in grid_cards if c.get("nameMatch")]
-    if name_matches:
-        cards_to_use = name_matches
-        log.info(f"Found {len(cards_to_use)} card(s) matching '{track_name}'")
-    else:
-        cards_to_use = grid_cards[:expected_cards]
-        log.info(f"No name match — using latest {len(cards_to_use)} card(s)")
+    if not name_matches:
+        existing_names = [c.get("name") for c in grid_cards[:10]]
+        log.error(f"No card matching '{track_name}' on My Music after generation")
+        log.error(f"Newest cards on page: {existing_names}")
+        log.error("Generation appears to have failed silently on aimusicfactory.")
+        log.error("Inspect debug_before_gen_*.png / debug_fields_filled_*.png / "
+                  "debug_no_button_*.png / debug_mymusic.png in output/ for the cause.")
+        page.screenshot(path=str(OUTPUT_DIR / "debug_no_name_match.png"))
+        return []
+
+    cards_to_use = name_matches
+    log.info(f"Found {len(cards_to_use)} card(s) matching '{track_name}'")
 
     # ── Click each card -> navigate to detail -> download MP3 ──
     all_mp3s = []
