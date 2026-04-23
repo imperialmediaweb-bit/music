@@ -1291,19 +1291,80 @@ def _fill_new_track_fields(page):
         except Exception:
             pass
 
+    # ── Find a MUI Select trigger by multiple strategies ──
+    def _find_trigger(label_id: str, label_text: str, display: str):
+        """Return a Playwright locator for the combobox trigger.
+
+        Strategy 1: aria-labelledby matches label_id
+        Strategy 2: find FormControl containing a <label> with label_text,
+                    then the [role="combobox"] inside it
+        Strategy 3: tag element via JS and return locator
+        """
+        # Strategy 1: aria-labelledby (fastest)
+        try:
+            loc = page.locator(f'[aria-labelledby="{label_id}"][role="combobox"]').first
+            if loc.count() > 0:
+                log.info(f"  {display}: trigger found via aria-labelledby")
+                return loc
+        except Exception:
+            pass
+
+        # Strategy 2: find FormControl by label text, then combobox inside
+        try:
+            tagged = page.evaluate("""(labelText) => {
+                // Remove any prior tag
+                for (const el of document.querySelectorAll('[data-tc-trigger]')) {
+                    el.removeAttribute('data-tc-trigger');
+                }
+                const want = labelText.toLowerCase().replace(/\\s+/g, ' ').trim();
+                // Look for labels whose text matches
+                const labels = document.querySelectorAll('label, .MuiInputLabel-root');
+                for (const lbl of labels) {
+                    const txt = (lbl.textContent || '').toLowerCase().replace(/\\s+/g, ' ').trim();
+                    // Strip trailing "*" (required marker)
+                    const clean = txt.replace(/\\*$/, '').trim();
+                    if (clean === want || clean.startsWith(want)) {
+                        // Find parent FormControl
+                        const fc = lbl.closest('.MuiFormControl-root')
+                                || lbl.parentElement?.parentElement
+                                || lbl.parentElement;
+                        if (!fc) continue;
+                        const combo = fc.querySelector('[role="combobox"]');
+                        if (combo) {
+                            combo.setAttribute('data-tc-trigger', 'yes');
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }""", label_text)
+            if tagged:
+                loc = page.locator('[data-tc-trigger="yes"]').first
+                log.info(f"  {display}: trigger found via label text '{label_text}'")
+                return loc
+        except Exception as e:
+            log.info(f"  {display}: label-text search failed: {e}")
+
+        return None
+
     # ── Unified MUI multi-select role picker ──
-    def _pick_role(label_id: str, role_name: str, data_value: str, display: str):
+    def _pick_role(label_id: str, label_text: str, role_name: str, display: str):
         """Open MUI multi-select, click option by TEXT using Playwright native click."""
-        trigger_sel = f'[aria-labelledby="{label_id}"][role="combobox"]'
 
         # 0. Close any stale dropdown from previous call
         _close_any_dropdown()
 
-        # 1. Quick check: is it already selected?
+        # 1. Find the trigger (multi-strategy)
+        trigger = _find_trigger(label_id, label_text, display)
+        if trigger is None:
+            log.warning(f"  {display}: trigger not found (id={label_id}, text={label_text})")
+            return False
+
+        # Quick check: is it already selected?
         try:
-            current = (page.locator(trigger_sel).first.text_content(timeout=2000) or "").strip().lower()
+            current = (trigger.text_content(timeout=2000) or "").strip().lower()
         except Exception:
-            log.warning(f"  {display}: trigger not found")
+            log.warning(f"  {display}: trigger text unreadable")
             return False
 
         placeholders = {'performer roles', 'producer / engineer roles',
@@ -1315,7 +1376,6 @@ def _fill_new_track_fields(page):
         log.info(f"  {display}: opening (current='{current}')...")
 
         # 2. Scroll trigger into view and click to open dropdown
-        trigger = page.locator(trigger_sel).first
         try:
             trigger.scroll_into_view_if_needed(timeout=2000)
             trigger.click(timeout=3000)
@@ -1395,9 +1455,10 @@ def _fill_new_track_fields(page):
         # 6. Close the dropdown via MUI backdrop click
         _close_any_dropdown()
 
-        # 7. Verify
+        # 7. Verify — re-find the trigger to get fresh text
         try:
-            final_txt = (page.locator(trigger_sel).first.text_content(timeout=2000) or "").strip().lower()
+            trigger2 = _find_trigger(label_id, label_text, display)
+            final_txt = (trigger2.text_content(timeout=2000) or "").strip().lower() if trigger2 else ""
         except Exception:
             final_txt = ""
 
@@ -1408,15 +1469,15 @@ def _fill_new_track_fields(page):
             log.warning(f"  {display}: NOT verified — trigger='{final_txt}', expected '{role_name}'")
         return ok
 
-    # ── Performer Roles (synthesizer=100) ──
-    _pick_role("songRoles.performer", "synthesizer", "100", "Performer Roles")
+    # ── Performer Roles (synthesizer) ──
+    _pick_role("songRoles.performer", "Performer Roles", "synthesizer", "Performer Roles")
 
     # ── Producer / Engineer Roles (co-producer) ──
-    _pick_role("songRoles.production_and_engineering", "co-producer", "",
-               "Producer/Engineer Roles")
+    _pick_role("songRoles.production_and_engineering", "Producer / Engineer Roles",
+               "co-producer", "Producer/Engineer Roles")
 
-    # ── More Options (performer=1) ──
-    _pick_role("songRoles.other", "performer", "1", "More Options")
+    # ── More Options (performer) ──
+    _pick_role("songRoles.other", "More Options", "performer", "More Options")
 
     # ── Radio sections: Release History, Copyright, Lyrics ──
     # Broad approach: find ALL radio inputs, check their label context,
