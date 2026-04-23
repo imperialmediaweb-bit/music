@@ -125,23 +125,20 @@ def _do_upload(
 
             _dismiss_banners(page)
 
-            # ── Title ──
-            _set_album_title(page, concept.track_name)
+            # ── Track name ──
+            _set_track_name(page, concept.track_name)
 
-            # ── Artwork ──
+            # ── Price (already defaults to 1.50 on the form, but overwrite anyway) ──
+            _set_price(page, price)
+
+            # ── Audio file ──
+            _upload_audio(page, audio_path, debug_dir)
+
+            # ── Track art ──
             if cover_path and cover_path.exists():
                 _upload_artwork(page, cover_path, debug_dir)
             else:
                 log.warning("No cover art provided — Bandcamp will use a default placeholder")
-
-            # ── Audio file (creates track 1 automatically) ──
-            _upload_audio(page, audio_path, debug_dir)
-
-            # ── Track title (often auto-filled from filename) ──
-            _set_first_track_title(page, concept.track_name)
-
-            # ── Price ──
-            _set_price(page, price)
 
             # ── Description & tags ──
             _set_description(page, concept)
@@ -231,38 +228,38 @@ def _click_add_button(page) -> bool:
 
 
 def _pick_track_option(page) -> None:
-    """After '+ Add', Bandcamp opens a dropdown with 'Album' / 'Track' — pick Track."""
+    """After '+ Add', Bandcamp opens a dropdown with
+    Album / Track / Merch / Subscription / Listening Party / Live Stream
+    — pick exactly 'Track'.
+    """
     page.wait_for_timeout(800)  # let the dropdown render
 
-    # Strategy 1: role-based lookups on common dropdown element types
-    for role in ("menuitem", "link", "button", "option"):
-        for pattern in (r"^\s*Track\s*$", r"add\s+(?:a\s+)?(?:new\s+)?track"):
-            try:
-                loc = page.get_by_role(role, name=re.compile(pattern, re.I))
-                if loc.count() > 0 and loc.first.is_visible():
-                    loc.first.click(timeout=3_000)
-                    log.info(f"Selected 'Track' via {role}")
-                    return
-            except Exception:
-                continue
-
-    # Strategy 2: any visible element whose text is exactly "Track"
+    # Strategy 1: pick the dropdown item whose text is EXACTLY "Track"
     clicked = page.evaluate("""() => {
         const all = [...document.querySelectorAll('a, button, li, [role="menuitem"], [role="option"]')];
         const track = all.find(e => {
             if (e.offsetParent === null) return false;
-            const t = (e.textContent || '').trim().toLowerCase();
-            return t === 'track' || t === 'new track' || t === 'add a track'
-                || t === 'add track' || t === 'single track';
+            const t = (e.textContent || '').trim();
+            return t === 'Track';
         });
         if (track) { track.click(); return track.tagName; }
         return null;
     }""")
     if clicked:
-        log.info(f"Selected 'Track' via JS click on <{clicked}>")
+        log.info(f"Selected 'Track' via <{clicked}>")
         return
 
-    # If the chooser didn't appear, we're probably already on the form.
+    # Strategy 2: role-based lookups
+    for role in ("menuitem", "link", "button", "option"):
+        try:
+            loc = page.get_by_role(role, name=re.compile(r"^\s*Track\s*$"))
+            if loc.count() > 0 and loc.first.is_visible():
+                loc.first.click(timeout=3_000)
+                log.info(f"Selected 'Track' via role={role}")
+                return
+        except Exception:
+            continue
+
     log.info("Track option not found — assuming form is already open")
 
 
@@ -284,52 +281,17 @@ def _dismiss_banners(page) -> None:
         pass
 
 
-def _find_add_album_url(page) -> str | None:
-    """Locate the artist's 'add a new album' URL from the tools dashboard."""
-    href = page.evaluate("""() => {
-        const links = [...document.querySelectorAll('a[href]')];
-        const candidate = links.find(a => {
-            const href = (a.getAttribute('href') || '').toLowerCase();
-            const text = (a.textContent || '').trim().toLowerCase();
-            return (text.includes('add') && (text.includes('album') || text.includes('track')))
-                || href.includes('/album/new') || href.includes('/tools/new_album')
-                || href.includes('add_album') || href.includes('album_create');
-        });
-        if (!candidate) return null;
-        const href = candidate.getAttribute('href');
-        return href.startsWith('http') ? href : ('https://bandcamp.com' + href);
-    }""")
-    return href
-
-
-def _click_new_album_link(page) -> bool:
-    for text in ["add a new album", "add new album", "new album",
-                 "add a new track", "add new track", "new track"]:
-        try:
-            loc = page.get_by_role("link", name=re.compile(text, re.I))
-            if loc.count() > 0:
-                loc.first.click()
-                return True
-        except Exception:
-            continue
-        try:
-            loc = page.get_by_role("button", name=re.compile(text, re.I))
-            if loc.count() > 0:
-                loc.first.click()
-                return True
-        except Exception:
-            continue
-    return False
-
-
-def _set_album_title(page, title: str) -> None:
-    log.info(f"Setting album title: {title}")
+def _set_track_name(page, title: str) -> None:
+    log.info(f"Setting track name: {title}")
     for selector in [
+        'input[placeholder="track name"]',
+        'input[placeholder*="track name" i]',
+        'input[placeholder="album title"]',
+        'input[placeholder*="album title" i]',
         'input[name="title"]',
         'input[name="album_title"]',
-        'input[id*="album-title" i]',
-        'input[placeholder*="album title" i]',
-        'input[placeholder="Album title"]',
+        'input[id*="title" i]',
+        'input[aria-label*="track name" i]',
         'input[aria-label*="album title" i]',
     ]:
         el = page.query_selector(selector)
@@ -341,7 +303,7 @@ def _set_album_title(page, title: str) -> None:
                 return
             except Exception as e:
                 log.warning(f"Could not set title via {selector}: {e}")
-    log.warning("Album title field not found — continuing anyway")
+    log.warning("Track name field not found — continuing anyway")
 
 
 def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
@@ -431,28 +393,6 @@ def _upload_audio(page, audio_path: Path, debug_dir: Path) -> None:
     raise RuntimeError("Could not find audio file input on Bandcamp album form")
 
 
-def _set_first_track_title(page, title: str) -> None:
-    """Bandcamp usually auto-names the first track from the filename.
-    Overwrite it with the real title for consistency."""
-    selectors = [
-        'input[name="track_title"]',
-        'input[name="tracks[0][title]"]',
-        'input[placeholder*="track title" i]',
-        'input[id*="track-title" i]',
-    ]
-    for selector in selectors:
-        el = page.query_selector(selector)
-        if el and el.is_visible():
-            try:
-                el.click()
-                page.keyboard.press("Control+a")
-                page.keyboard.type(title, delay=15)
-                log.info(f"Track title set: {title}")
-                return
-            except Exception as e:
-                log.warning(f"Could not set track title via {selector}: {e}")
-
-
 def _set_price(page, price: str) -> None:
     """Set the minimum price for the album/track (e.g. '1.50')."""
     log.info(f"Setting price: ${price}")
@@ -533,6 +473,8 @@ def _set_tags(page, concept: MusicConcept) -> None:
         return
     tag_string = ", ".join(tags)
     for selector in [
+        'input[placeholder*="comma-separated" i]',
+        'input[placeholder*="list of tags" i]',
         'input[name="tags"]',
         'input[name*="tag" i]',
         'input[placeholder*="tag" i]',
@@ -576,29 +518,55 @@ def _wait_for_audio_ready(page) -> None:
 
 
 def _publish(page, track_name: str, debug_dir: Path) -> str | None:
-    log.info("Looking for Publish / Save button...")
+    log.info("Looking for Publish / Save Draft button...")
+    # Prefer a real Publish/Release button; fall back to "Save Draft"
     btn_handle = page.evaluate_handle("""() => {
-        const btns = [...document.querySelectorAll('button, input[type="submit"], a')];
+        const btns = [...document.querySelectorAll('button, input[type="submit"], a')]
+            .filter(b => !b.disabled && b.offsetParent !== null);
+        const textOf = b => (b.textContent || b.value || '').trim().toLowerCase();
+        // Priority 1: real publish actions
         const publish = btns.find(b => {
-            if (b.disabled) return false;
-            if (b.offsetParent === null) return false;
-            const t = (b.textContent || b.value || '').trim().toLowerCase();
-            return t === 'publish' || t === 'publish album' || t === 'save & publish'
-                || t === 'save' || t === 'done' || t === 'release';
+            const t = textOf(b);
+            return t === 'publish' || t === 'publish album' || t === 'publish track'
+                || t === 'save & publish' || t === 'release';
         });
-        return publish || null;
+        if (publish) return publish;
+        // Priority 2: save-draft (first step on the Track form)
+        const saveDraft = btns.find(b => {
+            const t = textOf(b);
+            return t === 'save draft' || t === 'save' || t === 'save & continue' || t === 'done';
+        });
+        return saveDraft || null;
     }""")
     btn = btn_handle.as_element()
     if not btn:
         page.screenshot(path=str(debug_dir / "debug_bandcamp_no_publish.png"))
-        raise RuntimeError("Publish button not found on Bandcamp album form")
+        raise RuntimeError("Publish / Save Draft button not found on Bandcamp form")
 
     label = (btn.text_content() or "").strip()
     log.info(f"Clicking: '{label}'")
     pre_url = page.url
     btn.click(timeout=10_000)
-    page.wait_for_timeout(3_000)
-    page.screenshot(path=str(debug_dir / "debug_bandcamp_publish_clicked.png"))
+    page.wait_for_timeout(4_000)
+    page.screenshot(path=str(debug_dir / "debug_bandcamp_save_clicked.png"))
+
+    # If we clicked Save Draft, look for a Publish button on the result page.
+    if "save" in label.lower() and "publish" not in label.lower():
+        publish_now = page.evaluate_handle("""() => {
+            const btns = [...document.querySelectorAll('button, input[type="submit"], a')]
+                .filter(b => !b.disabled && b.offsetParent !== null);
+            return btns.find(b => {
+                const t = (b.textContent || b.value || '').trim().toLowerCase();
+                return t === 'publish' || t === 'publish album' || t === 'publish track'
+                    || t === 'release' || t === 'make it live';
+            }) || null;
+        }""")
+        pub_el = publish_now.as_element()
+        if pub_el:
+            log.info("Clicking Publish after Save Draft...")
+            pub_el.click(timeout=10_000)
+            page.wait_for_timeout(4_000)
+            page.screenshot(path=str(debug_dir / "debug_bandcamp_publish_clicked.png"))
 
     # Confirm any follow-up dialog (e.g. "Yes, publish")
     try:
