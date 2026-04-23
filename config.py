@@ -55,8 +55,8 @@ SKIP_SOUNDCLOUD = os.getenv("SKIP_SOUNDCLOUD", "true").lower() == "true"
 # Skip TikTok upload in the pipeline (set to "true" to disable)
 SKIP_TIKTOK = os.getenv("SKIP_TIKTOK", "false").lower() == "true"
 
-# Skip Bandcamp upload in the pipeline (set to "true" to disable)
-SKIP_BANDCAMP = os.getenv("SKIP_BANDCAMP", "false").lower() == "true"
+# Skip Bandcamp upload in the pipeline (disabled by default — upload flow not ready yet)
+SKIP_BANDCAMP = os.getenv("SKIP_BANDCAMP", "true").lower() == "true"
 # Bandcamp track price in USD (default: $1.50)
 BANDCAMP_TRACK_PRICE = os.getenv("BANDCAMP_TRACK_PRICE", "1.50")
 
