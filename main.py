@@ -527,51 +527,103 @@ def cmd_soundcloud_login(args):
 
 
 def cmd_bandcamp_login(args):
-    """Open browser to log into Bandcamp and save session state.
+    """Open YOUR real Chrome to log into Bandcamp, then extract cookies.
 
-    Uses the same browser setup as TuneCore/TikTok (Playwright-bundled
-    Chromium with a stealth init script) — a real Chrome install is NOT
-    required.
+    Bandcamp's reCAPTCHA rejects any Playwright-launched browser (even real
+    Chrome via channel='chrome'). So we launch Chrome directly via
+    subprocess — with a dedicated profile dir and a debug port — then
+    connect Playwright via CDP only to grab cookies AFTER the user has
+    logged in.
     """
+    import subprocess as sp
+    import platform as plat
+    import shutil
     from playwright.sync_api import sync_playwright
 
     state_file = BANDCAMP_STATE_FILE
     state_file.parent.mkdir(parents=True, exist_ok=True)
 
-    log.info("Opening browser for Bandcamp login...")
-    log.info("Log in with your Bandcamp account, then come back here.")
+    # ── Find the real Chrome binary ──
+    chrome = _find_chrome_binary()
+    if not chrome:
+        log.error("Google Chrome not found. Install Chrome or set CHROME_PATH env var.")
+        sys.exit(1)
+    log.info(f"Chrome: {chrome}")
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=False,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        context = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-        )
-        # Stealth — same patches TuneCore uses
-        context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-            window.chrome = { runtime: {} };
-        """)
-        page = context.new_page()
-        page.goto("https://bandcamp.com/login", wait_until="domcontentloaded", timeout=60_000)
+    # ── Dedicated profile dir (so we don't lock the user's main Chrome) ──
+    profile_dir = str(BANDCAMP_STATE_FILE.parent / "bandcamp_chrome_profile")
+    debug_port = "9224"
 
-        log.info("=" * 60)
-        log.info("Browser is open. Please:")
-        log.info("  1. Log into your Bandcamp artist account")
-        log.info("  2. Wait until you see your dashboard / artist tools")
-        log.info("  3. Come back here and press ENTER")
-        log.info("=" * 60)
+    log.info("Launching Chrome for Bandcamp login...")
+    log.info("  → reCAPTCHA requires a native Chrome (not Playwright)")
+    log.info("  → Log in, then come back here and press ENTER")
 
-        input("\n>>> Press ENTER here after you've logged in... ")
+    chrome_proc = sp.Popen([
+        chrome,
+        f"--remote-debugging-port={debug_port}",
+        f"--user-data-dir={profile_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "https://bandcamp.com/login",
+    ])
 
-        context.storage_state(path=str(state_file))
-        log.info(f"Bandcamp session saved to: {state_file}")
-        log.info("You can now run the pipeline and Bandcamp uploads will work!")
+    log.info("=" * 60)
+    log.info("Chrome window is open. Please:")
+    log.info("  1. Log into your Bandcamp artist account")
+    log.info("  2. Wait until you see your dashboard / feed")
+    log.info("  3. Come back here and press ENTER")
+    log.info("=" * 60)
 
-        browser.close()
+    input("\n>>> Press ENTER here after you've logged in... ")
+
+    # ── Connect via CDP and extract cookies ──
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.connect_over_cdp(f"http://127.0.0.1:{debug_port}")
+            context = browser.contexts[0]
+            context.storage_state(path=str(state_file))
+            log.info(f"Bandcamp session saved to: {state_file}")
+            log.info("You can now run the pipeline and Bandcamp uploads will work!")
+            browser.close()
+    except Exception as e:
+        log.error(f"Could not connect to Chrome debug port: {e}")
+        log.info("Make sure Chrome is still open when you press ENTER.")
+    finally:
+        # Close the Chrome process
+        try:
+            chrome_proc.terminate()
+        except Exception:
+            pass
+
+
+def _find_chrome_binary() -> str | None:
+    """Locate the Google Chrome executable on this system."""
+    import platform as plat
+    import shutil
+
+    # 1. Explicit env var
+    env = os.environ.get("CHROME_PATH")
+    if env and os.path.isfile(env):
+        return env
+
+    system = plat.system()
+    if system == "Windows":
+        candidates = [
+            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+            os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                return c
+        # Fallback: search PATH
+        found = shutil.which("chrome") or shutil.which("google-chrome")
+        return found
+    elif system == "Darwin":
+        mac = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        return mac if os.path.isfile(mac) else shutil.which("google-chrome")
+    else:
+        return shutil.which("google-chrome") or shutil.which("chromium-browser") or shutil.which("chromium")
 
 
 def cmd_suno_login(args):
