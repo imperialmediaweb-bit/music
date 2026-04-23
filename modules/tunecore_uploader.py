@@ -996,6 +996,27 @@ def _fill_new_ui_autocomplete(page, section_label: str, value: str) -> bool:
                 return { status: 'empty' };
             }
         }
+        // Fallback: direct placeholder match
+        if (/songwriter/i.test(label)) {
+            const inp = document.querySelector(
+                'input[placeholder*="Legal First"], input[placeholder*="Last Name"]');
+            if (inp && inp.offsetWidth > 0) {
+                if (inp.value.trim()) return { status: 'filled', value: inp.value.trim() };
+                inp.setAttribute('data-tc-auto-fill', 'true');
+                return { status: 'empty' };
+            }
+        }
+        if (/artist/i.test(label)) {
+            const inp = document.querySelector(
+                'input[placeholder*="Artist/Contributor"], '
+              + 'input[placeholder*="Add Artist"], '
+              + 'input[name*="artistContributor" i]');
+            if (inp && inp.offsetWidth > 0) {
+                if (inp.value.trim()) return { status: 'filled', value: inp.value.trim() };
+                inp.setAttribute('data-tc-auto-fill', 'true');
+                return { status: 'empty' };
+            }
+        }
         // Fallback: MUI Autocomplete roots
         const autos = document.querySelectorAll('.MuiAutocomplete-root');
         for (const ac of autos) {
@@ -1146,50 +1167,37 @@ def _fill_new_ui_track(page, concept, artist, wav_path):
     _fill_new_track_fields(page)
     page.wait_for_timeout(1000)
 
-    # ── 5. Click "Save Track Info" ──
-    save_clicked = False
-    for btn_text in ['Save Track Info', 'Save']:
-        try:
-            btn = page.locator(f"button:has-text('{btn_text}')").first
-            if btn.is_visible(timeout=2000):
-                disabled = btn.evaluate(
-                    "el => el.disabled || el.getAttribute('aria-disabled') === 'true'"
-                    " || el.classList.contains('Mui-disabled')")
-                if not disabled:
+    # ── 5. Click "SAVE" (not "SAVE & CONTINUE") ──
+    save_clicked = page.evaluate("""() => {
+        const btns = document.querySelectorAll('button, input[type="submit"]');
+        for (const b of btns) {
+            const t = (b.textContent || b.value || '').trim();
+            if (b.offsetWidth === 0 || b.disabled) continue;
+            if (b.getAttribute('aria-disabled') === 'true') continue;
+            // Match "Save Track Info" or plain "SAVE" but NOT "SAVE & CONTINUE"
+            if (/^Save\s*Track\s*Info$/i.test(t)) { b.click(); return 'Save Track Info'; }
+            if (/^Save$/i.test(t)) { b.click(); return 'Save'; }
+        }
+        return null;
+    }""")
+    if save_clicked:
+        log.info(f"  Clicked '{save_clicked}'")
+        page.wait_for_timeout(5000)
+    else:
+        log.warning("  SAVE button not found or disabled")
+        # Playwright fallback
+        for btn_text in ['Save Track Info', 'Save']:
+            try:
+                btn = page.get_by_role("button", name=btn_text, exact=True).first
+                if btn.is_visible(timeout=2000):
                     btn.scroll_into_view_if_needed(timeout=2000)
                     btn.click()
-                    log.info(f"  Clicked '{btn_text}'")
-                    save_clicked = True
+                    log.info(f"  Clicked '{btn_text}' (Playwright)")
+                    save_clicked = btn_text
                     page.wait_for_timeout(5000)
                     break
-                else:
-                    log.info(f"  '{btn_text}' is disabled")
-        except Exception:
-            continue
-
-    if not save_clicked:
-        log.warning("  'Save Track Info' not found or disabled — trying JS fallback")
-        save_clicked = page.evaluate("""() => {
-            const btns = document.querySelectorAll('button');
-            for (const b of btns) {
-                const t = (b.textContent || '').trim();
-                if (/Save Track Info/i.test(t) && b.offsetWidth > 0 && !b.disabled) {
-                    b.click();
-                    return true;
-                }
-            }
-            for (const b of btns) {
-                const t = (b.textContent || '').trim();
-                if (/^Save$/i.test(t) && b.offsetWidth > 0 && !b.disabled) {
-                    b.click();
-                    return true;
-                }
-            }
-            return false;
-        }""")
-        if save_clicked:
-            log.info("  Clicked Save via JS")
-            page.wait_for_timeout(5000)
+            except Exception:
+                continue
 
     # ── 6. Upload WAV (if file exists and upload area becomes available) ──
     if wav_path and wav_path.exists() and str(wav_path) != '/dev/null':
