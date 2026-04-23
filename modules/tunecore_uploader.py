@@ -1266,12 +1266,40 @@ def _fill_new_track_fields(page):
       Radio sections: MUI RadioGroup with <input type="radio"> inside <label>
     """
 
+    # ── Helper: close any stale MUI dropdown ──
+    def _close_any_dropdown():
+        """Dismiss any open MUI Select/Menu before opening a new one."""
+        try:
+            if page.locator('[role="listbox"], [role="presentation"].MuiPopover-root').count() > 0:
+                # Click the MUI backdrop overlay (invisible full-screen div)
+                bd = page.locator('.MuiBackdrop-root').first
+                if bd.count() > 0:
+                    bd.click(force=True, timeout=1000)
+                    page.wait_for_timeout(500)
+                else:
+                    page.keyboard.press("Escape")
+                    page.wait_for_timeout(500)
+        except Exception:
+            try:
+                page.keyboard.press("Escape")
+                page.wait_for_timeout(500)
+            except Exception:
+                pass
+        # Wait until all options disappear (dropdown fully closed)
+        try:
+            page.wait_for_selector('[role="option"]', state='hidden', timeout=3000)
+        except Exception:
+            pass
+
     # ── Unified MUI multi-select role picker ──
     def _pick_role(label_id: str, role_name: str, data_value: str, display: str):
         """Open MUI multi-select, click option by TEXT using Playwright native click."""
         trigger_sel = f'[aria-labelledby="{label_id}"][role="combobox"]'
 
-        # 0. Quick check: is it already selected?
+        # 0. Close any stale dropdown from previous call
+        _close_any_dropdown()
+
+        # 1. Quick check: is it already selected?
         try:
             current = (page.locator(trigger_sel).first.text_content(timeout=2000) or "").strip().lower()
         except Exception:
@@ -1286,103 +1314,99 @@ def _fill_new_track_fields(page):
 
         log.info(f"  {display}: opening (current='{current}')...")
 
-        # 1. Open dropdown with Playwright native click
+        # 2. Scroll trigger into view and click to open dropdown
+        trigger = page.locator(trigger_sel).first
         try:
-            page.locator(trigger_sel).first.click(timeout=3000)
+            trigger.scroll_into_view_if_needed(timeout=2000)
+            trigger.click(timeout=3000)
         except Exception as e:
             log.warning(f"  {display}: trigger click failed: {e}")
             return False
 
-        # 2. Wait for options to render (MUI portal)
+        # 3. Wait for THIS dropdown's options to render
         try:
             page.wait_for_selector('[role="option"]', state='visible', timeout=5000)
         except Exception:
             log.warning(f"  {display}: options did not appear")
             return False
 
-        page.wait_for_timeout(300)
+        page.wait_for_timeout(500)
 
-        # 3. Log what's available (for debugging)
+        # 4. Log available options
         all_opts = page.evaluate("""() => [...document.querySelectorAll('[role="option"]')]
-            .map(o => o.textContent.trim())""")
-        log.info(f"  {display}: {len(all_opts)} options: {all_opts[:10]}")
+            .map(o => ({ text: o.textContent.trim(), sel: o.getAttribute('aria-selected') }))""")
+        log.info(f"  {display}: {len(all_opts)} options:")
+        for o in all_opts:
+            log.info(f"    - '{o.get('text')}' sel={o.get('sel')}")
 
-        # 4. Click the option using Playwright's native click (real mouse events)
-        # Use regex for exact match (handles whitespace + case)
+        # 5. Click the option — simple Playwright locator with has_text string
         picked = False
-        pattern = re.compile(rf"^\s*{re.escape(role_name)}\s*$", re.IGNORECASE)
-        try:
-            opt = page.locator('[role="option"]').filter(has_text=pattern).first
-            opt.wait_for(state='visible', timeout=3000)
-            opt.scroll_into_view_if_needed(timeout=2000)
-            opt.click(timeout=3000)
-            picked = True
-            log.info(f"  {display}: Playwright clicked '{role_name}'")
-        except Exception as e:
-            log.info(f"  {display}: Playwright exact-text click failed: {e}")
 
-        # Fallback 1: get_by_role
-        if not picked:
-            try:
-                opt = page.get_by_role("option", name=pattern).first
+        # Method A: Playwright filter by has_text (exact via regex)
+        try:
+            pattern = re.compile(rf"^{re.escape(role_name)}$", re.IGNORECASE)
+            opt = page.locator('[role="option"]').filter(has_text=pattern).first
+            if opt.is_visible(timeout=2000):
                 opt.scroll_into_view_if_needed(timeout=2000)
                 opt.click(timeout=3000)
                 picked = True
-                log.info(f"  {display}: get_by_role clicked '{role_name}'")
-            except Exception as e:
-                log.info(f"  {display}: get_by_role failed: {e}")
+                log.info(f"  {display}: clicked '{role_name}' via filter(has_text)")
+        except Exception as e:
+            log.info(f"  {display}: filter(has_text) failed: {e}")
 
-        # Fallback 2: JS dispatchEvent to trigger React synthetic events properly
+        # Method B: get_by_text (simpler, broader)
         if not picked:
-            js_result = page.evaluate("""(roleName) => {
+            try:
+                opt = page.get_by_text(role_name, exact=True).first
+                if opt.is_visible(timeout=2000):
+                    opt.click(timeout=3000)
+                    picked = True
+                    log.info(f"  {display}: clicked '{role_name}' via get_by_text")
+            except Exception as e:
+                log.info(f"  {display}: get_by_text failed: {e}")
+
+        # Method C: JS click with full event sequence
+        if not picked:
+            js_ok = page.evaluate("""(roleName) => {
                 const target = roleName.toLowerCase().trim();
-                const opts = [...document.querySelectorAll('[role="option"]')];
-                for (const opt of opts) {
-                    const txt = opt.textContent.trim().toLowerCase();
-                    if (txt === target) {
+                for (const opt of document.querySelectorAll('[role="option"]')) {
+                    if (opt.textContent.trim().toLowerCase() === target) {
                         opt.scrollIntoView({block: 'center'});
-                        // Dispatch full pointer event sequence for React
                         const rect = opt.getBoundingClientRect();
-                        const x = rect.left + rect.width / 2;
-                        const y = rect.top + rect.height / 2;
-                        for (const type of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click']) {
-                            opt.dispatchEvent(new MouseEvent(type, {
+                        const cx = rect.left + rect.width / 2;
+                        const cy = rect.top + rect.height / 2;
+                        for (const t of ['pointerdown','mousedown','pointerup','mouseup','click']) {
+                            opt.dispatchEvent(new MouseEvent(t, {
                                 bubbles: true, cancelable: true, view: window,
-                                clientX: x, clientY: y, button: 0
+                                clientX: cx, clientY: cy, button: 0
                             }));
                         }
-                        return { picked: true, text: opt.textContent.trim() };
+                        return true;
                     }
                 }
-                return { picked: false, avail: opts.map(o => o.textContent.trim()) };
+                return false;
             }""", role_name)
-            if js_result and js_result.get('picked'):
+            if js_ok:
                 picked = True
-                log.info(f"  {display}: JS dispatchEvent clicked '{js_result.get('text')}'")
-            elif js_result:
-                log.warning(f"  {display}: not found. Available: {js_result.get('avail')}")
+                log.info(f"  {display}: clicked '{role_name}' via JS events")
 
         page.wait_for_timeout(800)
 
-        # 5. Close dropdown — press Escape on the option itself (safer than body click)
-        try:
-            page.keyboard.press("Escape")
-            page.wait_for_timeout(500)
-        except Exception:
-            pass
+        # 6. Close the dropdown via MUI backdrop click
+        _close_any_dropdown()
 
-        # 6. Verify
+        # 7. Verify
         try:
             final_txt = (page.locator(trigger_sel).first.text_content(timeout=2000) or "").strip().lower()
         except Exception:
             final_txt = ""
 
-        if final_txt not in placeholders and role_name.lower() in final_txt:
-            log.info(f"  {display}: VERIFIED '{final_txt}' contains '{role_name}'")
-            return True
+        ok = final_txt not in placeholders and role_name.lower() in final_txt
+        if ok:
+            log.info(f"  {display}: VERIFIED '{final_txt}'")
         else:
-            log.warning(f"  {display}: NOT verified — trigger shows '{final_txt}'")
-            return False
+            log.warning(f"  {display}: NOT verified — trigger='{final_txt}', expected '{role_name}'")
+        return ok
 
     # ── Performer Roles (synthesizer=100) ──
     _pick_role("songRoles.performer", "synthesizer", "100", "Performer Roles")
