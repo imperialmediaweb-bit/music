@@ -2,7 +2,7 @@ import time
 from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from modules.concept_generator import MusicConcept
-from config import TIKTOK_COOKIE_FILE, HEADLESS
+from config import TIKTOK_COOKIE_FILE, HEADLESS, SPOTIFY_ARTIST_URL, BEATPORT_ARTIST_URL
 from utils.browser import get_browser_context, save_cookies
 from utils.logger import log
 
@@ -383,7 +383,18 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
 
             # Fill in the caption / description
             # TikTok Studio shows "Description" field with the filename pre-filled
-            log.info(f"Filling caption: {concept.tiktok_caption[:50]}...")
+            # Append artist links so viewers can reach the paid releases.
+            _extra_links = []
+            if SPOTIFY_ARTIST_URL:
+                _extra_links.append(f"Spotify: {SPOTIFY_ARTIST_URL}")
+            if BEATPORT_ARTIST_URL:
+                _extra_links.append(f"Beatport: {BEATPORT_ARTIST_URL}")
+            caption_text = concept.tiktok_caption
+            if _extra_links:
+                caption_text = caption_text.rstrip() + "\n\n" + "\n".join(_extra_links)
+            # TikTok caption cap is ~2200 chars
+            caption_text = caption_text[:2100]
+            log.info(f"Filling caption: {caption_text[:50]}...")
             caption_selectors = [
                 'div[role="textbox"][contenteditable="true"]',
                 '[contenteditable="true"][data-text="true"]',
@@ -408,7 +419,7 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
                             page.keyboard.press("Backspace")
                             page.wait_for_timeout(200)
                             # Type the caption
-                            page.keyboard.type(concept.tiktok_caption, delay=20)
+                            page.keyboard.type(caption_text, delay=20)
                             filled = True
                             log.info(f"Caption filled using: {selector}")
                             break
@@ -425,7 +436,7 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
                     page.evaluate("""(text) => {
                         const el = document.querySelector('[contenteditable="true"]');
                         if (el) { el.focus(); el.textContent = text; }
-                    }""", concept.tiktok_caption)
+                    }""", caption_text)
                     filled = True
                     log.info("Caption filled using JS fallback")
                 except Exception as e:

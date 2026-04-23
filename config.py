@@ -27,6 +27,7 @@ SUNO_STATE_FILE = Path(os.getenv("SUNO_STATE_FILE", BASE_DIR / "cookies" / "suno
 UDIO_STATE_FILE = Path(os.getenv("UDIO_STATE_FILE", BASE_DIR / "cookies" / "udio_state.json"))
 TUNECORE_STATE_FILE = Path(os.getenv("TUNECORE_STATE_FILE", BASE_DIR / "cookies" / "tunecore_state.json"))
 SOUNDCLOUD_STATE_FILE = Path(os.getenv("SOUNDCLOUD_STATE_FILE", BASE_DIR / "cookies" / "soundcloud_state.json"))
+BANDCAMP_STATE_FILE = Path(os.getenv("BANDCAMP_STATE_FILE", BASE_DIR / "cookies" / "bandcamp_state.json"))
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "output"))
 INPUT_DIR = Path(os.getenv("INPUT_DIR", BASE_DIR / "input"))
 HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
@@ -46,11 +47,27 @@ THUMBNAIL_STYLE_PROMPT = os.getenv("THUMBNAIL_STYLE_PROMPT", "")
 # Skip TuneCore upload in the pipeline (set to "true" to disable)
 SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "false").lower() == "true"
 
-# Skip SoundCloud upload in the pipeline (set to "true" to disable)
-SKIP_SOUNDCLOUD = os.getenv("SKIP_SOUNDCLOUD", "false").lower() == "true"
+# Skip SoundCloud upload in the pipeline (disabled by default — uploads kept failing)
+SKIP_SOUNDCLOUD = os.getenv("SKIP_SOUNDCLOUD", "true").lower() == "true"
 
 # Skip TikTok upload in the pipeline (set to "true" to disable)
 SKIP_TIKTOK = os.getenv("SKIP_TIKTOK", "false").lower() == "true"
+
+# Skip Bandcamp upload in the pipeline (set to "true" to disable)
+SKIP_BANDCAMP = os.getenv("SKIP_BANDCAMP", "false").lower() == "true"
+# Bandcamp track price in USD (default: $1.50)
+BANDCAMP_TRACK_PRICE = os.getenv("BANDCAMP_TRACK_PRICE", "1.50")
+
+# Artist profile URLs appended to YouTube/TikTok descriptions so viewers can
+# jump straight to the paid-streaming pages.
+SPOTIFY_ARTIST_URL = os.getenv(
+    "SPOTIFY_ARTIST_URL",
+    "https://open.spotify.com/artist/2mfn67J1VKg3CavV9K99j7",
+)
+BEATPORT_ARTIST_URL = os.getenv(
+    "BEATPORT_ARTIST_URL",
+    "https://www.beatport.com/artist/groovegenix/2354993/releases",
+)
 
 # Beat-synced video: zoom/brightness pulses on detected beats (requires librosa)
 BEAT_SYNC_VIDEO = os.getenv("BEAT_SYNC_VIDEO", "false").lower() == "true"

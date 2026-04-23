@@ -11,7 +11,8 @@ from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
 from modules.tunecore_uploader import upload_to_tunecore
 from modules.soundcloud_uploader import upload_to_soundcloud
-from config import SKIP_TUNECORE, SKIP_SOUNDCLOUD, SKIP_TIKTOK
+from modules.bandcamp_uploader import upload_to_bandcamp
+from config import SKIP_TUNECORE, SKIP_SOUNDCLOUD, SKIP_TIKTOK, SKIP_BANDCAMP
 
 # Default artist name (used for cover art overlay and TuneCore metadata)
 DEFAULT_ARTIST = "GrooveGenix"
@@ -38,6 +39,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
         "youtube_url": None,
         "tiktok_url": None,
         "tunecore_url": None,
+        "bandcamp_url": None,
         "soundcloud_url": None,
         "errors": [],
     }
@@ -202,6 +204,50 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     else:
         log.info(f"Skipping TuneCore (--only {only})")
 
+    # Upload to Bandcamp (right after TuneCore)
+    if only in (None, "bandcamp"):
+        if SKIP_BANDCAMP:
+            log.info("Skipping Bandcamp (SKIP_BANDCAMP=true)")
+        else:
+            name_variants = [track_name, track_name.replace(" ", "_")]
+            bc_wav = None
+            for name in name_variants:
+                candidate = OUTPUT_DIR / f"{name}.wav"
+                if candidate.exists():
+                    bc_wav = candidate
+                    break
+            bc_cover = None
+            for name in name_variants:
+                for suffix in ["_cover.jpg", "_cover.png"]:
+                    candidate = OUTPUT_DIR / f"{name}{suffix}"
+                    if candidate.exists():
+                        bc_cover = candidate
+                        break
+                if bc_cover:
+                    break
+            if not bc_wav:
+                bc_wav = mp3_file if mp3_file.exists() else None
+
+            if bc_wav:
+                try:
+                    log.info("=" * 60)
+                    log.info("Uploading to Bandcamp...")
+                    bandcamp_url = upload_to_bandcamp(bc_wav, concept, bc_cover)
+                    result["bandcamp_url"] = bandcamp_url
+                    if bandcamp_url:
+                        log.info(f"Bandcamp: {bandcamp_url}")
+                    else:
+                        log.error("Bandcamp upload returned None — run: python main.py bandcamp-login")
+                        result["errors"].append("bandcamp: upload returned None (session expired)")
+                except Exception as e:
+                    log.error(f"Bandcamp upload failed: {e}")
+                    result["errors"].append(f"bandcamp: {e}")
+            else:
+                log.warning("No audio file found for Bandcamp — skipping")
+                result["errors"].append("bandcamp: no audio file found")
+    else:
+        log.info(f"Skipping Bandcamp (--only {only})")
+
     # Upload to SoundCloud
     if only in (None, "soundcloud"):
         # Reuse the same WAV + cover art files
@@ -256,6 +302,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     log.info(f"YouTube: {result.get('youtube_url', 'N/A')}")
     log.info(f"TikTok: {result.get('tiktok_url', 'N/A')}")
     log.info(f"TuneCore: {result.get('tunecore_url', 'N/A')}")
+    log.info(f"Bandcamp: {result.get('bandcamp_url', 'N/A')}")
     log.info(f"SoundCloud: {result.get('soundcloud_url', 'N/A')}")
 
     return result
@@ -351,6 +398,7 @@ def upload_prepared_track(prepared: dict) -> dict:
         "youtube_url": None,
         "tiktok_url": None,
         "tunecore_url": None,
+        "bandcamp_url": None,
         "soundcloud_url": None,
         "errors": [],
     }
@@ -413,6 +461,26 @@ def upload_prepared_track(prepared: dict) -> dict:
             result["errors"].append(f"tunecore: {e}")
     else:
         log.warning("TuneCore skipped — WAV or cover art missing")
+
+    # Bandcamp (right after TuneCore)
+    if SKIP_BANDCAMP:
+        log.info("Bandcamp SKIPPED")
+    elif wav_path and wav_path.exists():
+        try:
+            log.info("=" * 60)
+            log.info("Uploading to Bandcamp...")
+            bc_cover = cover_path if cover_path else None
+            bc_url = upload_to_bandcamp(wav_path, concept, bc_cover)
+            result["bandcamp_url"] = bc_url
+            if bc_url:
+                log.info(f"Bandcamp: {bc_url}")
+            else:
+                result["errors"].append("bandcamp: upload returned None")
+        except Exception as e:
+            log.error(f"Bandcamp upload failed: {e}")
+            result["errors"].append(f"bandcamp: {e}")
+    else:
+        log.warning("Bandcamp skipped — WAV missing")
 
     # SoundCloud
     if SKIP_SOUNDCLOUD:
@@ -517,6 +585,7 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         "youtube_url": None,
         "tiktok_url": None,
         "tunecore_url": None,
+        "bandcamp_url": None,
         "soundcloud_url": None,
         "errors": [],
     }
@@ -696,14 +765,37 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
         if not cover_path:
             log.warning("Cover art not generated — skipping TuneCore")
 
-    # Step 9: Upload to SoundCloud (uses same WAV + cover art as TuneCore)
-    if SKIP_SOUNDCLOUD:
+    # Step 9: Upload to Bandcamp (right after TuneCore)
+    if SKIP_BANDCAMP:
         log.info("=" * 60)
-        log.info("STEP 9: SoundCloud SKIPPED (SKIP_SOUNDCLOUD=true)")
+        log.info("STEP 9: Bandcamp SKIPPED (SKIP_BANDCAMP=true)")
     elif wav_path.exists():
         try:
             log.info("=" * 60)
-            log.info("STEP 9: Uploading to SoundCloud...")
+            log.info("STEP 9: Uploading to Bandcamp...")
+            bc_cover = Path(cover_path) if cover_path else None
+            bandcamp_url = upload_to_bandcamp(wav_path, concept, bc_cover)
+            result["bandcamp_url"] = bandcamp_url
+            if bandcamp_url:
+                log.info(f"Bandcamp: {bandcamp_url}")
+            else:
+                log.error("Bandcamp upload returned None — run: python main.py bandcamp-login")
+                result["errors"].append("bandcamp: upload returned None (session expired)")
+        except Exception as e:
+            log.error(f"Bandcamp upload failed: {e}")
+            result["errors"].append(f"bandcamp: {e}")
+    else:
+        log.warning(f"WAV file not found ({wav_path}) — skipping Bandcamp")
+        result["errors"].append(f"bandcamp: WAV not found at {wav_path}")
+
+    # Step 10: Upload to SoundCloud (uses same WAV + cover art as TuneCore)
+    if SKIP_SOUNDCLOUD:
+        log.info("=" * 60)
+        log.info("STEP 10: SoundCloud SKIPPED (SKIP_SOUNDCLOUD=true)")
+    elif wav_path.exists():
+        try:
+            log.info("=" * 60)
+            log.info("STEP 10: Uploading to SoundCloud...")
             # Use cover art as thumbnail (1600x1600 works well on SoundCloud)
             sc_thumbnail = Path(cover_path) if cover_path else None
             soundcloud_url = upload_to_soundcloud(wav_path, concept, sc_thumbnail)
@@ -731,6 +823,7 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
     log.info(f"YouTube: {result.get('youtube_url', 'N/A')}")
     log.info(f"TikTok: {result.get('tiktok_url', 'N/A')}")
     log.info(f"TuneCore: {result.get('tunecore_url', 'N/A')}")
+    log.info(f"Bandcamp: {result.get('bandcamp_url', 'N/A')}")
     log.info(f"SoundCloud: {result.get('soundcloud_url', 'N/A')}")
 
     return result

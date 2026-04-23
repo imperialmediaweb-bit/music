@@ -16,7 +16,10 @@ from googleapiclient.http import MediaFileUpload
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 from modules.concept_generator import MusicConcept
-from config import BASE_DIR, OUTPUT_DIR, YOUTUBE_COOKIE_FILE, YOUTUBE_TOKEN_FILE, HEADLESS
+from config import (
+    BASE_DIR, OUTPUT_DIR, YOUTUBE_COOKIE_FILE, YOUTUBE_TOKEN_FILE, HEADLESS,
+    SPOTIFY_ARTIST_URL, BEATPORT_ARTIST_URL,
+)
 from utils.browser import get_browser_context, save_cookies
 from utils.logger import log
 
@@ -334,6 +337,15 @@ def upload_to_youtube(
     # Place them at the TOP of the description so they display above the video title
     genre_tag = concept.genre.lower().replace(" ", "")
     description = f"#{genre_tag} #deephouse #tribalhouse\n\n{clean_desc}"
+
+    # Append artist links (Spotify + Beatport) so viewers can find the paid releases.
+    artist_links = []
+    if SPOTIFY_ARTIST_URL:
+        artist_links.append(f"Spotify: {SPOTIFY_ARTIST_URL}")
+    if BEATPORT_ARTIST_URL:
+        artist_links.append(f"Beatport: {BEATPORT_ARTIST_URL}")
+    if artist_links:
+        description = description.rstrip() + "\n\n" + "\n".join(artist_links)
 
     # Upload the video
     body = {

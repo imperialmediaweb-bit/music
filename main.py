@@ -27,7 +27,7 @@ while _idx < len(sys.argv):
 from config import (
     SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE,
     SUNO_STATE_FILE, UDIO_STATE_FILE, TUNECORE_STATE_FILE, SOUNDCLOUD_STATE_FILE,
-    MUSIC_PLATFORM, SONGS_PER_CLIP,
+    BANDCAMP_STATE_FILE, MUSIC_PLATFORM, SONGS_PER_CLIP,
 )
 from utils.logger import log
 
@@ -522,6 +522,47 @@ def cmd_soundcloud_login(args):
         context.storage_state(path=str(state_file))
         log.info(f"SoundCloud session saved to: {state_file}")
         log.info("You can now run the pipeline and SoundCloud uploads will work!")
+
+        browser.close()
+
+
+def cmd_bandcamp_login(args):
+    """Open browser to log into Bandcamp and save session state.
+
+    These cookies are needed for automated track uploads to Bandcamp.
+    """
+    from playwright.sync_api import sync_playwright
+
+    state_file = BANDCAMP_STATE_FILE
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info("Opening Chrome browser for Bandcamp login...")
+    log.info("Log in with your Bandcamp account, then come back here.")
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(
+            viewport={"width": 1920, "height": 1080},
+        )
+        page = context.new_page()
+        page.goto("https://bandcamp.com/login", wait_until="domcontentloaded", timeout=60_000)
+
+        log.info("=" * 60)
+        log.info("Browser is open. Please:")
+        log.info("  1. Log into your Bandcamp artist account")
+        log.info("  2. Wait until you see your dashboard / artist tools")
+        log.info("  3. Come back here and press ENTER")
+        log.info("=" * 60)
+
+        input("\n>>> Press ENTER here after you've logged in... ")
+
+        context.storage_state(path=str(state_file))
+        log.info(f"Bandcamp session saved to: {state_file}")
+        log.info("You can now run the pipeline and Bandcamp uploads will work!")
 
         browser.close()
 
@@ -1174,6 +1215,13 @@ def main():
     )
     soundcloud_login_parser.set_defaults(func=cmd_soundcloud_login)
 
+    # bandcamp-login - save Bandcamp session state
+    bandcamp_login_parser = subparsers.add_parser(
+        "bandcamp-login",
+        help="Log into Bandcamp and save session for automated uploads",
+    )
+    bandcamp_login_parser.set_defaults(func=cmd_bandcamp_login)
+
     # suno-login - save Suno session state
     suno_login_parser = subparsers.add_parser(
         "suno-login",
@@ -1239,7 +1287,7 @@ def main():
         help="Track name (e.g. Tikasa) — must match files in output/",
     )
     reupload_parser.add_argument(
-        "--only", choices=["youtube", "tiktok", "tunecore", "soundcloud"],
+        "--only", choices=["youtube", "tiktok", "tunecore", "soundcloud", "bandcamp"],
         help="Upload to only one platform (default: all)",
     )
     reupload_parser.set_defaults(func=cmd_reupload)
