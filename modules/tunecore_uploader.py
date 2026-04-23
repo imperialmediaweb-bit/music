@@ -1325,16 +1325,14 @@ def _fill_new_track_fields(page):
 
             if not picked:
                 picked_js = page.evaluate("""() => {
+                    // Try by data-value="100" (synthesizer ID from HTML source)
+                    const byId = document.querySelector('[role="option"][data-value="100"]');
+                    if (byId) { byId.click(); return 'synthesizer (data-value=100)'; }
+                    // Try by text content
                     const opts = document.querySelectorAll('[role="option"]');
                     for (const o of opts) {
                         if (/^synthesizer$/i.test(o.textContent.trim())) {
-                            o.click(); return 'synthesizer';
-                        }
-                    }
-                    // Fallback: pick first unchecked option
-                    for (const o of opts) {
-                        if (o.getAttribute('aria-selected') !== 'true') {
-                            o.click(); return 'first:' + o.textContent.trim();
+                            o.click(); return 'synthesizer (text)';
                         }
                     }
                     return null;
@@ -1357,6 +1355,10 @@ def _fill_new_track_fields(page):
     # ── Producer / Engineer Roles + More Options ──
     # These are usually auto-filled ("producer", "performer") when an artist
     # profile is linked. Only fill if empty.
+    ROLE_DATA_VALUES = {
+        "producer": "146",
+        "performer": "1",
+    }
     for role_label_id, role_name, display_name in [
         ("songRoles.production_and_engineering", "producer",  "Producer/Engineer Roles"),
         ("songRoles.other",                      "performer", "More Options"),
@@ -1364,31 +1366,50 @@ def _fill_new_track_fields(page):
         try:
             result = page.evaluate("""(args) => {
                 const { labelId, roleName } = args;
-                // Find by aria-labelledby
+                // Find the MUI Select trigger by aria-labelledby
                 const trigger = document.querySelector(
                     '[aria-labelledby*="' + labelId + '"]');
-                if (trigger) {
-                    const txt = trigger.textContent.trim().toLowerCase();
-                    if (txt && txt !== '' && !txt.includes('select') && !txt.includes('choose'))
-                        return 'already:' + txt;
-                    trigger.click();
-                    return 'opened';
-                }
-                return 'not_found';
+                if (!trigger) return 'not_found';
+                const txt = trigger.textContent.trim().toLowerCase();
+                // Check if already has a REAL selection (not placeholder text)
+                // Placeholder = label text like "producer / engineer roles", "more options"
+                if (txt && txt === roleName) return 'already:' + txt;
+                // If trigger text matches any known role value, it's filled
+                const knownRoles = ['producer','performer','mixer','engineer',
+                    'remixer','composer','lyricist','arranger'];
+                if (knownRoles.some(r => txt === r)) return 'already:' + txt;
+                trigger.click();
+                return 'opened';
             }""", {"labelId": role_label_id, "roleName": role_name})
             log.info(f"  {display_name}: {result}")
             if result == 'opened':
                 page.wait_for_timeout(1000)
-                try:
-                    opt = page.locator("[role='option']").filter(
-                        has_text=re.compile(f"^{role_name}$", re.IGNORECASE)).first
-                    if opt.is_visible(timeout=2000):
-                        opt.click()
-                        log.info(f"  {display_name}: selected '{role_name}'")
-                except Exception:
-                    pass
+                # Try by data-value ID first, then by text
+                data_val = ROLE_DATA_VALUES.get(role_name)
+                picked = False
+                if data_val:
+                    picked = page.evaluate(f"""() => {{
+                        const opt = document.querySelector(
+                            '[role="option"][data-value="{data_val}"]');
+                        if (opt) {{ opt.click(); return true; }}
+                        return false;
+                    }}""")
+                    if picked:
+                        log.info(f"  {display_name}: '{role_name}' (data-value={data_val})")
+                if not picked:
+                    try:
+                        opt = page.locator("[role='option']").filter(
+                            has_text=re.compile(f"^{role_name}$", re.IGNORECASE)).first
+                        if opt.is_visible(timeout=2000):
+                            opt.click()
+                            picked = True
+                            log.info(f"  {display_name}: '{role_name}' (text)")
+                    except Exception:
+                        pass
                 page.keyboard.press("Escape")
                 page.wait_for_timeout(500)
+                if not picked:
+                    log.warning(f"  {display_name}: could not select '{role_name}'")
         except Exception as e:
             log.warning(f"  {display_name} failed: {e}")
 
@@ -1732,9 +1753,13 @@ def _detect_page(page) -> str:
     if state.get('hasReviewBtn') and not state.get('hasAddTrackBtn'):
         return 'review'
     # UPLOAD STEREO page: has the stereo upload button (even inside #songs_app)
-    if state.get('hasStereoUploadBtn') and not state.get('hasWriterField'):
+    # BUT NOT if we also see track-form fields (Performer Roles, Lyrics, etc.)
+    is_track_form = (state.get('hasTracksFormRoot') or state.get('hasPerformerRoles')
+                     or state.get('hasLyricsSection'))
+    if state.get('hasStereoUploadBtn') and not state.get('hasWriterField') and not is_track_form:
         return 'upload_wav'
-    if state.get('hasFileInput') and not state.get('hasWriterField') and not state.get('hasSongsApp'):
+    if (state.get('hasFileInput') and not state.get('hasWriterField')
+            and not state.get('hasSongsApp') and not is_track_form):
         return 'upload_wav'
     # TuneCore React songs app on /singles/{id}/tracks or /albums/{id}/tracks
     if state.get('hasSongsApp') or state.get('hasTracksFormRoot') or (state.get('isTracksUrl') and not state.get('isDashboard')):
