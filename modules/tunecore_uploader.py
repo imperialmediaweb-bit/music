@@ -1648,8 +1648,8 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
     # Give TuneCore a moment to start processing the file
     page.wait_for_timeout(5000)
 
-    # Minimum wait — WAV processing on TuneCore takes 1-2 min even when upload bar finishes
-    MIN_WAIT_S = 120
+    # Minimum wait — WAV processing on TuneCore takes ~1 min even when upload bar finishes
+    MIN_WAIT_S = 60
 
     while time.time() - start < timeout:
         try:
