@@ -1556,20 +1556,65 @@ def _do_upload(
                     pass
                 _dismiss_overlays(page)
 
-                # ── Beatport Add-On: click "DISTRIBUTE TO BEATPORT" if visible ──
+                # ── Beatport: check the checkbox or click the button ──
                 try:
-                    bp_btn = _find_clickable(page, [
-                        "button:has-text('Distribute to Beatport')",
-                        "a:has-text('Distribute to Beatport')",
-                        "[role='button']:has-text('Distribute to Beatport')",
-                        "text=DISTRIBUTE TO BEATPORT",
-                    ])
-                    if bp_btn:
-                        bp_btn.scroll_into_view_if_needed()
-                        page.wait_for_timeout(500)
-                        bp_btn.click()
-                        page.wait_for_timeout(3000)
-                        log.info("  Clicked 'DISTRIBUTE TO BEATPORT'")
+                    bp_checked = page.evaluate("""() => {
+                        // Strategy 1: checkbox near "Beatport" text
+                        const labels = document.querySelectorAll(
+                            'label, .MuiFormControlLabel-root, div, span');
+                        for (const lbl of labels) {
+                            const t = (lbl.textContent || '').trim();
+                            if (!/beatport/i.test(t) || lbl.offsetWidth === 0) continue;
+                            const cb = lbl.querySelector('input[type="checkbox"]')
+                                     || lbl.closest('label')?.querySelector('input[type="checkbox"]');
+                            if (cb && !cb.checked) { cb.click(); return 'checkbox'; }
+                            if (cb && cb.checked) return 'already';
+                            // MUI Checkbox: look for Mui-checked class
+                            const muiCb = lbl.querySelector('[class*="Checkbox"], [class*="checkbox"]');
+                            if (muiCb && !/checked/i.test(muiCb.className)) {
+                                muiCb.click(); return 'mui-checkbox';
+                            }
+                            if (muiCb) return 'already';
+                        }
+                        // Strategy 2: checkbox input with beatport in name/id/value
+                        const cbs = document.querySelectorAll('input[type="checkbox"]');
+                        for (const cb of cbs) {
+                            const id = (cb.id || cb.name || cb.value || '').toLowerCase();
+                            if (id.includes('beatport') && !cb.checked) {
+                                cb.click(); return 'checkbox-by-id';
+                            }
+                            if (id.includes('beatport') && cb.checked) return 'already';
+                        }
+                        return null;
+                    }""")
+                    if bp_checked:
+                        log.info(f"  Beatport: {bp_checked}")
+                    else:
+                        # Fallback: try Playwright label click
+                        try:
+                            bp_label = page.locator("label, .MuiFormControlLabel-root").filter(
+                                has_text=re.compile(r"beatport", re.IGNORECASE)).first
+                            if bp_label.is_visible(timeout=2000):
+                                bp_label.click()
+                                page.wait_for_timeout(500)
+                                log.info("  Beatport: clicked label (Playwright)")
+                                bp_checked = True
+                        except Exception:
+                            pass
+                    if not bp_checked:
+                        # Old UI fallback: "DISTRIBUTE TO BEATPORT" button
+                        bp_btn = _find_clickable(page, [
+                            "button:has-text('Distribute to Beatport')",
+                            "a:has-text('Distribute to Beatport')",
+                            "[role='button']:has-text('Distribute to Beatport')",
+                            "text=DISTRIBUTE TO BEATPORT",
+                        ])
+                        if bp_btn:
+                            bp_btn.scroll_into_view_if_needed()
+                            page.wait_for_timeout(500)
+                            bp_btn.click()
+                            page.wait_for_timeout(3000)
+                            log.info("  Beatport: clicked button (old UI)")
                 except Exception:
                     pass
 
