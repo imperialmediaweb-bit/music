@@ -1456,13 +1456,14 @@ def _detect_page(page) -> str:
         return 'track_details'
     if state.get('hasWriterField') or state.get('hasRoleField'):
         return 'track_details'
-    # 2026 UI: Performer Roles / Release History / Lyrics sections → track details
-    if state.get('hasPerformerRoles') or state.get('hasReleaseHistory') or state.get('hasLyricsSection'):
-        return 'track_details'
     if state.get('hasAddTrackBtn'):
         return 'add_track'
     if state.get('hasLangField') or state.get('hasGenreField'):
         return 'release_details'
+    # 2026 UI: Performer Roles / Lyrics sections → track details
+    # (checked AFTER release_details to avoid false match on "previously released")
+    if state.get('hasPerformerRoles') or state.get('hasLyricsSection'):
+        return 'track_details'
     if state.get('hasStartBtn') and not state.get('hasTypeChoice'):
         return 'start'
     if state.get('hasTypeChoice'):
