@@ -16,6 +16,10 @@ from config import BANDCAMP_STATE_FILE, BANDCAMP_TRACK_PRICE, HEADLESS
 from utils.logger import log
 
 BANDCAMP_HOME = "https://bandcamp.com"
+# Bandcamp's artist tools live under the artist subdomain
+# (e.g. https://groovegenix.bandcamp.com/tools). The generic /tools URL on
+# bandcamp.com redirects and often lands on login. We detect the subdomain
+# at runtime from cookies + navigation.
 BANDCAMP_TOOLS_URL = "https://bandcamp.com/tools"
 MAX_RETRIES = 2
 
@@ -71,28 +75,34 @@ def _do_upload(
     debug_dir = Path("output")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=HEADLESS,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        # Match the login browser (real Chrome) so the saved cookies validate.
+        # Fall back to bundled Chromium if Chrome is not installed.
+        try:
+            browser = p.chromium.launch(
+                headless=HEADLESS,
+                channel="chrome",
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+        except Exception:
+            log.info("Chrome channel not available — falling back to bundled Chromium")
+            browser = p.chromium.launch(
+                headless=HEADLESS,
+                args=["--disable-blink-features=AutomationControlled"],
+            )
         context = browser.new_context(
             storage_state=str(BANDCAMP_STATE_FILE),
             viewport={"width": 1920, "height": 1080},
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/134.0.0.0 Safari/537.36"
-            ),
             accept_downloads=False,
         )
         page = context.new_page()
 
         try:
-            # Start at the artist's tools/dashboard page
-            log.info(f"Navigating to {BANDCAMP_TOOLS_URL}...")
-            page.goto(BANDCAMP_TOOLS_URL, wait_until="domcontentloaded", timeout=60_000)
+            # Start at the Bandcamp home feed — after login, Bandcamp shows
+            # the user's dashboard here with a link to the artist's tools.
+            log.info(f"Navigating to {BANDCAMP_HOME}...")
+            page.goto(BANDCAMP_HOME + "/", wait_until="domcontentloaded", timeout=60_000)
             page.wait_for_timeout(3_000)
-            page.screenshot(path=str(debug_dir / "debug_bandcamp_01_tools.png"))
+            page.screenshot(path=str(debug_dir / "debug_bandcamp_01_home.png"))
 
             if _is_logged_out(page):
                 log.error("Bandcamp session expired. Run: python main.py bandcamp-login")
@@ -100,6 +110,19 @@ def _do_upload(
                 return None
 
             _dismiss_banners(page)
+
+            # Resolve the artist subdomain (e.g. https://groovegenix.bandcamp.com)
+            # from the dashboard, then navigate to <subdomain>/tools.
+            artist_tools_url = _resolve_artist_tools_url(page)
+            if artist_tools_url:
+                log.info(f"Artist tools URL: {artist_tools_url}")
+                page.goto(artist_tools_url, wait_until="domcontentloaded", timeout=60_000)
+                page.wait_for_timeout(3_000)
+                page.screenshot(path=str(debug_dir / "debug_bandcamp_02_tools.png"))
+                if _is_logged_out(page):
+                    log.error("Bandcamp redirected to login despite saved session.")
+                    page.screenshot(path=str(debug_dir / "debug_bandcamp_login_redirect.png"))
+                    return None
 
             # Open the "add new album" form. Bandcamp exposes this from the
             # artist tools page; the link varies a bit by account type, so we
@@ -119,7 +142,7 @@ def _do_upload(
                     )
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_timeout(4_000)
-            page.screenshot(path=str(debug_dir / "debug_bandcamp_02_album_form.png"))
+            page.screenshot(path=str(debug_dir / "debug_bandcamp_03_album_form.png"))
 
             _dismiss_banners(page)
 
@@ -182,13 +205,48 @@ def _is_logged_out(page) -> bool:
     return bool(page.evaluate("""() => {
         const url = location.href.toLowerCase();
         if (url.includes('/login') || url.includes('/signup')) return true;
+        // Logged-in Bandcamp always has the user menu / logout link somewhere.
+        if (document.querySelector('a[href*="/logout"]')
+            || document.querySelector('a[href*="/profile/"]')) {
+            return false;
+        }
         const bodyText = document.body?.innerText || '';
-        if (/log in to bandcamp|sign up for bandcamp/i.test(bodyText)
-            && !document.querySelector('a[href*="/logout"]')) {
+        if (/log in to bandcamp|sign up for bandcamp/i.test(bodyText)) {
             return true;
         }
         return false;
     }"""))
+
+
+def _resolve_artist_tools_url(page) -> str | None:
+    """Find the artist's `<subdomain>.bandcamp.com/tools` URL from the dashboard.
+
+    Bandcamp's logged-in home has a user-menu link to the artist profile
+    (e.g. https://groovegenix.bandcamp.com). We pick the first artist-like
+    subdomain we find and append /tools.
+    """
+    url = page.evaluate("""() => {
+        const links = [...document.querySelectorAll('a[href]')];
+        // 1) An explicit "tools" link.
+        const toolsLink = links.find(a => {
+            const href = (a.getAttribute('href') || '').toLowerCase();
+            return /^https?:\\/\\/[^/]+\\.bandcamp\\.com\\/tools(\\/|$)/.test(href);
+        });
+        if (toolsLink) return toolsLink.getAttribute('href');
+        // 2) Any link to an artist subdomain (not www, not bandcamp.com).
+        const artistLink = links.find(a => {
+            const href = (a.getAttribute('href') || '');
+            const m = href.match(/^https?:\\/\\/([^/]+)\\.bandcamp\\.com(\\/|$)/i);
+            return m && m[1] !== 'www' && m[1] !== 'blog' && m[1] !== 'daily';
+        });
+        if (artistLink) {
+            const href = artistLink.getAttribute('href');
+            const m = href.match(/^(https?:\\/\\/[^/]+\\.bandcamp\\.com)/i);
+            if (m) return m[1] + '/tools';
+        }
+        return null;
+    }""")
+    return url
 
 
 def _dismiss_banners(page) -> None:
