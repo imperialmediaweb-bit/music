@@ -970,6 +970,277 @@ def _fill_choose_sections(page, artist: str):
             break
 
 
+def _fill_new_ui_autocomplete(page, section_label: str, value: str) -> bool:
+    """Fill a MUI Autocomplete in the 2026 UI by finding the section heading."""
+    found = page.evaluate("""(args) => {
+        const { label, value } = args;
+        const headings = document.querySelectorAll(
+            'h1,h2,h3,h4,h5,h6,legend,label,span,div,p,strong');
+        for (const h of headings) {
+            const t = h.textContent.trim();
+            if (h.offsetWidth === 0 || t.length > 50) continue;
+            let match = false;
+            if (/songwriter/i.test(label) && /^Songwriter/i.test(t)) match = true;
+            if (/artist/i.test(label) && /Artist.*Contributor|Artist.*Creative|^Artist.*Name/i.test(t)) match = true;
+            if (!match) continue;
+            const section = h.closest(
+                'fieldset, section, .MuiFormControl-root, .MuiGrid-root, .MuiBox-root'
+            ) || h.parentElement?.parentElement || h.parentElement;
+            if (!section) continue;
+            const inputs = section.querySelectorAll(
+                'input[type="text"], input:not([type]), input[role="combobox"]');
+            for (const inp of inputs) {
+                if (inp.offsetWidth === 0 || inp.type === 'hidden') continue;
+                if (inp.value.trim()) return { status: 'filled', value: inp.value.trim() };
+                inp.setAttribute('data-tc-auto-fill', 'true');
+                return { status: 'empty' };
+            }
+        }
+        // Fallback: MUI Autocomplete roots
+        const autos = document.querySelectorAll('.MuiAutocomplete-root');
+        for (const ac of autos) {
+            const lbl = (ac.querySelector('label') || ac.previousElementSibling);
+            const lt = (lbl?.textContent || '').trim().toLowerCase();
+            if (/songwriter/i.test(label) && lt.includes('songwriter')) {
+                const inp = ac.querySelector('input');
+                if (inp && inp.offsetWidth > 0) {
+                    if (inp.value.trim()) return { status: 'filled', value: inp.value.trim() };
+                    inp.setAttribute('data-tc-auto-fill', 'true');
+                    return { status: 'empty' };
+                }
+            }
+            if (/artist/i.test(label) && (lt.includes('artist') || lt.includes('creative'))) {
+                const inp = ac.querySelector('input');
+                if (inp && inp.offsetWidth > 0) {
+                    if (inp.value.trim()) return { status: 'filled', value: inp.value.trim() };
+                    inp.setAttribute('data-tc-auto-fill', 'true');
+                    return { status: 'empty' };
+                }
+            }
+        }
+        return { status: 'not_found' };
+    }""", {"label": section_label, "value": value})
+
+    if not found or found.get('status') == 'not_found':
+        log.warning(f"  {section_label}: input not found")
+        return False
+    if found.get('status') == 'filled':
+        log.info(f"  {section_label}: already '{found.get('value')}'")
+        return True
+
+    try:
+        inp = page.locator('[data-tc-auto-fill="true"]').first
+        inp.scroll_into_view_if_needed(timeout=2000)
+        inp.click()
+        page.wait_for_timeout(500)
+        inp.fill("")
+        page.wait_for_timeout(200)
+        inp.type(value, delay=80)
+        page.wait_for_timeout(2500)
+
+        picked = False
+        try:
+            opt = page.locator("[role='option']").filter(has_text=value).first
+            if opt.is_visible(timeout=3000):
+                opt.click()
+                picked = True
+                log.info(f"  {section_label}: '{value}' (autocomplete)")
+        except Exception:
+            pass
+
+        if not picked:
+            page.keyboard.press("ArrowDown")
+            page.wait_for_timeout(300)
+            page.keyboard.press("Enter")
+            page.wait_for_timeout(500)
+            log.info(f"  {section_label}: '{value}' (keyboard)")
+
+        page.wait_for_timeout(1000)
+        return True
+    except Exception as e:
+        log.warning(f"  {section_label}: fill failed: {e}")
+        return False
+    finally:
+        try:
+            page.evaluate(
+                "document.querySelectorAll('[data-tc-auto-fill]')"
+                ".forEach(el => el.removeAttribute('data-tc-auto-fill'))")
+        except Exception:
+            pass
+
+
+def _fill_new_ui_track(page, concept, artist, wav_path):
+    """Handle the TuneCore 2026 track details page (#tracks-form-root).
+
+    The 2026 redesign uses a Vite-bundled React app mounted on #tracks-form-root
+    with MUI components. Flow:
+      1. Fill songwriter + artist/creative via MUI Autocomplete
+      2. Select performer roles, producer roles, more options (multi-select)
+      3. Set radio buttons: release history=No, cover=No, lyrics=instrumental
+      4. Click "Save Track Info" → enables WAV upload (uploadable: false → true)
+      5. Upload WAV if area becomes available
+      6. Click "Save & Continue" to advance
+    """
+    log.info("  === NEW UI (#tracks-form-root) ===")
+    clean_name = _strip_emojis(concept.track_name)
+
+    app_state = page.evaluate("""() => {
+        const root = document.querySelector('#tracks-form-root');
+        if (!root) return null;
+        try {
+            const props = JSON.parse(root.getAttribute('data-props') || '{}');
+            const song = (props.songs || [])[0] || {};
+            return {
+                songId: song.id,
+                songName: song.name || '',
+                hasSongwriters: (song.songwriters || []).length > 0,
+                hasCreatives: (song.creatives || []).length > 0,
+                instrumental: song.instrumental,
+                coverSong: song.cover_song,
+                previouslyReleased: song.previously_released,
+                uploadable: song.uploadable || false,
+                hasAsset: !!song.asset,
+            };
+        } catch(e) { return { error: e.message }; }
+    }""")
+
+    if app_state:
+        log.info(f"  React state: id={app_state.get('songId')} "
+                 f"name='{app_state.get('songName')}' "
+                 f"sw={app_state.get('hasSongwriters')} "
+                 f"cr={app_state.get('hasCreatives')} "
+                 f"upload={app_state.get('uploadable')} "
+                 f"asset={app_state.get('hasAsset')}")
+
+    # ── 1. Song Name (usually pre-filled from step 1) ──
+    for sel in ["input[name*='name' i]", "input[name*='title' i]",
+                "input[name*='trackName' i]", "input[name*='song_name' i]"]:
+        try:
+            el = page.locator(sel).first
+            if el.is_visible(timeout=1500):
+                current = el.input_value().strip()
+                if current:
+                    log.info(f"  Song Name: already '{current}'")
+                else:
+                    el.fill(clean_name)
+                    log.info(f"  Song Name: '{clean_name}'")
+                break
+        except Exception:
+            continue
+
+    # ── 2. Songwriter (MUI Autocomplete with account_songwriters) ──
+    if not app_state or not app_state.get('hasSongwriters'):
+        _fill_new_ui_autocomplete(page, "Songwriter", artist)
+    else:
+        log.info("  Songwriter: already has entries (from React state)")
+    page.wait_for_timeout(1000)
+
+    # ── 3. Artist/Creative (MUI Autocomplete with active_creatives) ──
+    if not app_state or not app_state.get('hasCreatives'):
+        _fill_new_ui_autocomplete(page, "Artist", artist)
+    else:
+        log.info("  Artist/Creative: already has entries (from React state)")
+    page.wait_for_timeout(1000)
+
+    # ── 4. Performer Roles, Producer/Engineer, More Options, Radio buttons ──
+    _fill_new_track_fields(page)
+    page.wait_for_timeout(1000)
+
+    # ── 5. Click "Save Track Info" ──
+    save_clicked = False
+    for btn_text in ['Save Track Info', 'Save']:
+        try:
+            btn = page.locator(f"button:has-text('{btn_text}')").first
+            if btn.is_visible(timeout=2000):
+                disabled = btn.evaluate(
+                    "el => el.disabled || el.getAttribute('aria-disabled') === 'true'"
+                    " || el.classList.contains('Mui-disabled')")
+                if not disabled:
+                    btn.scroll_into_view_if_needed(timeout=2000)
+                    btn.click()
+                    log.info(f"  Clicked '{btn_text}'")
+                    save_clicked = True
+                    page.wait_for_timeout(5000)
+                    break
+                else:
+                    log.info(f"  '{btn_text}' is disabled")
+        except Exception:
+            continue
+
+    if not save_clicked:
+        log.warning("  'Save Track Info' not found or disabled — trying JS fallback")
+        save_clicked = page.evaluate("""() => {
+            const btns = document.querySelectorAll('button');
+            for (const b of btns) {
+                const t = (b.textContent || '').trim();
+                if (/Save Track Info/i.test(t) && b.offsetWidth > 0 && !b.disabled) {
+                    b.click();
+                    return true;
+                }
+            }
+            for (const b of btns) {
+                const t = (b.textContent || '').trim();
+                if (/^Save$/i.test(t) && b.offsetWidth > 0 && !b.disabled) {
+                    b.click();
+                    return true;
+                }
+            }
+            return false;
+        }""")
+        if save_clicked:
+            log.info("  Clicked Save via JS")
+            page.wait_for_timeout(5000)
+
+    # ── 6. Upload WAV (if file exists and upload area becomes available) ──
+    if wav_path and wav_path.exists() and str(wav_path) != '/dev/null':
+        page.wait_for_timeout(3000)
+        upload_available = page.evaluate("""() => {
+            const fi = document.querySelector('input[type="file"]');
+            if (fi) return 'file_input';
+            const els = document.querySelectorAll(
+                'button, label, div, [class*="upload" i], [class*="dropzone" i]');
+            for (const el of els) {
+                const t = (el.textContent || '').trim().toLowerCase();
+                if ((t.includes('upload') && t.includes('stereo'))
+                    || t.includes('add audio')) {
+                    if (el.offsetWidth > 0) return 'upload_btn';
+                }
+            }
+            return null;
+        }""")
+
+        if upload_available:
+            log.info(f"  Upload area available ({upload_available}), uploading WAV...")
+            wav_ok = _upload_file(page, wav_path)
+            if wav_ok:
+                log.info("  WAV uploaded, waiting for processing...")
+                _wait_for_upload(page, timeout=360, file_was_set=True)
+            else:
+                log.warning("  WAV upload failed on new UI page")
+        else:
+            log.info("  Upload area not available yet (uploadable still false)")
+
+    # ── 7. Click "Save & Continue" ──
+    page.wait_for_timeout(2000)
+    for btn_text in ['Save & Continue', 'Save and Continue', 'Continue']:
+        try:
+            btn = page.locator(f"button:has-text('{btn_text}')").first
+            if btn.is_visible(timeout=2000):
+                disabled = btn.evaluate(
+                    "el => el.disabled || el.getAttribute('aria-disabled') === 'true'"
+                    " || el.classList.contains('Mui-disabled')")
+                if not disabled:
+                    btn.scroll_into_view_if_needed(timeout=2000)
+                    btn.click()
+                    log.info(f"  Clicked '{btn_text}'")
+                    page.wait_for_timeout(5000)
+                    break
+                else:
+                    log.info(f"  '{btn_text}' is disabled — may need upload first")
+        except Exception:
+            continue
+
+
 def _fill_new_track_fields(page):
     """Fill TuneCore 2026 UI fields: Performer Roles, Producer/Engineer Roles,
     Release History, Copyright Ownership, and Lyrics radio buttons.
@@ -977,10 +1248,13 @@ def _fill_new_track_fields(page):
     The April-2026 TuneCore redesign moved these into step 3/4 as
     separate MUI sections with dropdowns and radio groups.
 
-    DOM structure (from DevTools):
+    DOM structure (from HTML source):
       Performer Roles: MUI Select → <ul role="listbox" aria-labelledby="songRoles.performer">
-        <li role="option" data-value="97">accordion</li>
         <li role="option" data-value="100">synthesizer</li> ...
+      Producer/Engineer: aria-labelledby="songRoles.production_and_engineering"
+        <li role="option" data-value="146">producer</li> ...
+      More Options: aria-labelledby="songRoles.other"
+        <li role="option" data-value="1">performer</li> ...
       Radio sections: MUI RadioGroup with <input type="radio"> inside <label>
     """
 
@@ -1076,8 +1350,8 @@ def _fill_new_track_fields(page):
     # These are usually auto-filled ("producer", "performer") when an artist
     # profile is linked. Only fill if empty.
     for role_label_id, role_name, display_name in [
-        ("songRoles.producerEngineer", "producer",  "Producer/Engineer Roles"),
-        ("songRoles.moreOptions",      "performer", "More Options"),
+        ("songRoles.production_and_engineering", "producer",  "Producer/Engineer Roles"),
+        ("songRoles.other",                      "performer", "More Options"),
     ]:
         try:
             result = page.evaluate("""(args) => {
@@ -1390,6 +1664,7 @@ def _detect_page(page) -> str:
             hasUnuploadedFile: body.includes("hasn't been uploaded") || body.includes('file hasn'),
             // Real TuneCore React app detection
             hasSongsApp: has('#songs_app'),
+            hasTracksFormRoot: has('#tracks-form-root'),
             isTracksUrl: url.includes('/tracks'),
             hasWriterField: anyVisible('input[name*="songwriter" i]', 'input[name*="writer" i]'),
             hasRoleField: has('input[name="role"]') || has('select[name="role"]')
@@ -1454,7 +1729,7 @@ def _detect_page(page) -> str:
     if state.get('hasFileInput') and not state.get('hasWriterField') and not state.get('hasSongsApp'):
         return 'upload_wav'
     # TuneCore React songs app on /singles/{id}/tracks or /albums/{id}/tracks
-    if state.get('hasSongsApp') or (state.get('isTracksUrl') and not state.get('isDashboard')):
+    if state.get('hasSongsApp') or state.get('hasTracksFormRoot') or (state.get('isTracksUrl') and not state.get('isDashboard')):
         return 'track_details'
     if state.get('hasWriterField') or state.get('hasRoleField'):
         return 'track_details'
@@ -1991,13 +2266,22 @@ def _do_upload(
                         # Wait for page content to render (old UI: #songs_app, new: MUI form)
                         try:
                             page.wait_for_selector(
-                                '#songs_app, .MuiFormControl-root, '
+                                '#songs_app, #tracks-form-root, .MuiFormControl-root, '
                                 'input[placeholder*="Legal First"], '
                                 'input[name*="artistContributor" i]',
                                 timeout=15_000)
                             page.wait_for_timeout(3000)
                         except Exception:
                             page.wait_for_timeout(5000)
+
+                        # ── NEW 2026 UI: #tracks-form-root ──
+                        is_new_ui = page.evaluate(
+                            "!!document.querySelector('#tracks-form-root')")
+                        if is_new_ui:
+                            log.info("  Detected #tracks-form-root — using new UI handler")
+                            _fill_new_ui_track(page, concept, artist, wav_path)
+                            page.wait_for_timeout(3000)
+                            continue
 
                         # ── 1. Song Title — skip if already filled ──
                         for sel in [
