@@ -1175,7 +1175,7 @@ def _fill_new_ui_track(page, concept, artist, wav_path):
             if (b.offsetWidth === 0 || b.disabled) continue;
             if (b.getAttribute('aria-disabled') === 'true') continue;
             // Match "Save Track Info" or plain "SAVE" but NOT "SAVE & CONTINUE"
-            if (/^Save\s*Track\s*Info$/i.test(t)) { b.click(); return 'Save Track Info'; }
+            if (/^Save\\s*Track\\s*Info$/i.test(t)) { b.click(); return 'Save Track Info'; }
             if (/^Save$/i.test(t)) { b.click(); return 'Save'; }
         }
         return null;
