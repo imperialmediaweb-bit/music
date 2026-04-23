@@ -99,13 +99,7 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
     mp3_files = generate_music_batch(concept, count=gen_count)
     log.info(f"Generated {len(mp3_files)} MP3 files")
 
-    # Suno split-upload: each song uploaded separately, second deferred
-    if platform == "suno" and len(mp3_files) >= 2:
-        return _run_split_upload(mp3_files, base_concept=concept,
-                                 genre=genre, music_style=music_style,
-                                 thumbnail_style=thumbnail_style, fusion=fusion)
-
-    # Step 3: Merge all MP3s into one track (non-Suno or single-track result)
+    # Step 3: Merge all MP3s into one track
     log.info("=" * 60)
     log.info("STEP 3: Merging MP3 files...")
     merged_path = merge_mp3s(mp3_files, output_name=concept.track_name)
@@ -1193,9 +1187,6 @@ def cmd_schedule(args):
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
     # (hour, minute, gen_count, extra_kwargs) — gen_count × 2 MP3s merged into one clip
-    # On Suno (MUSIC_PLATFORM=suno) the 13:00 slot generates 2 songs that are
-    # split: the first uploads immediately, the second is queued and uploaded
-    # at the 18:00 flush slot below.
     SCHEDULE_SLOTS = [
         (13, 0,  1, {"fusion": True}),   # 13:00 → FUSION: Afro House × Japanese/Greek/Latin Folk
         (16, 0,  2, {}),                  # 16:00 → 2 gen = 4 MP3s (ready ~16:15, before 18:00 peak)
