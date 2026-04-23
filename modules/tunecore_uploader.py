@@ -2285,6 +2285,50 @@ def _do_upload(
                             log.info("  Waiting for WAV upload (~6 min)...")
                             _wait_for_upload(page, timeout=360, file_was_set=wav_ok)
 
+                            # TuneCore disables Continue until server-side
+                            # processing finishes. Poll for the button to
+                            # become enabled — clicking it while disabled
+                            # just throws a 30s timeout (Audio ❌ on dashboard).
+                            log.info("  Waiting for Continue button to become enabled...")
+                            enabled_deadline = time.time() + 420  # up to 7 min
+                            continue_enabled = False
+                            while time.time() < enabled_deadline:
+                                try:
+                                    continue_enabled = page.evaluate("""() => {
+                                        const btns = Array.from(document.querySelectorAll('button, a'));
+                                        for (const b of btns) {
+                                            const t = (b.innerText || '').trim();
+                                            if (/^(Continue|Next)$/i.test(t)) {
+                                                const cls = b.className || '';
+                                                const disabled = b.disabled ||
+                                                    b.getAttribute('disabled') !== null ||
+                                                    /Mui-disabled|disabled/.test(cls);
+                                                if (!disabled) return true;
+                                            }
+                                        }
+                                        return false;
+                                    }""")
+                                except Exception:
+                                    pass
+                                if continue_enabled:
+                                    log.info("  Continue button is now enabled — WAV processing complete")
+                                    break
+                                page.wait_for_timeout(5000)
+                                log.info(f"  Still waiting for Continue to enable ({int(time.time() - (enabled_deadline - 420))}s)...")
+                            if not continue_enabled:
+                                try:
+                                    page.screenshot(
+                                        path=str(OUTPUT_DIR / "debug_tunecore_wav_continue_disabled.png"),
+                                        full_page=True,
+                                    )
+                                except Exception:
+                                    pass
+                                raise RuntimeError(
+                                    "Continue button never enabled — TuneCore is still "
+                                    "processing or rejected the WAV. "
+                                    "See output/debug_tunecore_wav_continue_disabled.png"
+                                )
+
                             # After upload, capture any TuneCore error banner (silence,
                             # duration, format) so we know WHY audio is rejected instead
                             # of silently clicking Continue over a broken file.

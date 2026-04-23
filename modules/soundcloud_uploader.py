@@ -101,6 +101,28 @@ def _do_upload(
             # Dismiss cookie consent banner if present
             _dismiss_soundcloud_popups(page)
 
+            # Detect logged-out state early — if the page shows the marketing
+            # "Upload your first track / Sign in / Create account" header, the
+            # saved cookies have expired and file-input hunting is pointless.
+            logged_out = page.evaluate("""() => {
+                const bodyText = document.body?.innerText || '';
+                // Strongest signals from the logged-out upload page
+                if (document.querySelector('.uploadLoggedOut, [class*="uploadLoggedOut"]')) return true;
+                if (document.querySelector('button.loginButton, .loginButton')) return true;
+                if (document.querySelector('a[href="/signin"], a[href*="/signin"]')) return true;
+                // Fallback: marketing text only visible when logged out
+                if (/Upload your first track|Sign in|Create account/i.test(bodyText)
+                    && !document.querySelector('input[type="file"]')) {
+                    return true;
+                }
+                return false;
+            }""")
+            if logged_out:
+                raise RuntimeError(
+                    "SoundCloud session expired — you are logged out. "
+                    "Run: python main.py soundcloud-login"
+                )
+
             # Upload audio file — look for the file input or the upload button area
             log.info("Looking for audio file input...")
 
