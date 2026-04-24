@@ -37,6 +37,7 @@ def enqueue(
     wav_path: Optional[Path] = None,
     cover_path: Optional[Path] = None,
     duration_str: Optional[str] = None,
+    extra_playlists: Optional[list[str]] = None,
 ) -> Path:
     """Serialize one ready-to-upload track to the queue.
 
@@ -56,6 +57,7 @@ def enqueue(
         "wav_path": str(wav_path) if wav_path else None,
         "cover_path": str(cover_path) if cover_path else None,
         "duration": duration_str,
+        "extra_playlists": extra_playlists or [],
     }
     sidecar.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     log.info(f"Queued pending upload: {sidecar.name}")

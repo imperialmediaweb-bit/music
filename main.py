@@ -143,6 +143,94 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
     return result
 
 
+def _run_generate_only(gen_count: int = 2, profile_name: str = ""):
+    """Generate music + thumbnail + video and queue for later publishing.
+
+    This is the "overnight" step: runs at 02:00 daily, creates all assets,
+    saves them to the pending-uploads queue. The publish step
+    (_run_publish_only) uploads them at the right time during the week.
+    """
+    from modules.audio_merger import merge_mp3s, merge_mp3s_crossfade, trim_quiet_intro
+    from modules.concept_generator import generate_concept
+    from modules.profiles import PLAYLIST_PROFILES, get_todays_profile, get_random_thumbnail_style
+    from modules import pending_uploads
+    from pipeline import prepare_track_assets
+
+    platform = MUSIC_PLATFORM
+
+    if profile_name and profile_name in PLAYLIST_PROFILES:
+        profile = PLAYLIST_PROFILES[profile_name]
+    else:
+        profile_name, profile = get_todays_profile()
+    log.info(f"[GENERATE] Profile: {profile_name} ({profile['label']})")
+
+    music_style = profile.get("suno_prompt_addition", "")
+    thumbnail_style = get_random_thumbnail_style(profile)
+    extra_playlists = profile.get("youtube_playlists", [])[1:]
+    crossfade_sec = profile.get("crossfade_sec", 0)
+
+    generate_music_batch = _get_music_generator(platform)
+
+    log.info("=" * 60)
+    log.info(f"[GENERATE] STEP 1: Generating concept ({profile_name})...")
+    concept = generate_concept(music_style=music_style, thumbnail_style=thumbnail_style)
+    log.info(f"Track name: {concept.track_name}")
+
+    log.info("=" * 60)
+    log.info(f"[GENERATE] STEP 2: Generating music on {platform}...")
+    try:
+        mp3_files = generate_music_batch(concept, count=gen_count)
+    except Exception as e:
+        if platform == "aimusicfactory":
+            log.warning(f"aimusicfactory failed ({e}) — falling back to Suno")
+            generate_music_batch = _get_music_generator("suno")
+            mp3_files = generate_music_batch(concept, count=gen_count)
+        else:
+            raise
+    log.info(f"Generated {len(mp3_files)} MP3 files")
+
+    mp3_files = [trim_quiet_intro(f) for f in mp3_files]
+
+    log.info("=" * 60)
+    if crossfade_sec > 0 and len(mp3_files) > 1:
+        log.info(f"[GENERATE] STEP 3: Merging with {crossfade_sec}s crossfade...")
+        merged_path = merge_mp3s_crossfade(mp3_files, output_name=concept.track_name,
+                                            crossfade_sec=crossfade_sec)
+    else:
+        log.info("[GENERATE] STEP 3: Merging MP3 files...")
+        merged_path = merge_mp3s(mp3_files, output_name=concept.track_name)
+
+    log.info("=" * 60)
+    log.info("[GENERATE] STEP 4: Creating thumbnail + video...")
+    prepared = prepare_track_assets(merged_path, concept)
+
+    log.info("=" * 60)
+    log.info("[GENERATE] STEP 5: Queueing for publish...")
+    sidecar = pending_uploads.enqueue(
+        concept=concept,
+        video_path=prepared["video_path"],
+        thumbnail_path=prepared["thumbnail_path"],
+        mp3_path=prepared.get("mp3_path"),
+        wav_path=prepared.get("wav_path"),
+        cover_path=prepared.get("cover_path"),
+        duration_str=prepared.get("duration"),
+        extra_playlists=extra_playlists,
+    )
+    log.info(f"[GENERATE] Queued: {sidecar.name} — ready for publish slot")
+
+
+def _run_publish_only():
+    """Upload all queued tracks to YouTube/TikTok/TuneCore.
+
+    This is the "publish" step: runs 4x/week at optimal hours. Picks up
+    everything queued by _run_generate_only and uploads it.
+    """
+    from pipeline import flush_pending_uploads
+    log.info("[PUBLISH] Flushing pending uploads...")
+    flush_pending_uploads()
+    log.info("[PUBLISH] Done")
+
+
 def _run_split_upload(mp3_files, base_concept, genre="", music_style="",
                       thumbnail_style="", fusion=False):
     """Suno-only: upload each generated MP3 as its own YouTube video.
@@ -1160,12 +1248,11 @@ def cmd_autostart(args):
 
 
 def cmd_schedule(args):
-    """Schedule 4 clips per day, uploaded to YouTube + TikTok automatically.
+    """Schedule daily generation (02:00) + 4x/week publish at optimal hours.
 
     Default schedule (Europe/Bucharest timezone):
-      13:00 — 1 generate (FUSION: Afro House × another genre)
-      16:00 — 2 generates (4 MP3s) → 1 clip
-      19:00 — 4 generates (8 MP3s) → 1 clip
+      02:00 daily — generate music, create thumbnail/video, queue for publish
+      MON 18:00, WED 18:00, FRI 19:00, SUN 12:00 — publish queued tracks
 
     Uses misfire_grace_time=3600 so jobs still run even if the PC
     wakes from sleep up to 1 hour late.
@@ -1219,14 +1306,14 @@ def cmd_schedule(args):
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-    # Weekly schedule: 4 uploads per week, each with a playlist profile.
-    # Profile determines music style, thumbnail variant, tags, playlists.
-    # (day_of_week, hour, minute, gen_count, extra_kwargs)
-    WEEKLY_SCHEDULE = [
-        ("mon", 18, 0, 2, {"profile_name": "gym"}),
-        ("wed", 18, 0, 2, {"profile_name": "main"}),
-        ("fri", 19, 0, 2, {"profile_name": "driving"}),
-        ("sun", 12, 0, 2, {"profile_name": "focus"}),
+    # Publish slots: 4x/week at optimal hours. Profile is irrelevant here —
+    # publish just flushes whatever _run_generate_only queued.
+    # (day_of_week, hour, minute)
+    PUBLISH_SCHEDULE = [
+        ("mon", 18, 0),
+        ("wed", 18, 0),
+        ("fri", 19, 0),
+        ("sun", 12, 0),
     ]
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
@@ -1253,26 +1340,36 @@ def cmd_schedule(args):
         )
         log.info(f"Scheduled with cron: {args.cron}")
     else:
-        clips_per_week = args.clips or len(WEEKLY_SCHEDULE)
-        selected_slots = WEEKLY_SCHEDULE[:clips_per_week]
-        for i, (dow, hour, minute, gen_count, extra_kw) in enumerate(selected_slots):
-            job_kwargs = {"gen_count": gen_count, **extra_kw}
-            profile_label = extra_kw.get("profile_name", "main")
+        # Daily generation at 02:00 — creates assets and queues for publish.
+        # Profile is auto-selected from WEEKLY_PLAN based on day of week.
+        scheduler.add_job(
+            _run_generate_only,
+            CronTrigger(hour=2, minute=0, timezone=TIMEZONE),
+            kwargs={"gen_count": 2},
+            id="daily_generate",
+            name="DAILY 02:00 — generate + queue (profile auto)",
+            misfire_grace_time=MISFIRE_GRACE,
+            coalesce=True,
+        )
+        log.info("Scheduled daily generation at 02:00 (profile from WEEKLY_PLAN)")
+
+        clips_per_week = args.clips or len(PUBLISH_SCHEDULE)
+        selected_slots = PUBLISH_SCHEDULE[:clips_per_week]
+        for i, (dow, hour, minute) in enumerate(selected_slots):
             scheduler.add_job(
-                _run_full_pipeline,
+                _run_publish_only,
                 CronTrigger(day_of_week=dow, hour=hour, minute=minute,
                             timezone=TIMEZONE),
-                kwargs=job_kwargs,
-                id=f"music_pipeline_{i + 1}",
-                name=f"{dow.upper()} {hour}:{minute:02d} ({profile_label}, {gen_count} gen)",
+                id=f"publish_{i + 1}",
+                name=f"{dow.upper()} {hour}:{minute:02d} — publish",
                 misfire_grace_time=MISFIRE_GRACE,
                 coalesce=True,
             )
         schedule_desc = ", ".join(
-            f"{dow.upper()} {h}:{m:02d} ({kw.get('profile_name', 'main')})"
-            for dow, h, m, g, kw in selected_slots
+            f"{dow.upper()} {h}:{m:02d}"
+            for dow, h, m in selected_slots
         )
-        log.info(f"Scheduled {len(selected_slots)} clips per week: {schedule_desc}")
+        log.info(f"Scheduled {len(selected_slots)} publish slots per week: {schedule_desc}")
         log.info(f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s")
 
     def shutdown(signum, frame):

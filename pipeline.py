@@ -388,6 +388,7 @@ def upload_prepared_track(prepared: dict) -> dict:
     cover_path = prepared.get("cover_path")
     wav_path = prepared.get("wav_path")
     mp3_path = prepared.get("mp3_path")
+    extra_playlists = prepared.get("extra_playlists")
 
     result = {
         "file": str(mp3_path) if mp3_path else None,
@@ -407,7 +408,8 @@ def upload_prepared_track(prepared: dict) -> dict:
     try:
         log.info("=" * 60)
         log.info("Uploading to YouTube...")
-        youtube_url = upload_to_youtube(video, thumbnail_path, concept)
+        youtube_url = upload_to_youtube(video, thumbnail_path, concept,
+                                        extra_playlists=extra_playlists)
         result["youtube_url"] = youtube_url
         if youtube_url:
             log.info(f"YouTube URL: {youtube_url}")
