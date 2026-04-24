@@ -55,7 +55,7 @@ def _get_music_generator(platform: str):
 
 def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = None,
                        genre: str = "", music_style: str = "", thumbnail_style: str = "",
-                       fusion: bool = False):
+                       fusion: bool = False, profile_name: str = ""):
     """Full pipeline: generate music → merge → thumbnail → video → upload.
 
     Args:
@@ -66,19 +66,32 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
         music_style: Custom music style prompt. Falls back to config or default.
         thumbnail_style: Custom thumbnail prompt. Falls back to config or default.
         fusion: If True, use the fusion concept generator (Afro House × another genre).
-
-    Note:
-        On Suno we skip merging and split the 2 MP3s across the day — the
-        first is uploaded now, the second is queued for a later scheduler slot
-        via `flush-pending`.
+        profile_name: Playlist profile ("main", "gym", "driving", "focus",
+            "meditation"). If empty, uses today's profile from WEEKLY_PLAN.
     """
-    from modules.audio_merger import merge_mp3s
+    from modules.audio_merger import merge_mp3s, merge_mp3s_crossfade, trim_quiet_intro
     from modules.concept_generator import generate_concept, generate_fusion_concept
+    from modules.profiles import PLAYLIST_PROFILES, get_todays_profile, get_random_thumbnail_style
     from pipeline import process_single_track
 
     platform = platform or MUSIC_PLATFORM
     if songs:
         gen_count = max(1, songs // 2)  # Each generation = 2 songs
+
+    # Load playlist profile (explicit or today's from weekly plan)
+    if profile_name and profile_name in PLAYLIST_PROFILES:
+        profile = PLAYLIST_PROFILES[profile_name]
+    else:
+        profile_name, profile = get_todays_profile()
+    log.info(f"Playlist profile: {profile_name} ({profile['label']})")
+
+    # Profile feeds into existing generate_concept params (only if not overridden)
+    if not music_style and profile.get("suno_prompt_addition"):
+        music_style = profile["suno_prompt_addition"]
+    if not thumbnail_style and profile.get("thumbnail_style_variants"):
+        thumbnail_style = get_random_thumbnail_style(profile)
+    extra_playlists = profile.get("youtube_playlists", [])[1:]  # skip first (= genre playlist)
+    crossfade_sec = profile.get("crossfade_sec", 0)
 
     generate_music_batch = _get_music_generator(platform)
 
@@ -88,7 +101,7 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
         log.info("STEP 1: Generating FUSION concept (Afro House × another genre)...")
         concept = generate_fusion_concept()
     else:
-        log.info(f"STEP 1: Generating {genre or 'music'} concept...")
+        log.info(f"STEP 1: Generating {genre or 'music'} concept ({profile_name} profile)...")
         concept = generate_concept(genre=genre, music_style=music_style,
                                    thumbnail_style=thumbnail_style)
     log.info(f"Track name: {concept.track_name}")
@@ -110,14 +123,23 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
             raise
     log.info(f"Generated {len(mp3_files)} MP3 files")
 
-    # Step 3: Merge all MP3s into one track
+    # Trim quiet intros from individual MP3s before merging
+    mp3_files = [trim_quiet_intro(f) for f in mp3_files]
+
+    # Step 3: Merge all MP3s into one track (with crossfade if profile uses it)
     log.info("=" * 60)
-    log.info("STEP 3: Merging MP3 files...")
-    merged_path = merge_mp3s(mp3_files, output_name=concept.track_name)
+    if crossfade_sec > 0 and len(mp3_files) > 1:
+        log.info(f"STEP 3: Merging MP3 files with {crossfade_sec}s crossfade...")
+        merged_path = merge_mp3s_crossfade(mp3_files, output_name=concept.track_name,
+                                            crossfade_sec=crossfade_sec)
+    else:
+        log.info("STEP 3: Merging MP3 files...")
+        merged_path = merge_mp3s(mp3_files, output_name=concept.track_name)
     log.info(f"Merged file: {merged_path}")
 
     # Step 4-7: Process (duration, thumbnail, video, upload)
-    result = process_single_track(merged_path, concept=concept)
+    result = process_single_track(merged_path, concept=concept,
+                                  extra_playlists=extra_playlists)
     return result
 
 
@@ -1197,16 +1219,15 @@ def cmd_schedule(args):
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-    # (hour, minute, gen_count, extra_kwargs) — gen_count × 2 MP3s merged into one clip
-    SCHEDULE_SLOTS = [
-        (13, 0,  1, {"fusion": True}),   # 13:00 → FUSION: Afro House × Japanese/Greek/Latin Folk
-        (16, 0,  2, {}),                  # 16:00 → 2 gen = 4 MP3s (ready ~16:15, before 18:00 peak)
-        (19, 0,  4, {}),                  # 19:00 → 4 gen = 8 MP3s (ready ~19:15, before 21:00 peak)
+    # Weekly schedule: 4 uploads per week, each with a playlist profile.
+    # Profile determines music style, thumbnail variant, tags, playlists.
+    # (day_of_week, hour, minute, gen_count, extra_kwargs)
+    WEEKLY_SCHEDULE = [
+        ("mon", 18, 0, 2, {"profile_name": "gym"}),
+        ("wed", 18, 0, 2, {"profile_name": "main"}),
+        ("fri", 19, 0, 2, {"profile_name": "driving"}),
+        ("sun", 12, 0, 2, {"profile_name": "focus"}),
     ]
-
-    # Late-day flush slot: picks up any pending uploads queued earlier (e.g.
-    # the second song from a Suno split at 13:00).
-    FLUSH_HOUR, FLUSH_MINUTE = 18, 0
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
     MISFIRE_GRACE = 3600
@@ -1232,40 +1253,27 @@ def cmd_schedule(args):
         )
         log.info(f"Scheduled with cron: {args.cron}")
     else:
-        # Default schedule with variable generation counts
-        clips_per_day = args.clips or len(SCHEDULE_SLOTS)
-        selected_slots = SCHEDULE_SLOTS[:clips_per_day]
-        for i, (hour, minute, gen_count, extra_kw) in enumerate(selected_slots):
+        clips_per_week = args.clips or len(WEEKLY_SCHEDULE)
+        selected_slots = WEEKLY_SCHEDULE[:clips_per_week]
+        for i, (dow, hour, minute, gen_count, extra_kw) in enumerate(selected_slots):
             job_kwargs = {"gen_count": gen_count, **extra_kw}
-            is_fusion = extra_kw.get("fusion", False)
-            job_label = "FUSION" if is_fusion else f"{gen_count} gen"
+            profile_label = extra_kw.get("profile_name", "main")
             scheduler.add_job(
                 _run_full_pipeline,
-                CronTrigger(hour=hour, minute=minute, timezone=TIMEZONE),
+                CronTrigger(day_of_week=dow, hour=hour, minute=minute,
+                            timezone=TIMEZONE),
                 kwargs=job_kwargs,
                 id=f"music_pipeline_{i + 1}",
-                name=f"Clip {i + 1} ({hour}:{minute:02d}, {job_label})",
+                name=f"{dow.upper()} {hour}:{minute:02d} ({profile_label}, {gen_count} gen)",
                 misfire_grace_time=MISFIRE_GRACE,
                 coalesce=True,
             )
         schedule_desc = ", ".join(
-            f"{h}:{m:02d} ({'FUSION' if kw.get('fusion') else f'{g} gen'})"
-            for h, m, g, kw in selected_slots
+            f"{dow.upper()} {h}:{m:02d} ({kw.get('profile_name', 'main')})"
+            for dow, h, m, g, kw in selected_slots
         )
-        log.info(f"Scheduled {len(selected_slots)} clips per day: {schedule_desc}")
+        log.info(f"Scheduled {len(selected_slots)} clips per week: {schedule_desc}")
         log.info(f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s")
-
-        # Flush pending uploads (Suno split-upload second half)
-        from pipeline import flush_pending_uploads
-        scheduler.add_job(
-            flush_pending_uploads,
-            CronTrigger(hour=FLUSH_HOUR, minute=FLUSH_MINUTE, timezone=TIMEZONE),
-            id="flush_pending",
-            name=f"Flush pending uploads ({FLUSH_HOUR}:{FLUSH_MINUTE:02d})",
-            misfire_grace_time=MISFIRE_GRACE,
-            coalesce=True,
-        )
-        log.info(f"Flush slot: {FLUSH_HOUR}:{FLUSH_MINUTE:02d} (uploads any queued tracks)")
 
     def shutdown(signum, frame):
         log.info("Shutting down scheduler...")

@@ -568,12 +568,14 @@ def flush_pending_uploads() -> list[dict]:
     return results
 
 
-def process_single_track(mp3_path: Path, concept=None) -> dict:
+def process_single_track(mp3_path: Path, concept=None,
+                         extra_playlists: list[str] | None = None) -> dict:
     """Process one compiled MP3 file: concept → thumbnail → video → upload.
 
     Args:
         mp3_path: Path to the MP3 file.
         concept: Optional pre-generated MusicConcept. If None, generates one.
+        extra_playlists: Additional YouTube playlist names (from profile).
     """
     ensure_path()
     result = {
@@ -678,7 +680,8 @@ def process_single_track(mp3_path: Path, concept=None) -> dict:
     try:
         log.info("=" * 60)
         log.info("STEP 5: Uploading to YouTube...")
-        youtube_url = upload_to_youtube(video, thumbnail_path, concept)
+        youtube_url = upload_to_youtube(video, thumbnail_path, concept,
+                                        extra_playlists=extra_playlists)
         result["youtube_url"] = youtube_url
         if youtube_url:
             log.info(f"YouTube URL: {youtube_url}")

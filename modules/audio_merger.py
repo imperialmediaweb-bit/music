@@ -1,6 +1,7 @@
 """Merge multiple MP3 files into one continuous track using FFmpeg."""
 
 import json
+import re
 import subprocess
 import shutil
 import tempfile
@@ -227,3 +228,123 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
 
     finally:
         concat_file.unlink(missing_ok=True)
+
+
+def merge_mp3s_crossfade(mp3_files: list[Path], output_name: str = "merged",
+                          crossfade_sec: float = 3.0) -> Path:
+    """Merge MP3s with smooth crossfade transitions between segments.
+
+    Uses FFmpeg's acrossfade filter chained in cascade. Falls back to
+    plain concat (merge_mp3s) when there's only 1 file or crossfade is 0.
+
+    Returns Path to the merged MP3 (same naming as merge_mp3s).
+    """
+    if not mp3_files:
+        raise ValueError("No MP3 files provided")
+    if len(mp3_files) == 1 or crossfade_sec <= 0:
+        return merge_mp3s(mp3_files, output_name=output_name)
+
+    if not shutil.which("ffmpeg"):
+        raise RuntimeError("FFmpeg not found — required for crossfade merge")
+
+    log.info(f"Merging {len(mp3_files)} MP3s with {crossfade_sec}s crossfade...")
+
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in output_name)
+    safe_name = safe_name.strip().replace(" ", "_")[:50] or "merged"
+    output_path = OUTPUT_DIR / f"{safe_name}.mp3"
+
+    inputs = []
+    for mp3 in mp3_files:
+        inputs.extend(["-i", str(mp3)])
+
+    n = len(mp3_files)
+    filter_parts = []
+    last_label = "[0:a]"
+    for i in range(1, n):
+        in_b = f"[{i}:a]"
+        out_label = f"[a{i}]"
+        filter_parts.append(
+            f"{last_label}{in_b}acrossfade=d={crossfade_sec}:c1=tri:c2=tri{out_label}"
+        )
+        last_label = out_label
+
+    filter_complex = ";".join(filter_parts)
+
+    result = subprocess.run(
+        ["ffmpeg", "-y", *inputs,
+         "-filter_complex", filter_complex,
+         "-map", last_label,
+         "-c:a", "libmp3lame", "-b:a", "192k",
+         str(output_path)],
+        capture_output=True, text=True, timeout=600,
+    )
+
+    if result.returncode != 0:
+        log.warning(f"Crossfade merge failed ({result.stderr[-300:]}), falling back to concat")
+        return merge_mp3s(mp3_files, output_name=output_name)
+
+    duration = get_duration(output_path)
+    mins = int(duration) // 60
+    secs = int(duration) % 60
+    log.info(f"Crossfade merged: {mins}:{secs:02d} ({duration:.1f}s) → {output_path}")
+
+    wav_path = output_path.with_suffix(".wav")
+    log.info(f"Exporting WAV: {wav_path}")
+    wav_result = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(output_path),
+         "-acodec", "pcm_s16le", str(wav_path)],
+        capture_output=True, text=True, timeout=600,
+    )
+    if wav_result.returncode == 0:
+        log.info(f"WAV saved: {wav_path}")
+        trim_silence(wav_path)
+    else:
+        log.warning(f"WAV export failed: {wav_result.stderr[-200:]}")
+
+    return output_path
+
+
+def trim_quiet_intro(mp3_path: Path, threshold_db: float = -30,
+                     max_check_sec: float = 15) -> Path:
+    """Detect and trim quiet intros (audio present but very low volume).
+
+    Different from trim_silence() which targets actual silence (-50 dB).
+    This targets intros where audio exists but is too quiet to hook
+    listeners (below threshold_db for the first max_check_sec seconds).
+
+    Returns the same path (trimmed in-place) or original if no quiet intro.
+    """
+    if not mp3_path.exists():
+        return mp3_path
+
+    result = subprocess.run(
+        ["ffmpeg", "-i", str(mp3_path), "-t", str(max_check_sec),
+         "-af", "volumedetect", "-f", "null", "-"],
+        capture_output=True, text=True, timeout=60,
+    )
+
+    match = re.search(r"mean_volume:\s*(-?\d+\.?\d*)\s*dB", result.stderr)
+    if not match:
+        return mp3_path
+
+    mean_vol = float(match.group(1))
+    if mean_vol >= threshold_db:
+        return mp3_path
+
+    log.info(f"Quiet intro detected in {mp3_path.name}: {mean_vol:.1f} dB "
+             f"(threshold {threshold_db} dB) — trimming first {max_check_sec}s")
+
+    tmp_path = mp3_path.with_suffix(".trimintro.mp3")
+    trim_result = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(mp3_path),
+         "-ss", str(max_check_sec), "-c", "copy", str(tmp_path)],
+        capture_output=True, text=True, timeout=60,
+    )
+    if trim_result.returncode == 0 and tmp_path.exists():
+        shutil.move(str(tmp_path), str(mp3_path))
+        log.info(f"Trimmed {max_check_sec}s quiet intro from {mp3_path.name}")
+    else:
+        tmp_path.unlink(missing_ok=True)
+        log.warning(f"Intro trim failed for {mp3_path.name}")
+
+    return mp3_path

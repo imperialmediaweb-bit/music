@@ -292,8 +292,13 @@ def upload_to_youtube(
     video_path: Path,
     thumbnail_path: Path,
     concept: MusicConcept,
+    extra_playlists: list[str] | None = None,
 ) -> str | None:
     """Upload video to YouTube using the official API.
+
+    Args:
+        extra_playlists: Additional playlist names to add the video to
+            (besides the genre-based main playlist).
 
     Returns the YouTube video URL or None on failure.
     """
@@ -431,13 +436,23 @@ def upload_to_youtube(
     except Exception as e:
         log.warning(f"Thumbnail upload failed (may need verified account): {e}")
 
-    # Add to "Afro House" playlist
+    # Add to genre playlist (e.g. "Afro House")
     try:
-        playlist_id = _find_or_create_playlist(youtube, "Afro House")
+        genre_playlist = concept.genre or "Afro House"
+        playlist_id = _find_or_create_playlist(youtube, genre_playlist)
         _add_to_playlist(youtube, playlist_id, video_id)
-        log.info("Added to 'Afro House' playlist")
+        log.info(f"Added to '{genre_playlist}' playlist")
     except Exception as e:
         log.warning(f"Playlist add failed: {e}")
+
+    # Add to extra playlists (e.g. "Gym Workout Mix", "Driving Music")
+    for pl_name in (extra_playlists or []):
+        try:
+            pl_id = _find_or_create_playlist(youtube, pl_name)
+            _add_to_playlist(youtube, pl_id, video_id)
+            log.info(f"Added to '{pl_name}' playlist")
+        except Exception as e:
+            log.warning(f"Extra playlist '{pl_name}' add failed: {e}")
 
     # Complete self-certification for monetization
     try:
