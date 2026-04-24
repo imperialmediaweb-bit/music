@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import random
 import signal
 import sys
 from pathlib import Path
@@ -70,6 +71,7 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
             "meditation"). If empty, uses today's profile from WEEKLY_PLAN.
     """
     from modules.audio_merger import merge_mp3s, merge_mp3s_crossfade, trim_quiet_intro
+    from modules.archive_manager import archive_mp3s, pick_from_archive, archive_size
     from modules.concept_generator import generate_concept, generate_fusion_concept
     from modules.profiles import PLAYLIST_PROFILES, get_todays_profile, get_random_thumbnail_style
     from pipeline import process_single_track
@@ -126,14 +128,34 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
     # Trim quiet intros from individual MP3s before merging
     mp3_files = [trim_quiet_intro(f) for f in mp3_files]
 
+    # Save fresh MP3s to archive for future hybrid use
+    archive_mp3s(mp3_files, profile_name=profile_name,
+                 track_name=concept.track_name,
+                 tags=profile.get("extra_tags", []))
+
+    # Hybrid mode: add archived MP3s if pool is large enough
+    archive_mp3s_list = []
+    if profile.get("hybrid") and archive_size() >= profile.get("archive_min_pool", 12):
+        want = profile.get("archive_count", 2)
+        archive_mp3s_list = pick_from_archive(want, exclude_files=mp3_files)
+        if archive_mp3s_list:
+            log.info(f"Hybrid mode: {len(mp3_files)} fresh + {len(archive_mp3s_list)} from archive")
+            mp3_files = mp3_files + archive_mp3s_list
+            random.shuffle(mp3_files)
+    else:
+        if profile.get("hybrid"):
+            pool = archive_size()
+            needed = profile.get("archive_min_pool", 12)
+            log.info(f"Hybrid mode waiting — pool {pool}/{needed} MP3s (need more generations)")
+
     # Step 3: Merge all MP3s into one track (with crossfade if profile uses it)
     log.info("=" * 60)
     if crossfade_sec > 0 and len(mp3_files) > 1:
-        log.info(f"STEP 3: Merging MP3 files with {crossfade_sec}s crossfade...")
+        log.info(f"STEP 3: Merging {len(mp3_files)} MP3 files with {crossfade_sec}s crossfade...")
         merged_path = merge_mp3s_crossfade(mp3_files, output_name=concept.track_name,
                                             crossfade_sec=crossfade_sec)
     else:
-        log.info("STEP 3: Merging MP3 files...")
+        log.info(f"STEP 3: Merging {len(mp3_files)} MP3 files...")
         merged_path = merge_mp3s(mp3_files, output_name=concept.track_name)
     log.info(f"Merged file: {merged_path}")
 

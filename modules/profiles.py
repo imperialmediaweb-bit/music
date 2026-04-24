@@ -13,6 +13,10 @@ from datetime import datetime
 PLAYLIST_PROFILES = {
     "main": {
         "label": "Afro House",
+        "hybrid": True,
+        "fresh_count": 4,
+        "archive_count": 2,
+        "archive_min_pool": 12,
         "suno_prompt_addition": (
             "IMMEDIATE DROP in first 5 seconds, NO slow intro, "
             "powerful percussion from second zero, hypnotic repetition, "
@@ -39,6 +43,10 @@ PLAYLIST_PROFILES = {
 
     "gym": {
         "label": "Gym Workout",
+        "hybrid": True,
+        "fresh_count": 4,
+        "archive_count": 4,
+        "archive_min_pool": 12,
         "suno_prompt_addition": (
             "powerful bass, driving tribal drums, high energy, 128 BPM, "
             "aggressive percussion, motivational workout vibe, "
@@ -67,6 +75,10 @@ PLAYLIST_PROFILES = {
 
     "driving": {
         "label": "Driving",
+        "hybrid": True,
+        "fresh_count": 4,
+        "archive_count": 6,
+        "archive_min_pool": 12,
         "suno_prompt_addition": (
             "hypnotic steady groove, deep bass, continuous flow, 122 BPM, "
             "cinematic night atmosphere, NO sudden drops, "
@@ -95,6 +107,10 @@ PLAYLIST_PROFILES = {
 
     "focus": {
         "label": "Focus & Study",
+        "hybrid": True,
+        "fresh_count": 4,
+        "archive_count": 4,
+        "archive_min_pool": 12,
         "suno_prompt_addition": (
             "minimal instrumental, hypnotic repetition, 118 BPM, "
             "no vocals or very distant vocals only, "
@@ -123,6 +139,10 @@ PLAYLIST_PROFILES = {
 
     "meditation": {
         "label": "Meditation",
+        "hybrid": True,
+        "fresh_count": 4,
+        "archive_count": 4,
+        "archive_min_pool": 12,
         "suno_prompt_addition": (
             "ambient tribal, soft percussion, warm atmospheric pads, 100 BPM, "
             "NO harsh elements, breathwork-friendly, yoga-appropriate, "
