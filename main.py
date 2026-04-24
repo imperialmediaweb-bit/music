@@ -1248,11 +1248,13 @@ def cmd_autostart(args):
 
 
 def cmd_schedule(args):
-    """Schedule daily generation (02:00) + 4x/week publish at optimal hours.
+    """Schedule 4 clips per week — generate + upload in one shot per slot.
 
     Default schedule (Europe/Bucharest timezone):
-      02:00 daily — generate music, create thumbnail/video, queue for publish
-      MON 18:00, WED 18:00, FRI 19:00, SUN 12:00 — publish queued tracks
+      MON 18:00 — gym profile
+      WED 18:00 — main (Afro House)
+      FRI 19:00 — driving profile
+      SUN 12:00 — focus profile
 
     Uses misfire_grace_time=3600 so jobs still run even if the PC
     wakes from sleep up to 1 hour late.
@@ -1306,21 +1308,20 @@ def cmd_schedule(args):
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-    # Publish slots: 4x/week at optimal hours. Profile is irrelevant here —
-    # publish just flushes whatever _run_generate_only queued.
-    # (day_of_week, hour, minute)
-    PUBLISH_SCHEDULE = [
-        ("mon", 18, 0),
-        ("wed", 18, 0),
-        ("fri", 19, 0),
-        ("sun", 12, 0),
+    # 4x/week: generate + upload in one shot. Profile auto-selects style,
+    # thumbnail, tags, playlists. PC must be on at these times.
+    # (day_of_week, hour, minute, gen_count, profile_name)
+    WEEKLY_SCHEDULE = [
+        ("mon", 18, 0, 2, "gym"),
+        ("wed", 18, 0, 2, "main"),
+        ("fri", 19, 0, 2, "driving"),
+        ("sun", 12, 0, 2, "focus"),
     ]
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
     MISFIRE_GRACE = 3600
 
     if args.cron:
-        # Custom cron - run with default gen_count=1
         parts = args.cron.split()
         if len(parts) != 5:
             log.error(f"Invalid cron: {args.cron}")
@@ -1340,36 +1341,24 @@ def cmd_schedule(args):
         )
         log.info(f"Scheduled with cron: {args.cron}")
     else:
-        # Daily generation at 02:00 — creates assets and queues for publish.
-        # Profile is auto-selected from WEEKLY_PLAN based on day of week.
-        scheduler.add_job(
-            _run_generate_only,
-            CronTrigger(hour=2, minute=0, timezone=TIMEZONE),
-            kwargs={"gen_count": 2},
-            id="daily_generate",
-            name="DAILY 02:00 — generate + queue (profile auto)",
-            misfire_grace_time=MISFIRE_GRACE,
-            coalesce=True,
-        )
-        log.info("Scheduled daily generation at 02:00 (profile from WEEKLY_PLAN)")
-
-        clips_per_week = args.clips or len(PUBLISH_SCHEDULE)
-        selected_slots = PUBLISH_SCHEDULE[:clips_per_week]
-        for i, (dow, hour, minute) in enumerate(selected_slots):
+        clips_per_week = args.clips or len(WEEKLY_SCHEDULE)
+        selected_slots = WEEKLY_SCHEDULE[:clips_per_week]
+        for i, (dow, hour, minute, gen_count, profile) in enumerate(selected_slots):
             scheduler.add_job(
-                _run_publish_only,
+                _run_full_pipeline,
                 CronTrigger(day_of_week=dow, hour=hour, minute=minute,
                             timezone=TIMEZONE),
-                id=f"publish_{i + 1}",
-                name=f"{dow.upper()} {hour}:{minute:02d} — publish",
+                kwargs={"gen_count": gen_count, "profile_name": profile},
+                id=f"music_pipeline_{i + 1}",
+                name=f"{dow.upper()} {hour}:{minute:02d} — {profile} ({gen_count} gen)",
                 misfire_grace_time=MISFIRE_GRACE,
                 coalesce=True,
             )
         schedule_desc = ", ".join(
-            f"{dow.upper()} {h}:{m:02d}"
-            for dow, h, m in selected_slots
+            f"{dow.upper()} {h}:{m:02d} ({prof})"
+            for dow, h, m, g, prof in selected_slots
         )
-        log.info(f"Scheduled {len(selected_slots)} publish slots per week: {schedule_desc}")
+        log.info(f"Scheduled {len(selected_slots)} clips/week: {schedule_desc}")
         log.info(f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s")
 
     def shutdown(signum, frame):
