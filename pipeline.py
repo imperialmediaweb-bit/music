@@ -389,6 +389,7 @@ def upload_prepared_track(prepared: dict) -> dict:
     wav_path = prepared.get("wav_path")
     mp3_path = prepared.get("mp3_path")
     extra_playlists = prepared.get("extra_playlists")
+    profile_data = prepared.get("profile_data")
 
     result = {
         "file": str(mp3_path) if mp3_path else None,
@@ -409,7 +410,8 @@ def upload_prepared_track(prepared: dict) -> dict:
         log.info("=" * 60)
         log.info("Uploading to YouTube...")
         youtube_url = upload_to_youtube(video, thumbnail_path, concept,
-                                        extra_playlists=extra_playlists)
+                                        extra_playlists=extra_playlists,
+                                        profile_data=profile_data)
         result["youtube_url"] = youtube_url
         if youtube_url:
             log.info(f"YouTube URL: {youtube_url}")
@@ -571,13 +573,15 @@ def flush_pending_uploads() -> list[dict]:
 
 
 def process_single_track(mp3_path: Path, concept=None,
-                         extra_playlists: list[str] | None = None) -> dict:
+                         extra_playlists: list[str] | None = None,
+                         profile_data: dict | None = None) -> dict:
     """Process one compiled MP3 file: concept → thumbnail → video → upload.
 
     Args:
         mp3_path: Path to the MP3 file.
         concept: Optional pre-generated MusicConcept. If None, generates one.
         extra_playlists: Additional YouTube playlist names (from profile).
+        profile_data: Playlist profile dict for enriching YouTube metadata.
     """
     ensure_path()
     result = {
@@ -683,7 +687,8 @@ def process_single_track(mp3_path: Path, concept=None,
         log.info("=" * 60)
         log.info("STEP 5: Uploading to YouTube...")
         youtube_url = upload_to_youtube(video, thumbnail_path, concept,
-                                        extra_playlists=extra_playlists)
+                                        extra_playlists=extra_playlists,
+                                        profile_data=profile_data)
         result["youtube_url"] = youtube_url
         if youtube_url:
             log.info(f"YouTube URL: {youtube_url}")

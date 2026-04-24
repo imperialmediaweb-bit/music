@@ -293,12 +293,15 @@ def upload_to_youtube(
     thumbnail_path: Path,
     concept: MusicConcept,
     extra_playlists: list[str] | None = None,
+    profile_data: dict | None = None,
 ) -> str | None:
     """Upload video to YouTube using the official API.
 
     Args:
         extra_playlists: Additional playlist names to add the video to
             (besides the genre-based main playlist).
+        profile_data: Playlist profile dict with extra_tags, description_intro,
+            title_suffixes for enriching the upload metadata.
 
     Returns the YouTube video URL or None on failure.
     """
@@ -315,11 +318,17 @@ def upload_to_youtube(
     # Build tags for video metadata
     # YouTube API rules: only letters, digits, spaces, hyphens allowed;
     # no < > # or special chars; individual tag max 100 chars; total ≤ 500 chars
-    raw_tags = concept.youtube_tags[:30]
-    log.info(f"Raw tags before sanitization ({len(raw_tags)}): {raw_tags}")
+    # Merge profile extra_tags with AI-generated tags
+    profile = profile_data or {}
+    all_raw_tags = list(concept.youtube_tags[:30])
+    for pt in profile.get("extra_tags", []):
+        if pt not in all_raw_tags:
+            all_raw_tags.append(pt)
+
+    log.info(f"Raw tags before sanitization ({len(all_raw_tags)}): {all_raw_tags}")
     tags = []
     total_chars = 0
-    for t in raw_tags:
+    for t in all_raw_tags:
         if not isinstance(t, str):
             continue
         # Strip everything except letters, digits, spaces, hyphens, and apostrophes
@@ -334,8 +343,22 @@ def upload_to_youtube(
         total_chars += cost
     log.info(f"Sanitized tags ({len(tags)}, {total_chars} chars): {tags}")
 
+    # Add profile title suffix (e.g. "| Gym Workout Mix", "| Night Drive Mix")
+    title = concept.youtube_title
+    suffixes = profile.get("title_suffixes", [])
+    if suffixes:
+        import random
+        suffix = random.choice(suffixes)
+        if len(title) + len(suffix) + 1 <= 100:
+            title = f"{title} {suffix}"
+
     # Clean any existing hashtags from end of AI description to avoid duplication
     clean_desc = re.sub(r'(\s*#\w+)+\s*$', '', concept.youtube_description).rstrip()
+
+    # Prepend profile description_intro if available
+    desc_intro = profile.get("description_intro", "")
+    if desc_intro:
+        clean_desc = f"{desc_intro}\n\n{clean_desc}"
 
     # Append exactly 3 hashtags at end (YouTube shows the FIRST 3 hashtags above the title)
     # These are prime real estate — use the most searched, clickable hashtags
@@ -355,7 +378,7 @@ def upload_to_youtube(
     # Upload the video
     body = {
         "snippet": {
-            "title": concept.youtube_title[:100],  # Max 100 chars
+            "title": title[:100],  # Max 100 chars
             "description": description[:5000],  # Max 5000 chars
             "tags": tags,
             "categoryId": "10",  # Music category
