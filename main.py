@@ -1089,6 +1089,82 @@ def cmd_reupload(args):
         log.info("Done!")
 
 
+def cmd_update_seo(args):
+    """Bulk update SEO on all existing YouTube videos.
+
+    Goes through all uploaded videos and updates tags, description keywords,
+    and localizations with current year and trending terms.
+    """
+    from modules.youtube_uploader import _get_authenticated_service, _set_localizations, LOCALIZATION_TEMPLATES
+    from modules.concept_generator import MusicConcept
+
+    youtube = _get_authenticated_service()
+
+    channels = youtube.channels().list(part="contentDetails", mine=True).execute()
+    uploads_playlist = channels["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+
+    all_videos = []
+    next_page = None
+    while True:
+        playlist_items = youtube.playlistItems().list(
+            part="snippet", playlistId=uploads_playlist,
+            maxResults=50, pageToken=next_page,
+        ).execute()
+        all_videos.extend(playlist_items.get("items", []))
+        next_page = playlist_items.get("nextPageToken")
+        if not next_page:
+            break
+
+    log.info(f"Found {len(all_videos)} videos to update")
+
+    seo_block = (
+        "\n\nafro house mix 2026, best afro house 2026, "
+        "new afro house music, deep house mix 2026, "
+        "tribal house 2026, african music 2026, "
+        "electronic music 2026, house music mix, "
+        "workout music 2026, gym music, driving music, "
+        "study music, focus music, meditation music, "
+        "new music 2026, trending music, viral music 2026"
+    )
+
+    updated = 0
+    for item in all_videos:
+        video_id = item["snippet"]["resourceId"]["videoId"]
+        try:
+            video = youtube.videos().list(
+                part="snippet,localizations", id=video_id
+            ).execute()
+            if not video.get("items"):
+                continue
+            v = video["items"][0]
+            snippet = v["snippet"]
+            desc = snippet.get("description", "")
+            title = snippet.get("title", "")
+
+            if "2026" in desc and "trending music" in desc:
+                continue
+
+            if seo_block.strip() not in desc:
+                new_desc = (desc.rstrip() + seo_block)[:5000]
+                snippet["description"] = new_desc
+
+            youtube.videos().update(
+                part="snippet",
+                body={"id": video_id, "snippet": snippet},
+            ).execute()
+
+            if not v.get("localizations"):
+                _set_localizations(youtube, video_id, title, new_desc,
+                                   type("C", (), {"genre": "Afro House"})())
+
+            updated += 1
+            log.info(f"Updated {updated}/{len(all_videos)}: {title[:50]}")
+        except Exception as e:
+            log.warning(f"Failed to update {video_id}: {e}")
+
+    log.info(f"SEO update complete: {updated}/{len(all_videos)} videos updated")
+
+
 def cmd_flush_pending(args):
     """Upload everything currently queued in output/pending_uploads/.
 
@@ -1561,6 +1637,12 @@ def main():
         help="Upload to only one platform (default: all)",
     )
     reupload_parser.set_defaults(func=cmd_reupload)
+
+    # update-seo - bulk update SEO on all existing YouTube videos
+    subparsers.add_parser(
+        "update-seo",
+        help="Bulk update SEO keywords, description, and localizations on all YouTube videos",
+    ).set_defaults(func=cmd_update_seo)
 
     # run - full pipeline (generate music + merge + upload) × N
     run_parser = subparsers.add_parser(

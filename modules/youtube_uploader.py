@@ -162,14 +162,6 @@ def reply_to_new_comments(max_videos: int = 5, max_replies_per_video: int = 3) -
     """
     import random
 
-    REPLY_TEMPLATES = [
-        "Thank you so much for listening! 🔥 Which part was your favorite? Don't forget to share with a friend who needs this vibe! 🎧",
-        "Glad you're here! 🙌 Hit Subscribe + 🔔 so you never miss a new mix. Share the energy! 🔥",
-        "This means a lot! 🎶 Drop a ❤️ and share this track with someone who'd love it! More coming soon! 🙏",
-        "Love that you're vibing with this! 🔥 Subscribe for daily mixes and share with your crew! 💪",
-        "You're amazing for listening! 🎧 New tracks every day — Subscribe + 🔔 and share the love! 🙌",
-    ]
-
     try:
         youtube = _get_authenticated_service()
     except FileNotFoundError as e:
@@ -185,9 +177,10 @@ def reply_to_new_comments(max_videos: int = 5, max_replies_per_video: int = 3) -
 
     try:
         playlist_items = youtube.playlistItems().list(
-            part="snippet", playlistId=uploads_playlist, maxResults=max_videos
+            part="snippet", playlistId=uploads_playlist, maxResults=max(max_videos, 5)
         ).execute()
-        video_ids = [item["snippet"]["resourceId"]["videoId"] for item in playlist_items.get("items", [])]
+        all_items = playlist_items.get("items", [])
+        video_ids = [item["snippet"]["resourceId"]["videoId"] for item in all_items]
     except Exception as e:
         log.warning(f"Could not list recent videos: {e}")
         return 0
@@ -198,10 +191,35 @@ def reply_to_new_comments(max_videos: int = 5, max_replies_per_video: int = 3) -
     except Exception:
         my_channel_id = None
 
+    # Build latest video link for cross-promotion in replies
+    latest_url = ""
+    if len(video_ids) >= 2:
+        latest_url = f"https://youtu.be/{video_ids[0]}"
+
+    REPLY_TEMPLATES = [
+        "Thank you so much for listening! 🔥 Which part was your favorite? Share with a friend who needs this vibe! 🎧",
+        "Glad you're here! 🙌 Hit Subscribe + 🔔 so you never miss a new mix! 🔥",
+        "This means a lot! 🎶 Drop a ❤️ and share this track with someone who'd love it! 🙏",
+        "Love that you're vibing with this! 🔥 Subscribe for daily mixes and share with your crew! 💪",
+        "You're amazing for listening! 🎧 New tracks every day — Subscribe + 🔔! 🙌",
+    ]
+    if latest_url:
+        REPLY_TEMPLATES = [
+            f"Thank you! 🔥 Check out our latest drop too 👉 {latest_url} — share with a friend! 🎧",
+            f"Glad you're here! 🙌 New mix just dropped 👉 {latest_url} — Subscribe + 🔔! 🔥",
+            f"This means a lot! 🎶 Also check this one 👉 {latest_url} — share the vibes! 🙏",
+            f"Love it! 🔥 Our newest track is fire too 👉 {latest_url} — Subscribe + share! 💪",
+            f"You're amazing! 🎧 Latest mix here 👉 {latest_url} — Subscribe + 🔔! 🙌",
+        ]
+
     total_replies = 0
-    for vid_id in video_ids:
+    for vid_id in video_ids[:max_videos]:
         if total_replies >= max_replies_per_video * max_videos:
             break
+
+        if vid_id == video_ids[0] and latest_url:
+            pass
+
         try:
             threads = youtube.commentThreads().list(
                 part="snippet,replies", videoId=vid_id, maxResults=20,
@@ -412,6 +430,96 @@ def _complete_self_certification(video_id: str) -> bool:
             browser.close()
 
 
+LOCALIZATION_TEMPLATES = {
+    "es": {
+        "title_prefix": "",
+        "title_suffix": " | Música",
+        "desc": "Mezcla profunda de {genre} con ritmos tribales y energía ritual. "
+                "Perfecta para entrenamientos, conducir, estudiar o relajarse. "
+                "¡Suscríbete para más mezclas diarias! 🔥",
+    },
+    "pt": {
+        "title_prefix": "",
+        "title_suffix": " | Música",
+        "desc": "Mix profundo de {genre} com batidas tribais e energia ritual. "
+                "Perfeito para treinos, dirigir, estudar ou relaxar. "
+                "Inscreva-se para mais mixes diários! 🔥",
+    },
+    "fr": {
+        "title_prefix": "",
+        "title_suffix": " | Musique",
+        "desc": "Mix profond de {genre} avec des rythmes tribaux et une énergie rituelle. "
+                "Parfait pour l'entraînement, la conduite, les études ou la détente. "
+                "Abonnez-vous pour des mix quotidiens ! 🔥",
+    },
+    "de": {
+        "title_prefix": "",
+        "title_suffix": " | Musik",
+        "desc": "Tiefer {genre} Mix mit Tribal-Beats und ritueller Energie. "
+                "Perfekt für Training, Autofahren, Lernen oder Entspannung. "
+                "Abonnieren für tägliche Mixes! 🔥",
+    },
+    "hi": {
+        "title_prefix": "",
+        "title_suffix": " | संगीत",
+        "desc": "गहरे {genre} मिक्स जनजातीय ताल और अनुष्ठान ऊर्जा के साथ। "
+                "वर्कआउट, ड्राइविंग, पढ़ाई या आराम के लिए बिल्कुल सही। "
+                "रोज़ाना मिक्स के लिए सब्सक्राइब करें! 🔥",
+    },
+    "ja": {
+        "title_prefix": "",
+        "title_suffix": " | 音楽",
+        "desc": "トライバルビートとリチュアルエネルギーのディープ{genre}ミックス。"
+                "ワークアウト、ドライブ、勉強、リラックスに最適。"
+                "毎日のミックスをお届け！チャンネル登録してね！🔥",
+    },
+    "ko": {
+        "title_prefix": "",
+        "title_suffix": " | 음악",
+        "desc": "트라이벌 비트와 의식 에너지가 담긴 딥 {genre} 믹스. "
+                "운동, 드라이브, 공부, 휴식에 완벽합니다. "
+                "매일 새로운 믹스를 구독하세요! 🔥",
+    },
+    "ar": {
+        "title_prefix": "",
+        "title_suffix": " | موسيقى",
+        "desc": "مزيج عميق من {genre} مع إيقاعات قبلية وطاقة روحانية. "
+                "مثالي للتمارين والقيادة والدراسة أو الاسترخاء. "
+                "اشترك للحصول على مزيج يومي! 🔥",
+    },
+}
+
+
+def _set_localizations(youtube, video_id: str, title: str, description: str, concept):
+    """Add multi-language titles and descriptions to a video.
+
+    YouTube shows the localized version to users based on their language settings.
+    Massive reach expansion with zero extra effort.
+    """
+    genre = concept.genre or "Afro House"
+    localizations = {}
+    for lang, tmpl in LOCALIZATION_TEMPLATES.items():
+        loc_title = f"{title}{tmpl['title_suffix']}"[:100]
+        loc_desc = tmpl["desc"].format(genre=genre)
+        loc_desc = f"{loc_desc}\n\n{description}"[:5000]
+        localizations[lang] = {
+            "title": loc_title,
+            "description": loc_desc,
+        }
+
+    try:
+        youtube.videos().update(
+            part="localizations",
+            body={
+                "id": video_id,
+                "localizations": localizations,
+            },
+        ).execute()
+        log.info(f"Set localizations for {len(localizations)} languages: {', '.join(localizations.keys())}")
+    except Exception as e:
+        log.warning(f"Localization failed (non-fatal): {e}")
+
+
 def upload_to_youtube(
     video_path: Path,
     thumbnail_path: Path,
@@ -535,17 +643,24 @@ def upload_to_youtube(
     )
     description += seo_keywords
 
-    # Upload the video
+    # Premiere mode: upload as private with publishAt 30 min from now.
+    # YouTube shows countdown + sends subscriber notifications + live chat.
+    # After publishAt time, video auto-switches to public.
+    from datetime import datetime, timezone, timedelta
+    premiere_time = datetime.now(timezone.utc) + timedelta(minutes=30)
+    publish_at = premiere_time.strftime("%Y-%m-%dT%H:%M:%S.0Z")
+
     body = {
         "snippet": {
-            "title": title[:100],  # Max 100 chars
-            "description": description[:5000],  # Max 5000 chars
+            "title": title[:100],
+            "description": description[:5000],
             "tags": tags,
-            "categoryId": "10",  # Music category
+            "categoryId": "10",
             "defaultLanguage": "en",
         },
         "status": {
-            "privacyStatus": "unlisted",
+            "privacyStatus": "private",
+            "publishAt": publish_at,
             "selfDeclaredMadeForKids": False,
             "embeddable": True,
             "license": "youtube",
@@ -605,6 +720,10 @@ def upload_to_youtube(
     video_url = f"https://youtu.be/{video_id}"
     log.info(f"Video uploaded: {video_url}")
 
+    # Multi-language titles + descriptions for global reach
+    # YouTube shows the localized version to users in those countries
+    _set_localizations(youtube, video_id, title, description, concept)
+
     # Upload custom thumbnail
     try:
         log.info("Uploading custom thumbnail...")
@@ -645,23 +764,7 @@ def upload_to_youtube(
     except Exception as e:
         log.warning(f"Self-certification failed (non-fatal): {e}")
 
-    # Delayed publish: wait for YouTube to process HD + generate recommendations,
-    # then switch from UNLISTED to PUBLIC for maximum initial push
-    import time as _time
-    DELAY_MINUTES = 30
-    log.info(f"Video is UNLISTED — waiting {DELAY_MINUTES} min for YouTube to process HD...")
-    _time.sleep(DELAY_MINUTES * 60)
-    try:
-        youtube.videos().update(
-            part="status",
-            body={
-                "id": video_id,
-                "status": {"privacyStatus": "public"},
-            },
-        ).execute()
-        log.info(f"Video switched to PUBLIC: {video_url}")
-    except Exception as e:
-        log.warning(f"Failed to switch to public (do it manually): {e}")
+    log.info(f"Premiere scheduled at {publish_at} — YouTube will notify subscribers")
 
     return video_url
 

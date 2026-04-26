@@ -285,6 +285,44 @@ def create_video(
     return video_path
 
 
+def _find_top_segments(audio_path: Path, count: int = 3, segment_sec: int = 45) -> list[float]:
+    """Find the top N loudest non-overlapping segments in the audio."""
+    duration = _get_audio_duration(audio_path)
+    if duration <= segment_sec:
+        return [0.0]
+
+    scored = []
+    step = 10
+    for start in range(0, max(1, int(duration - segment_sec)), step):
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start), "-t", str(segment_sec),
+            "-i", str(audio_path),
+            "-af", "volumedetect",
+            "-f", "null", "-",
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        for line in r.stderr.splitlines():
+            if "mean_volume" in line:
+                try:
+                    vol = float(line.split("mean_volume:")[1].strip().split()[0])
+                    scored.append((start, vol))
+                except (ValueError, IndexError):
+                    pass
+
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    selected = []
+    for start, vol in scored:
+        overlap = any(abs(start - s) < segment_sec for s in selected)
+        if not overlap:
+            selected.append(start)
+        if len(selected) >= count:
+            break
+
+    return selected or [0.0]
+
+
 def _find_loudest_segment(audio_path: Path, segment_sec: int = 45) -> float:
     """Find the start time of the loudest segment in the audio.
 
@@ -375,3 +413,64 @@ def create_short_video(
 
     log.info(f"Short video saved: {short_path} ({duration_sec}s)")
     return short_path
+
+
+def create_multiple_shorts(
+    audio_path: Path,
+    thumbnail_path: Path,
+    concept: MusicConcept,
+    count: int = 3,
+    duration_sec: int = 45,
+) -> list[Path]:
+    """Create multiple Short videos from different segments of the same track.
+
+    Finds the top N loudest non-overlapping segments and creates a vertical
+    Short from each. Returns list of video paths.
+    """
+    _check_ffmpeg()
+    segments = _find_top_segments(audio_path, count=count, segment_sec=duration_sec)
+    log.info(f"Creating {len(segments)} Shorts from segments at: {segments}")
+
+    import random
+    comment_baits = [
+        "Comment your city 👇",
+        "Drop a 🔥 if you feel this",
+        "Tag someone who needs this",
+        "What country are you from? 👇",
+        "Type YES if you vibed 🎧",
+    ]
+
+    shorts = []
+    for i, start in enumerate(segments):
+        safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in concept.track_name)
+        safe_name = safe_name.strip().replace(" ", "_")[:40]
+        short_path = OUTPUT_DIR / f"{safe_name}_short_{i + 1}.mp4"
+
+        bait_text = comment_baits[i % len(comment_baits)]
+        safe_bait = bait_text.replace("'", "'\\''").replace(":", "\\:")
+
+        vf_filter = (
+            "scale=1920:1920:force_original_aspect_ratio=increase,"
+            "crop=1080:1920,"
+            "fade=in:0:15,fade=out:st={fade_out}:d=1,"
+            "drawtext=text='{bait}':"
+            "fontsize=52:fontcolor=white:borderw=3:bordercolor=black:"
+            "x=(w-text_w)/2:y=h-180:"
+            "enable='between(t,2,8)'"
+        ).format(fade_out=duration_sec - 1, bait=safe_bait)
+
+        _run_ffmpeg([
+            "-ss", str(start), "-t", str(duration_sec),
+            "-i", str(audio_path),
+            "-loop", "1", "-i", str(thumbnail_path),
+            "-vf", vf_filter,
+            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+            "-c:a", "aac", "-b:a", "192k",
+            "-shortest", "-pix_fmt", "yuv420p",
+            str(short_path),
+        ], label=f"short video {i + 1}/{len(segments)}")
+
+        shorts.append(short_path)
+        log.info(f"Short {i + 1} saved: {short_path}")
+
+    return shorts

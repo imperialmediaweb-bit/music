@@ -6,7 +6,7 @@ from utils.logger import log
 from utils.auto_setup import ensure_path
 from modules.concept_generator import generate_concept
 from modules.thumbnail_generator import generate_thumbnail, generate_cover_art, generate_thumbnail_and_cover
-from modules.video_creator import create_video, create_short_video, generate_chapters
+from modules.video_creator import create_video, create_short_video, create_multiple_shorts, generate_chapters
 from modules.youtube_uploader import upload_to_youtube, post_comment
 from modules.tiktok_uploader import upload_to_tiktok
 from modules.tunecore_uploader import upload_to_tunecore
@@ -716,32 +716,40 @@ def process_single_track(mp3_path: Path, concept=None,
             comment_text = random.choice(video_comments)
             post_comment(video_id, comment_text)
 
-    # Step 5c: Create and upload YouTube Short (45s vertical clip from loudest segment)
+    # Step 5c: Create and upload multiple YouTube Shorts (3x 45s from different segments)
     try:
         log.info("=" * 60)
-        log.info("STEP 5c: Creating YouTube Short...")
-        short_video = create_short_video(audio_path, thumbnail_path, concept)
-        short_title = f"{concept.track_name} 🔥 #afrohouse #shorts"[:100]
-        short_desc = (
-            f"Full track ➡️ {result.get('youtube_url', 'check channel')}\n\n"
-            f"{concept.description}\n\n"
-            f"#shorts #afrohouse #deephouse #{concept.genre.lower().replace(' ', '')}"
-        )
+        log.info("STEP 5c: Creating 3 YouTube Shorts from different segments...")
+        short_videos = create_multiple_shorts(audio_path, thumbnail_path, concept, count=3)
         from modules.youtube_uploader import upload_short_to_youtube
-        short_url = upload_short_to_youtube(short_video, short_title, short_desc, concept)
-        result["short_url"] = short_url
-        if short_url:
-            log.info(f"YouTube Short URL: {short_url}")
 
-            # Post engagement comment on Short
-            if profile_data:
-                short_comments = profile_data.get("short_comments", [])
-                if short_comments:
-                    short_vid_id = short_url.split("/")[-1]
-                    post_comment(short_vid_id, random.choice(short_comments))
+        short_titles_variants = [
+            f"{concept.track_name} 🔥 #afrohouse #shorts",
+            f"{concept.track_name} Part 2 🎧 #afrohouse #shorts",
+            f"{concept.track_name} Part 3 💥 #afrohouse #shorts",
+        ]
+
+        result["short_urls"] = []
+        for i, short_video in enumerate(short_videos):
+            short_title = short_titles_variants[i % len(short_titles_variants)][:100]
+            short_desc = (
+                f"Full track ➡️ {result.get('youtube_url', 'check channel')}\n\n"
+                f"{concept.description}\n\n"
+                f"#shorts #afrohouse #deephouse #{concept.genre.lower().replace(' ', '')}"
+            )
+            short_url = upload_short_to_youtube(short_video, short_title, short_desc, concept)
+            if short_url:
+                result["short_urls"].append(short_url)
+                log.info(f"YouTube Short {i + 1} URL: {short_url}")
+
+                if profile_data:
+                    short_comments = profile_data.get("short_comments", [])
+                    if short_comments:
+                        short_vid_id = short_url.split("/")[-1]
+                        post_comment(short_vid_id, random.choice(short_comments))
     except Exception as e:
-        log.error(f"YouTube Short failed: {e}")
-        result["errors"].append(f"youtube_short: {e}")
+        log.error(f"YouTube Shorts failed: {e}")
+        result["errors"].append(f"youtube_shorts: {e}")
 
     # Step 6: Upload to TikTok
     if SKIP_TIKTOK:
