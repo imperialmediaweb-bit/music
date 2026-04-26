@@ -40,6 +40,16 @@ PLAYLIST_PROFILES = {
         ),
         "youtube_playlists": ["Afro House"],
         "crossfade_sec": 0,
+        "video_comments": [
+            "🔥 Drop a 🙌 if this beat hits your soul! Which part gave you chills? Comment the timestamp!\n\n👉 Subscribe & turn on 🔔 for daily Afro House mixes — share this with someone who needs it!",
+            "💬 What's YOUR favorite moment in this track? Drop the timestamp below!\n\n🎧 Hit Subscribe + 🔔 so you never miss a new mix. Share this vibe with a friend!",
+            "🎶 This one's different. Can you feel it? Tell me your favorite part in the comments!\n\n👉 Subscribe for more deep Afro House every day. Share if this track moved you! 🙌",
+        ],
+        "short_comments": [
+            "🔥 Full track on the channel — go listen NOW! Drop a ❤️ if you felt this\n\n👉 Subscribe + 🔔 for daily vibes!",
+            "💥 This is just a taste — full mix on our channel! Subscribe & share with someone who needs this energy 🎧",
+            "🎵 Want more? Full track is UP! Hit Subscribe + 🔔 and never miss a beat. Share this with a friend! 🔥",
+        ],
     },
 
     "gym": {
@@ -76,6 +86,16 @@ PLAYLIST_PROFILES = {
         ),
         "youtube_playlists": ["Afro House", os.getenv("YT_PLAYLIST_GYM_NAME", "Gym Workout Mix")],
         "crossfade_sec": 3,
+        "video_comments": [
+            "💪 Tag your gym partner who NEEDS this playlist! Drop a 🔥 if you're training to this right now!\n\n👉 Subscribe + 🔔 for weekly workout mixes. Share this with your gym crew!",
+            "🏋️ What's your PR while listening to this? Drop it in the comments!\n\n🎧 Subscribe for more gym beats — share this with someone who lifts heavy! 💪",
+            "⚡ This beat = BEAST MODE. Drop a 💪 if you trained to this!\n\n👉 Hit Subscribe + 🔔 for new workout mixes. Send this to your training partner!",
+        ],
+        "short_comments": [
+            "💪 Full workout mix on the channel — go crush your session! Drop a 🔥\n\n👉 Subscribe + 🔔 for gym beats!",
+            "🏋️ Just a preview — full mix is UP! Subscribe & share with your gym crew! 💪",
+            "⚡ BEAST MODE activated. Full track on our channel! Subscribe + share! 🔥",
+        ],
     },
 
     "driving": {
@@ -112,6 +132,16 @@ PLAYLIST_PROFILES = {
         ),
         "youtube_playlists": ["Afro House", os.getenv("YT_PLAYLIST_DRIVING_NAME", "Driving Music")],
         "crossfade_sec": 3,
+        "video_comments": [
+            "🚗 Where are you driving to with this? Drop your city below!\n\n👉 Subscribe + 🔔 for night drive mixes every week. Share this with your road trip crew! 🌙",
+            "🌃 Night drive vibes on another level. Comment your favorite road trip song!\n\n🎧 Subscribe for more driving playlists — share this with someone who drives late! 🚗",
+            "🛣️ This + open road = perfection. Tag someone you'd road trip with!\n\n👉 Hit Subscribe + 🔔 for weekly driving mixes. Share the vibes! 🌙",
+        ],
+        "short_comments": [
+            "🚗 Full night drive mix on the channel — perfect for the road! Drop a 🌙\n\n👉 Subscribe + 🔔!",
+            "🌃 Just a taste — full driving mix is UP! Subscribe & share with your road trip partner! 🚗",
+            "🛣️ Open road + this beat = magic. Full mix on our channel! Subscribe! 🌙",
+        ],
     },
 
     "focus": {
@@ -148,6 +178,16 @@ PLAYLIST_PROFILES = {
         ),
         "youtube_playlists": ["Afro House", os.getenv("YT_PLAYLIST_FOCUS_NAME", "Focus & Study Music")],
         "crossfade_sec": 5,
+        "video_comments": [
+            "🧠 What are you working on right now? Drop it below!\n\n👉 Subscribe + 🔔 for daily focus & study music. Share this with someone who needs deep concentration! 📚",
+            "💻 Coding? Studying? Writing? This is YOUR soundtrack. Comment what you're grinding on!\n\n🎧 Subscribe for more focus playlists — share with a friend who works hard! 🧠",
+            "📚 Put this on, zone in, and GO. What are you focusing on today? Tell me below!\n\n👉 Subscribe + 🔔 for weekly study mixes. Share with your study crew! 💻",
+        ],
+        "short_comments": [
+            "🧠 Full focus mix on the channel — perfect for deep work! Drop a 💻\n\n👉 Subscribe + 🔔!",
+            "📚 Just a preview — full study mix is UP! Subscribe & share with your study group! 🧠",
+            "💻 Zone in. Full mix on our channel! Subscribe + share with someone who grinds! 📚",
+        ],
     },
 
     "meditation": {
@@ -183,6 +223,16 @@ PLAYLIST_PROFILES = {
         ),
         "youtube_playlists": ["Afro House", os.getenv("YT_PLAYLIST_MEDITATION_NAME", "Meditation & Healing")],
         "crossfade_sec": 5,
+        "video_comments": [
+            "🧘 Take a deep breath. How do you feel right now? Share below!\n\n👉 Subscribe + 🔔 for meditation & healing music. Share this with someone who needs peace! 🙏",
+            "🌅 Close your eyes, breathe, and let go. What does this track make you feel? Comment below!\n\n🎧 Subscribe for weekly meditation mixes — share with someone who deserves calm! 🧘",
+            "🙏 This is your moment of peace. Tag someone who needs to hear this today!\n\n👉 Subscribe + 🔔 for healing vibes. Share the calm! 🌅",
+        ],
+        "short_comments": [
+            "🧘 Full meditation mix on the channel — breathe and relax! Drop a 🙏\n\n👉 Subscribe + 🔔!",
+            "🌅 Just a moment of calm — full mix is UP! Subscribe & share peace with someone! 🧘",
+            "🙏 Need more calm? Full track on our channel! Subscribe + share healing vibes! 🌅",
+        ],
     },
 }
 

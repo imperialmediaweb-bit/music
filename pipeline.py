@@ -7,7 +7,7 @@ from utils.auto_setup import ensure_path
 from modules.concept_generator import generate_concept
 from modules.thumbnail_generator import generate_thumbnail, generate_cover_art, generate_thumbnail_and_cover
 from modules.video_creator import create_video, create_short_video
-from modules.youtube_uploader import upload_to_youtube
+from modules.youtube_uploader import upload_to_youtube, post_comment
 from modules.tiktok_uploader import upload_to_tiktok
 from modules.tunecore_uploader import upload_to_tunecore
 from modules.soundcloud_uploader import upload_to_soundcloud
@@ -699,10 +699,19 @@ def process_single_track(mp3_path: Path, concept=None,
         log.error(f"YouTube upload failed: {e}")
         result["errors"].append(f"youtube: {e}")
 
-    # Step 5b: Create and upload YouTube Short (45s vertical clip from loudest segment)
+    # Step 5b: Post engagement comment on long video
+    if youtube_url and profile_data:
+        import random
+        video_comments = profile_data.get("video_comments", [])
+        if video_comments:
+            video_id = youtube_url.split("/")[-1]
+            comment_text = random.choice(video_comments)
+            post_comment(video_id, comment_text)
+
+    # Step 5c: Create and upload YouTube Short (45s vertical clip from loudest segment)
     try:
         log.info("=" * 60)
-        log.info("STEP 5b: Creating YouTube Short...")
+        log.info("STEP 5c: Creating YouTube Short...")
         short_video = create_short_video(audio_path, thumbnail_path, concept)
         short_title = f"{concept.track_name} 🔥 #afrohouse #shorts"[:100]
         short_desc = (
@@ -715,6 +724,13 @@ def process_single_track(mp3_path: Path, concept=None,
         result["short_url"] = short_url
         if short_url:
             log.info(f"YouTube Short URL: {short_url}")
+
+            # Post engagement comment on Short
+            if profile_data:
+                short_comments = profile_data.get("short_comments", [])
+                if short_comments:
+                    short_vid_id = short_url.split("/")[-1]
+                    post_comment(short_vid_id, random.choice(short_comments))
     except Exception as e:
         log.error(f"YouTube Short failed: {e}")
         result["errors"].append(f"youtube_short: {e}")

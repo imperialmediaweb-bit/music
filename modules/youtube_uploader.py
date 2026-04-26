@@ -129,6 +129,31 @@ def _add_to_playlist(youtube, playlist_id: str, video_id: str):
     log.info(f"Video {video_id} added to playlist {playlist_id}")
 
 
+def post_comment(video_id: str, text: str) -> str | None:
+    """Post a comment on a YouTube video. Returns comment ID or None."""
+    try:
+        youtube = _get_authenticated_service()
+        response = youtube.commentThreads().insert(
+            part="snippet",
+            body={
+                "snippet": {
+                    "videoId": video_id,
+                    "topLevelComment": {
+                        "snippet": {
+                            "textOriginal": text,
+                        }
+                    },
+                }
+            },
+        ).execute()
+        comment_id = response["id"]
+        log.info(f"Comment posted on {video_id}: {comment_id}")
+        return comment_id
+    except Exception as e:
+        log.warning(f"Failed to post comment on {video_id}: {e}")
+        return None
+
+
 def _complete_self_certification(video_id: str) -> bool:
     """Complete YouTube Studio self-certification for monetization.
 
