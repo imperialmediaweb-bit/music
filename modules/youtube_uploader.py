@@ -486,3 +486,64 @@ def upload_to_youtube(
         log.warning(f"Self-certification failed (non-fatal): {e}")
 
     return video_url
+
+
+def upload_short_to_youtube(
+    video_path: Path,
+    title: str,
+    description: str,
+    concept: MusicConcept,
+) -> str | None:
+    """Upload a YouTube Short (vertical, under 60s).
+
+    Shorts are regular YouTube uploads — YouTube auto-detects them as Shorts
+    based on vertical format (9:16) and duration under 60 seconds.
+    No playlist, no self-certification (not monetizable separately).
+    """
+    log.info(f"Uploading YouTube Short: {title}")
+
+    try:
+        youtube = _get_authenticated_service()
+    except FileNotFoundError as e:
+        log.error(str(e))
+        return None
+
+    import re
+    genre_tag = concept.genre.lower().replace(" ", "")
+    tags = [
+        f"{genre_tag}", "shorts", "afrohouse", "deephouse",
+        "tribalhouse", "music", "newmusic",
+    ]
+
+    body = {
+        "snippet": {
+            "title": title[:100],
+            "description": description[:5000],
+            "tags": tags,
+            "categoryId": "10",
+            "defaultLanguage": "en",
+        },
+        "status": {
+            "privacyStatus": "public",
+            "selfDeclaredMadeForKids": False,
+            "embeddable": True,
+        },
+    }
+
+    from googleapiclient.http import MediaFileUpload
+    media = MediaFileUpload(str(video_path), mimetype="video/mp4", resumable=True)
+
+    request = youtube.videos().insert(
+        part="snippet,status",
+        body=body,
+        media_body=media,
+    )
+
+    response = None
+    while response is None:
+        _, response = request.next_chunk()
+
+    video_id = response["id"]
+    short_url = f"https://youtube.com/shorts/{video_id}"
+    log.info(f"Short uploaded: {short_url}")
+    return short_url

@@ -216,3 +216,78 @@ def create_video(
     _create_static_video(audio_path, thumbnail_path, video_path)
     log.info(f"Video saved: {video_path}")
     return video_path
+
+
+def _find_loudest_segment(audio_path: Path, segment_sec: int = 45) -> float:
+    """Find the start time of the loudest segment in the audio.
+
+    Uses FFmpeg's volumedetect on sliding windows to find the peak section.
+    Returns start time in seconds.
+    """
+    duration = _get_audio_duration(audio_path)
+    if duration <= segment_sec:
+        return 0.0
+
+    best_start = 0.0
+    best_vol = -999.0
+    step = 10
+
+    for start in range(0, max(1, int(duration - segment_sec)), step):
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(start), "-t", str(segment_sec),
+            "-i", str(audio_path),
+            "-af", "volumedetect",
+            "-f", "null", "-",
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        for line in r.stderr.splitlines():
+            if "mean_volume" in line:
+                try:
+                    vol = float(line.split("mean_volume:")[1].strip().split()[0])
+                    if vol > best_vol:
+                        best_vol = vol
+                        best_start = float(start)
+                except (ValueError, IndexError):
+                    pass
+    log.info(f"Loudest {segment_sec}s segment starts at {best_start:.0f}s (mean vol: {best_vol:.1f} dB)")
+    return best_start
+
+
+def create_short_video(
+    audio_path: Path,
+    thumbnail_path: Path,
+    concept: MusicConcept,
+    duration_sec: int = 45,
+) -> Path:
+    """Create a vertical 1080x1920 Short video from the loudest segment.
+
+    Extracts the most energetic segment, crops thumbnail to 9:16 vertical,
+    and creates a YouTube Shorts-ready video (under 60 seconds).
+    """
+    _check_ffmpeg()
+    log.info(f"Creating Short video for: {concept.track_name}")
+
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in concept.track_name)
+    safe_name = safe_name.strip().replace(" ", "_")[:50]
+    short_path = OUTPUT_DIR / f"{safe_name}_short.mp4"
+
+    start = _find_loudest_segment(audio_path, segment_sec=duration_sec)
+
+    _run_ffmpeg([
+        "-ss", str(start), "-t", str(duration_sec),
+        "-i", str(audio_path),
+        "-loop", "1", "-i", str(thumbnail_path),
+        "-vf", (
+            "scale=1920:1920:force_original_aspect_ratio=increase,"
+            "crop=1080:1920,"
+            "fade=in:0:15,fade=out:st={fade_out}:d=1"
+        ).format(fade_out=duration_sec - 1),
+        "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+        "-c:a", "aac", "-b:a", "192k",
+        "-shortest", "-pix_fmt", "yuv420p",
+        str(short_path),
+    ], label="short video")
+
+    log.info(f"Short video saved: {short_path} ({duration_sec}s)")
+    return short_path

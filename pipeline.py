@@ -6,7 +6,7 @@ from utils.logger import log
 from utils.auto_setup import ensure_path
 from modules.concept_generator import generate_concept
 from modules.thumbnail_generator import generate_thumbnail, generate_cover_art, generate_thumbnail_and_cover
-from modules.video_creator import create_video
+from modules.video_creator import create_video, create_short_video
 from modules.youtube_uploader import upload_to_youtube
 from modules.tiktok_uploader import upload_to_tiktok
 from modules.tunecore_uploader import upload_to_tunecore
@@ -698,6 +698,26 @@ def process_single_track(mp3_path: Path, concept=None,
     except Exception as e:
         log.error(f"YouTube upload failed: {e}")
         result["errors"].append(f"youtube: {e}")
+
+    # Step 5b: Create and upload YouTube Short (45s vertical clip from loudest segment)
+    try:
+        log.info("=" * 60)
+        log.info("STEP 5b: Creating YouTube Short...")
+        short_video = create_short_video(audio_path, thumbnail_path, concept)
+        short_title = f"{concept.track_name} 🔥 #afrohouse #shorts"[:100]
+        short_desc = (
+            f"Full track ➡️ {result.get('youtube_url', 'check channel')}\n\n"
+            f"{concept.description}\n\n"
+            f"#shorts #afrohouse #deephouse #{concept.genre.lower().replace(' ', '')}"
+        )
+        from modules.youtube_uploader import upload_short_to_youtube
+        short_url = upload_short_to_youtube(short_video, short_title, short_desc, concept)
+        result["short_url"] = short_url
+        if short_url:
+            log.info(f"YouTube Short URL: {short_url}")
+    except Exception as e:
+        log.error(f"YouTube Short failed: {e}")
+        result["errors"].append(f"youtube_short: {e}")
 
     # Step 6: Upload to TikTok
     if SKIP_TIKTOK:
