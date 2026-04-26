@@ -59,8 +59,9 @@ PLAYLIST_PROFILES = {
         "archive_count": 4,
         "archive_min_pool": 12,
         "title_suffixes": [
-            "| Gym Workout Mix", "| Training Beats", "| Workout Energy",
-            "| Gym Motivation", "| Beast Mode Mix", "| Power Training",
+            "| You'll Train HARDER With This", "| BEAST MODE Activated",
+            "| Your New Gym Obsession", "| Warning: PR Incoming",
+            "| The Gym Mix Everyone's Talking About", "| Lift Heavy To This",
         ],
         "suno_prompt_addition": (
             "powerful bass, driving tribal drums, high energy, 128 BPM, "
@@ -105,8 +106,9 @@ PLAYLIST_PROFILES = {
         "archive_count": 6,
         "archive_min_pool": 12,
         "title_suffixes": [
-            "| Night Drive Mix", "| Driving Music", "| Road Trip Beats",
-            "| Car Bass Mix", "| Highway Vibes", "| Late Night Cruise",
+            "| Perfect For Late Night Drives", "| Your Car Will SHAKE",
+            "| The Ultimate Night Drive Mix", "| Windows Down, Bass UP",
+            "| You'll Never Drive In Silence Again", "| Highway Hypnosis",
         ],
         "suno_prompt_addition": (
             "hypnotic steady groove, deep bass, continuous flow, 122 BPM, "
@@ -151,8 +153,9 @@ PLAYLIST_PROFILES = {
         "archive_count": 4,
         "archive_min_pool": 12,
         "title_suffixes": [
-            "| Deep Focus Mix", "| Study Music", "| Coding Beats",
-            "| Work & Study", "| Concentration Mix", "| Flow State",
+            "| You'll Focus Like NEVER Before", "| Productivity On Another Level",
+            "| The Study Mix That Actually Works", "| Enter Flow State NOW",
+            "| Your Brain Will Thank You", "| Deep Work Mode: ON",
         ],
         "suno_prompt_addition": (
             "minimal instrumental, hypnotic repetition, 118 BPM, "
@@ -197,8 +200,9 @@ PLAYLIST_PROFILES = {
         "archive_count": 4,
         "archive_min_pool": 12,
         "title_suffixes": [
-            "| Meditation Music", "| Yoga & Healing", "| Relaxation Mix",
-            "| Mindfulness Beats", "| Calm & Breathe", "| Zen Vibes",
+            "| Fall Asleep In Minutes", "| Instant Calm Guaranteed",
+            "| The Most Peaceful Mix You'll Ever Hear", "| Breathe And Let Go",
+            "| Your Mind Will Thank You", "| Pure Healing Energy",
         ],
         "suno_prompt_addition": (
             "ambient tribal, soft percussion, warm atmospheric pads, 100 BPM, "

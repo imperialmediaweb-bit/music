@@ -928,14 +928,18 @@ GENRE_PROFILES: dict[str, dict] = {
         # tuned for an Afro House × Deep Bass House Remix vibe. {mix_number}
         # is auto-incremented per run via _next_mix_number(genre).
         "title_formulas": (
-            "- TRACKNAME 🔥 Afro House Mix • Deep Bass / Tribal Energy / Car Audio #{mix_number} | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 Afro Deep House Remix • Sacred Tribal / Festival Drop #{mix_number} | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 Afro House Mix • Hypnotic Drums / Primal Energy / Sunset Set #{mix_number} | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 Deep Bass Afro House Remix • Open-Air / Spiritual Groove #{mix_number} | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 Afro House Mix • Massive Car Bass / Tribal Chants #{mix_number} 2026 | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 The Most ADDICTIVE Afro Deep House Remix of 2026 #{mix_number} | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 GODLY Afro House × Deep Bass Remix • Festival Energy #{mix_number} | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 Afro House Mix • Ancestral Drums / Deep House Drop #{mix_number} | {genre_hashtag}"
+            "- TRACKNAME 🔥 This Afro House Beat Will Give You CHILLS #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 You Won't Believe This Drop • Afro House Mix #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The ONLY Afro House Mix You Need Right Now #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 WARNING: This Beat Is DANGEROUSLY Addictive #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 I Can't Stop Listening To This Afro House Mix #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 This Is What PEAK Afro House Sounds Like #{mix_number} 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Play This At MAX VOLUME • Afro House #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The Beat That Broke The Internet #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 INSANE Tribal Drums × Deep Bass #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Once You Hear This, You Can't Unhear It #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Afro House Mix • Deep Bass / Tribal Energy #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The Most ADDICTIVE Afro House Remix of 2026 #{mix_number} | {genre_hashtag}"
         ),
         "thumbnail_core": (
             "An authentic African tribal mask (Yoruba, Dogon, Fang, Punu, Dan, Kuba, Chokwe, "
