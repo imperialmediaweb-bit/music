@@ -1271,13 +1271,13 @@ def cmd_autostart(args):
 
 
 def cmd_schedule(args):
-    """Schedule 4 clips per week — generate + upload in one shot per slot.
+    """Schedule 7 clips per week — one per day, each with a playlist profile.
 
     Default schedule (Europe/Bucharest timezone):
-      MON 18:00 — gym profile
-      WED 18:00 — main (Afro House)
-      FRI 19:00 — driving profile
-      SUN 12:00 — focus profile
+      MON 18:00 — gym       THU 18:00 — main
+      TUE 18:00 — main      FRI 19:00 — driving
+      WED 18:00 — focus     SAT 14:00 — meditation
+                             SUN 12:00 — main
 
     Uses misfire_grace_time=3600 so jobs still run even if the PC
     wakes from sleep up to 1 hour late.
@@ -1331,14 +1331,16 @@ def cmd_schedule(args):
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-    # 4x/week: generate + upload in one shot. Profile auto-selects style,
-    # thumbnail, tags, playlists. PC must be on at these times.
+    # 7x/week: one upload per day, each with a playlist profile.
     # (day_of_week, hour, minute, gen_count, profile_name)
     WEEKLY_SCHEDULE = [
         ("mon", 18, 0, 2, "gym"),
-        ("wed", 18, 0, 2, "main"),
+        ("tue", 18, 0, 2, "main"),
+        ("wed", 18, 0, 2, "focus"),
+        ("thu", 18, 0, 2, "main"),
         ("fri", 19, 0, 2, "driving"),
-        ("sun", 12, 0, 2, "focus"),
+        ("sat", 14, 0, 2, "meditation"),
+        ("sun", 12, 0, 2, "main"),
     ]
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
