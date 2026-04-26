@@ -633,14 +633,10 @@ def process_single_track(mp3_path: Path, concept=None,
         log.info(f"Mood: {concept.mood}")
         log.info(f"YouTube title: {concept.youtube_title}")
 
-        # Inject duration into YouTube title — numbers in titles boost CTR
+        # Inject duration into YouTube title — numbers boost CTR
         duration_mins = int(duration_sec) // 60
-        if "\U0001f525" in concept.youtube_title:
-            concept.youtube_title = concept.youtube_title.replace(
-                "\U0001f525", f"\U0001f525 {duration_mins} Minutes of", 1
-            )
-        elif "minutes" not in concept.youtube_title.lower() and duration_mins >= 5:
-            concept.youtube_title = f"{duration_mins} Minutes of {concept.youtube_title}"
+        if "minutes" not in concept.youtube_title.lower() and duration_mins >= 5:
+            concept.youtube_title = f"{concept.youtube_title} [{duration_mins} Min]"
         concept.youtube_title = concept.youtube_title[:100]
 
         # Replace {duration} placeholder in description
@@ -708,6 +704,7 @@ def process_single_track(mp3_path: Path, concept=None,
         result["errors"].append(f"youtube: {e}")
 
     # Step 5b: Post engagement comment on long video
+    youtube_url = result.get("youtube_url")
     if youtube_url and profile_data:
         import random
         video_comments = profile_data.get("video_comments", [])
