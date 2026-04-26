@@ -490,6 +490,26 @@ def upload_to_youtube(
     genre_tag = concept.genre.lower().replace(" ", "")
     description = f"#{genre_tag} #deephouse #tribalhouse\n\n{clean_desc}"
 
+    # Playlist autoplay trap — link to playlist instead of single video
+    # Viewers click → playlist starts → autoplay → massive watch time
+    genre_playlist = concept.genre or "Afro House"
+    try:
+        pl_id = _find_or_create_playlist(youtube, genre_playlist)
+        playlist_url = f"https://www.youtube.com/playlist?list={pl_id}"
+        description += f"\n\n🎧 Full Playlist (Autoplay): {playlist_url}"
+    except Exception:
+        pass
+
+    # Extra playlist link if available
+    extra_pl_names = profile.get("youtube_playlists", [])[1:]
+    for pl_name in extra_pl_names[:1]:
+        try:
+            epl_id = _find_or_create_playlist(youtube, pl_name)
+            epl_url = f"https://www.youtube.com/playlist?list={epl_id}"
+            description += f"\n🔥 {pl_name} Playlist: {epl_url}"
+        except Exception:
+            pass
+
     # Append artist links (Spotify + Beatport) so viewers can find the paid releases.
     artist_links = []
     if SPOTIFY_ARTIST_URL:
@@ -498,6 +518,22 @@ def upload_to_youtube(
         artist_links.append(f"Beatport: {BEATPORT_ARTIST_URL}")
     if artist_links:
         description = description.rstrip() + "\n\n" + "\n".join(artist_links)
+
+    # SEO keyword block — YouTube indexes these but viewers rarely scroll this far
+    genre_lower = concept.genre.lower() if concept.genre else "afro house"
+    seo_keywords = (
+        f"\n\n"
+        f"{genre_lower} mix 2026, best {genre_lower} 2026, "
+        f"new {genre_lower} music, {genre_lower} playlist, "
+        f"{genre_lower} beats, deep house mix, tribal house 2026, "
+        f"african music 2026, {genre_lower} non stop, "
+        f"{genre_lower} long mix, best deep house, "
+        f"chill {genre_lower}, {genre_lower} workout, "
+        f"{genre_lower} driving music, {genre_lower} study music, "
+        f"electronic music 2026, house music mix, "
+        f"new music 2026, trending music, viral music 2026"
+    )
+    description += seo_keywords
 
     # Upload the video
     body = {
@@ -509,7 +545,7 @@ def upload_to_youtube(
             "defaultLanguage": "en",
         },
         "status": {
-            "privacyStatus": "public",
+            "privacyStatus": "unlisted",
             "selfDeclaredMadeForKids": False,
             "embeddable": True,
             "license": "youtube",
@@ -608,6 +644,24 @@ def upload_to_youtube(
             log.warning("Self-certification incomplete — check YouTube Studio manually")
     except Exception as e:
         log.warning(f"Self-certification failed (non-fatal): {e}")
+
+    # Delayed publish: wait for YouTube to process HD + generate recommendations,
+    # then switch from UNLISTED to PUBLIC for maximum initial push
+    import time as _time
+    DELAY_MINUTES = 30
+    log.info(f"Video is UNLISTED — waiting {DELAY_MINUTES} min for YouTube to process HD...")
+    _time.sleep(DELAY_MINUTES * 60)
+    try:
+        youtube.videos().update(
+            part="status",
+            body={
+                "id": video_id,
+                "status": {"privacyStatus": "public"},
+            },
+        ).execute()
+        log.info(f"Video switched to PUBLIC: {video_url}")
+    except Exception as e:
+        log.warning(f"Failed to switch to public (do it manually): {e}")
 
     return video_url
 

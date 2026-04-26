@@ -341,15 +341,32 @@ def create_short_video(
 
     start = _find_loudest_segment(audio_path, segment_sec=duration_sec)
 
+    import random
+    comment_baits = [
+        "Comment your city 👇",
+        "Drop a 🔥 if you feel this",
+        "Tag someone who needs this",
+        "What country are you from? 👇",
+        "Type YES if you vibed 🎧",
+    ]
+    bait_text = random.choice(comment_baits)
+    safe_bait = bait_text.replace("'", "'\\''").replace(":", "\\:")
+
+    vf_filter = (
+        "scale=1920:1920:force_original_aspect_ratio=increase,"
+        "crop=1080:1920,"
+        "fade=in:0:15,fade=out:st={fade_out}:d=1,"
+        "drawtext=text='{bait}':"
+        "fontsize=52:fontcolor=white:borderw=3:bordercolor=black:"
+        "x=(w-text_w)/2:y=h-180:"
+        "enable='between(t,2,8)'"
+    ).format(fade_out=duration_sec - 1, bait=safe_bait)
+
     _run_ffmpeg([
         "-ss", str(start), "-t", str(duration_sec),
         "-i", str(audio_path),
         "-loop", "1", "-i", str(thumbnail_path),
-        "-vf", (
-            "scale=1920:1920:force_original_aspect_ratio=increase,"
-            "crop=1080:1920,"
-            "fade=in:0:15,fade=out:st={fade_out}:d=1"
-        ).format(fade_out=duration_sec - 1),
+        "-vf", vf_filter,
         "-c:v", "libx264", "-preset", "medium", "-crf", "23",
         "-c:a", "aac", "-b:a", "192k",
         "-shortest", "-pix_fmt", "yuv420p",
