@@ -6,7 +6,7 @@ from utils.logger import log
 from utils.auto_setup import ensure_path
 from modules.concept_generator import generate_concept
 from modules.thumbnail_generator import generate_thumbnail, generate_cover_art, generate_thumbnail_and_cover
-from modules.video_creator import create_video, create_short_video
+from modules.video_creator import create_video, create_short_video, generate_chapters
 from modules.youtube_uploader import upload_to_youtube, post_comment
 from modules.tiktok_uploader import upload_to_tiktok
 from modules.tunecore_uploader import upload_to_tunecore
@@ -681,6 +681,12 @@ def process_single_track(mp3_path: Path, concept=None,
         log.error(f"Video creation failed: {e}")
         result["errors"].append(f"video: {e}")
         return result
+
+    # Step 4b: Generate chapters from audio energy analysis
+    chapters = generate_chapters(audio_path)
+    if chapters:
+        concept.youtube_description = f"{chapters}\n\n{concept.youtube_description}"
+        log.info(f"Added {chapters.count(chr(10)) + 1} chapters to description")
 
     # Step 5: Upload to YouTube
     try:

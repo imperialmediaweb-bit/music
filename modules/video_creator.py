@@ -80,6 +80,73 @@ def _analyze_beats(audio_path: Path) -> list[float] | None:
         return None
 
 
+def generate_chapters(audio_path: Path, chapter_interval_sec: int = 120) -> str:
+    """Generate YouTube chapters (timestamps) from audio using energy analysis.
+
+    Detects energy changes to create meaningful chapter markers.
+    Returns a string like:
+      0:00 Intro
+      2:05 First Drop
+      4:10 Deep Groove
+      ...
+    YouTube auto-creates chapters when description starts with 0:00.
+    """
+    try:
+        import librosa
+        import numpy as np
+    except ImportError:
+        log.warning("librosa not installed — skipping chapter generation")
+        return ""
+
+    try:
+        y, sr = librosa.load(str(audio_path), sr=22050, mono=True)
+        duration = librosa.get_duration(y=y, sr=sr)
+
+        if duration < 180:
+            return ""
+
+        onset_env = librosa.onset.onset_strength(y=y, sr=sr)
+        hop_length = 512
+
+        chapter_labels = [
+            "Intro", "Rising Energy", "First Drop", "Deep Groove",
+            "Building Up", "Peak Energy", "Breakdown", "Second Wave",
+            "Climax", "Tribal Flow", "Hypnotic Phase", "Final Rush",
+            "Epic Drop", "Spiritual Groove", "Outro",
+        ]
+
+        chapters = []
+        chapters.append((0, chapter_labels[0]))
+
+        num_chapters = min(int(duration // chapter_interval_sec), len(chapter_labels) - 2)
+        if num_chapters < 2:
+            return ""
+
+        segment_len = int(len(onset_env) / (num_chapters + 1))
+        for i in range(1, num_chapters + 1):
+            start_frame = i * segment_len
+            search_start = max(0, start_frame - segment_len // 4)
+            search_end = min(len(onset_env), start_frame + segment_len // 4)
+            region = onset_env[search_start:search_end]
+            peak_frame = search_start + np.argmax(region)
+            peak_sec = librosa.frames_to_time(peak_frame, sr=sr, hop_length=hop_length)
+            peak_sec = int(peak_sec)
+            label = chapter_labels[min(i, len(chapter_labels) - 1)]
+            chapters.append((peak_sec, label))
+
+        lines = []
+        for sec, label in chapters:
+            m, s = divmod(sec, 60)
+            lines.append(f"{m}:{s:02d} {label}")
+
+        result = "\n".join(lines)
+        log.info(f"Generated {len(chapters)} chapters for {duration:.0f}s track")
+        return result
+    except Exception as e:
+        log.warning(f"Chapter generation failed: {e}")
+        return ""
+
+
 def _build_beat_filter(
     beat_times: list[float], duration: float, fps: int = 24,
 ) -> str:

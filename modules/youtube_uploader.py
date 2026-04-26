@@ -154,6 +154,105 @@ def post_comment(video_id: str, text: str) -> str | None:
         return None
 
 
+def reply_to_new_comments(max_videos: int = 5, max_replies_per_video: int = 3) -> int:
+    """Auto-reply to unanswered comments on recent videos.
+
+    Finds comment threads on the channel's latest videos where the channel
+    has not replied yet, and posts an engagement reply. Returns total replies sent.
+    """
+    import random
+
+    REPLY_TEMPLATES = [
+        "Thank you so much for listening! 🔥 Which part was your favorite? Don't forget to share with a friend who needs this vibe! 🎧",
+        "Glad you're here! 🙌 Hit Subscribe + 🔔 so you never miss a new mix. Share the energy! 🔥",
+        "This means a lot! 🎶 Drop a ❤️ and share this track with someone who'd love it! More coming soon! 🙏",
+        "Love that you're vibing with this! 🔥 Subscribe for daily mixes and share with your crew! 💪",
+        "You're amazing for listening! 🎧 New tracks every day — Subscribe + 🔔 and share the love! 🙌",
+    ]
+
+    try:
+        youtube = _get_authenticated_service()
+    except FileNotFoundError as e:
+        log.error(str(e))
+        return 0
+
+    try:
+        channels = youtube.channels().list(part="contentDetails", mine=True).execute()
+        uploads_playlist = channels["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    except Exception as e:
+        log.warning(f"Could not get channel uploads: {e}")
+        return 0
+
+    try:
+        playlist_items = youtube.playlistItems().list(
+            part="snippet", playlistId=uploads_playlist, maxResults=max_videos
+        ).execute()
+        video_ids = [item["snippet"]["resourceId"]["videoId"] for item in playlist_items.get("items", [])]
+    except Exception as e:
+        log.warning(f"Could not list recent videos: {e}")
+        return 0
+
+    try:
+        channels_resp = youtube.channels().list(part="id", mine=True).execute()
+        my_channel_id = channels_resp["items"][0]["id"]
+    except Exception:
+        my_channel_id = None
+
+    total_replies = 0
+    for vid_id in video_ids:
+        if total_replies >= max_replies_per_video * max_videos:
+            break
+        try:
+            threads = youtube.commentThreads().list(
+                part="snippet,replies", videoId=vid_id, maxResults=20,
+                order="time",
+            ).execute()
+        except Exception as e:
+            log.warning(f"Could not get comments for {vid_id}: {e}")
+            continue
+
+        replies_this_video = 0
+        for thread in threads.get("items", []):
+            if replies_this_video >= max_replies_per_video:
+                break
+
+            snippet = thread["snippet"]
+            top_comment = snippet["topLevelComment"]["snippet"]
+
+            if my_channel_id and top_comment.get("authorChannelId", {}).get("value") == my_channel_id:
+                continue
+
+            if snippet.get("totalReplyCount", 0) > 0:
+                replies = thread.get("replies", {}).get("comments", [])
+                already_replied = any(
+                    r["snippet"].get("authorChannelId", {}).get("value") == my_channel_id
+                    for r in replies
+                ) if my_channel_id else False
+                if already_replied:
+                    continue
+
+            try:
+                reply_text = random.choice(REPLY_TEMPLATES)
+                youtube.comments().insert(
+                    part="snippet",
+                    body={
+                        "snippet": {
+                            "parentId": thread["id"],
+                            "textOriginal": reply_text,
+                        }
+                    },
+                ).execute()
+                commenter = top_comment.get("authorDisplayName", "someone")
+                log.info(f"Replied to {commenter} on {vid_id}")
+                total_replies += 1
+                replies_this_video += 1
+            except Exception as e:
+                log.warning(f"Reply failed: {e}")
+
+    log.info(f"Auto-replied to {total_replies} comments across {len(video_ids)} videos")
+    return total_replies
+
+
 def _complete_self_certification(video_id: str) -> bool:
     """Complete YouTube Studio self-certification for monetization.
 

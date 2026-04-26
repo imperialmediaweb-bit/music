@@ -1386,6 +1386,21 @@ def cmd_schedule(args):
         log.info(f"Scheduled {len(selected_slots)} clips/week: {schedule_desc}")
         log.info(f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s")
 
+        # Auto-reply to comments 2x/day (10:00 and 20:00)
+        def _auto_reply_job():
+            from modules.youtube_uploader import reply_to_new_comments
+            reply_to_new_comments(max_videos=5, max_replies_per_video=3)
+
+        scheduler.add_job(
+            _auto_reply_job,
+            CronTrigger(hour="10,20", minute=0, timezone=TIMEZONE),
+            id="auto_reply_comments",
+            name="Auto-reply to YouTube comments (10:00 & 20:00)",
+            misfire_grace_time=MISFIRE_GRACE,
+            coalesce=True,
+        )
+        log.info("Scheduled auto-reply to comments at 10:00 & 20:00 daily")
+
     def shutdown(signum, frame):
         log.info("Shutting down scheduler...")
         scheduler.shutdown(wait=False)
