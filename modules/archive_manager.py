@@ -110,3 +110,45 @@ def pick_from_archive(count: int, exclude_files: list[Path] | None = None) -> li
 def archive_size() -> int:
     """Return number of MP3s in the archive pool."""
     return len(_load_catalog())
+
+
+def seed_from_output() -> int:
+    """Import individual Suno MP3s from output/ into the archive pool.
+
+    Only imports files with _1, _2, _3... suffix (individual Suno songs),
+    not merged tracks (which have no number suffix).
+    Returns count of newly archived files.
+    """
+    import re
+    _ensure_dirs()
+    catalog = _load_catalog()
+    existing_originals = {e["original_name"] for e in catalog}
+    archived = 0
+
+    candidates = sorted(OUTPUT_DIR.glob("*_[0-9]*.mp3"))
+    pattern = re.compile(r"^.+_\d+\.mp3$")
+    candidates = [f for f in candidates if pattern.match(f.name)]
+
+    for mp3 in candidates:
+        if mp3.name in existing_originals:
+            continue
+        if mp3.stat().st_size < 500_000:
+            continue
+
+        dest_name = f"{int(time.time())}_{archived}_{mp3.name}"
+        dest = ARCHIVE_DIR / dest_name
+        shutil.copy2(mp3, dest)
+        catalog.append({
+            "filename": dest_name,
+            "original_name": mp3.name,
+            "profile": "seed",
+            "track_name": mp3.stem.rsplit("_", 1)[0],
+            "tags": ["afrohouse", "seed"],
+            "archived_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        })
+        archived += 1
+
+    if archived:
+        _save_catalog(catalog)
+    log.info(f"Seeded {archived} MP3(s) from output/ (total pool: {len(catalog)})")
+    return archived

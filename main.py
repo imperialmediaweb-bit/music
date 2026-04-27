@@ -1093,6 +1093,20 @@ def cmd_reupload(args):
         log.info("Done!")
 
 
+def cmd_seed_archive(args):
+    """Import existing MP3s from output/ into the archive pool.
+
+    Scans output/ for individual Suno MP3s (files ending in _1.mp3, _2.mp3, etc)
+    and copies them into the archive pool. After this, hybrid mode will
+    automatically use these archived songs to create longer tracks.
+    """
+    from modules.archive_manager import seed_from_output, archive_size
+    count = seed_from_output()
+    log.info(f"Archive pool now has {archive_size()} MP3s")
+    if count == 0:
+        log.info("No new MP3s to import (all already in archive)")
+
+
 def cmd_update_seo(args):
     """Bulk update SEO on all existing YouTube videos.
 
@@ -1641,6 +1655,12 @@ def main():
         help="Upload to only one platform (default: all)",
     )
     reupload_parser.set_defaults(func=cmd_reupload)
+
+    # seed-archive - import existing MP3s into archive pool
+    subparsers.add_parser(
+        "seed-archive",
+        help="Import existing MP3s from output/ into archive pool for hybrid mode",
+    ).set_defaults(func=cmd_seed_archive)
 
     # update-seo - bulk update SEO on all existing YouTube videos
     subparsers.add_parser(
