@@ -724,7 +724,7 @@ def process_single_track(mp3_path: Path, concept=None,
             f"{concept.track_name} Part 2 🎧 #afrohouse #shorts",
         ]
 
-        short_delays_hours = [4, 12]
+        short_delays_hours = [2, 6]
 
         result["short_urls"] = []
         for i, short_video in enumerate(short_videos):
