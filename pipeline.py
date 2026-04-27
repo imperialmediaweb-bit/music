@@ -715,17 +715,16 @@ def process_single_track(mp3_path: Path, concept=None,
     try:
         log.info("=" * 60)
         log.info("STEP 5c: Creating 3 YouTube Shorts from different segments...")
-        short_videos = create_multiple_shorts(audio_path, thumbnail_path, concept, count=3)
+        short_videos = create_multiple_shorts(audio_path, thumbnail_path, concept, count=2)
         from modules.youtube_uploader import upload_short_to_youtube
         from datetime import datetime, timezone, timedelta
 
         short_titles_variants = [
             f"{concept.track_name} 🔥 #afrohouse #shorts",
             f"{concept.track_name} Part 2 🎧 #afrohouse #shorts",
-            f"{concept.track_name} Part 3 💥 #afrohouse #shorts",
         ]
 
-        short_delays_hours = [0, 8, 16]
+        short_delays_hours = [0, 8]
 
         result["short_urls"] = []
         for i, short_video in enumerate(short_videos):
