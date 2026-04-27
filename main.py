@@ -54,7 +54,7 @@ def _get_music_generator(platform: str):
     return generate_music_batch
 
 
-def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = None,
+def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = None,
                        genre: str = "", music_style: str = "", thumbnail_style: str = "",
                        fusion: bool = False, profile_name: str = ""):
     """Full pipeline: generate music → merge → thumbnail → video → upload.
@@ -77,8 +77,6 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
     from pipeline import process_single_track
 
     platform = platform or MUSIC_PLATFORM
-    if songs:
-        gen_count = max(1, songs // 2)  # Each generation = 2 songs
 
     # Load playlist profile (explicit or today's from weekly plan)
     if profile_name and profile_name in PLAYLIST_PROFILES:
@@ -86,6 +84,12 @@ def _run_full_pipeline(gen_count: int = 1, platform: str = None, songs: int = No
     else:
         profile_name, profile = get_todays_profile()
     log.info(f"Playlist profile: {profile_name} ({profile['label']})")
+
+    # Use profile's fresh_count as default (gen_count=0 means "use profile")
+    if songs:
+        gen_count = max(1, songs // 2)
+    elif gen_count <= 0:
+        gen_count = profile.get("fresh_count", 2)
 
     # Profile feeds into existing generate_concept params (only if not overridden)
     if not music_style and profile.get("suno_prompt_addition"):
@@ -1410,13 +1414,13 @@ def cmd_schedule(args):
     # 7x/week: one upload per day, each with a playlist profile.
     # (day_of_week, hour, minute, gen_count, profile_name)
     WEEKLY_SCHEDULE = [
-        ("mon", 18, 0, 2, "gym"),
-        ("tue", 18, 0, 2, "main"),
-        ("wed", 18, 0, 2, "focus"),
-        ("thu", 18, 0, 2, "main"),
-        ("fri", 19, 0, 2, "driving"),
-        ("sat", 14, 0, 2, "meditation"),
-        ("sun", 12, 0, 2, "main"),
+        ("mon", 18, 0, 0, "gym"),
+        ("tue", 18, 0, 0, "main"),
+        ("wed", 18, 0, 0, "focus"),
+        ("thu", 18, 0, 0, "main"),
+        ("fri", 19, 0, 0, "driving"),
+        ("sat", 14, 0, 0, "meditation"),
+        ("sun", 12, 0, 0, "main"),
     ]
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
@@ -1662,8 +1666,8 @@ def main():
         help="Number of songs per clip to generate and merge (default: from .env or 2)",
     )
     run_parser.add_argument(
-        "-g", "--gens", type=int, default=1,
-        help="Generations per clip — each generation = 2 MP3s (default: 1)",
+        "-g", "--gens", type=int, default=0,
+        help="Generations per clip — each generation = 2 MP3s (default: from profile fresh_count)",
     )
     run_parser.add_argument(
         "--fusion", action="store_true", default=False,

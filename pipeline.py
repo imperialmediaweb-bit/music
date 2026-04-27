@@ -91,10 +91,8 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     # Inject duration into title (same logic as process_single_track)
     if duration_sec:
         duration_mins = int(duration_sec) // 60
-        if "\U0001f525" in concept.youtube_title:
-            concept.youtube_title = concept.youtube_title.replace(
-                "\U0001f525", f"\U0001f525 {duration_mins} Minutes of", 1
-            )
+        if "minutes" not in concept.youtube_title.lower() and duration_mins >= 5:
+            concept.youtube_title = f"{concept.youtube_title} [{duration_mins} Min]"
         concept.youtube_title = concept.youtube_title[:100]
         concept.youtube_description = concept.youtube_description.replace(
             "{duration}", str(duration_mins)
@@ -341,10 +339,8 @@ def prepare_track_assets(mp3_path: Path, concept) -> dict:
 
     # Inject duration into YouTube title/description (same logic as process_single_track)
     duration_mins = int(duration_sec) // 60
-    if "\U0001f525" in concept.youtube_title:
-        concept.youtube_title = concept.youtube_title.replace(
-            "\U0001f525", f"\U0001f525 {duration_mins} Minutes of", 1
-        )
+    if "minutes" not in concept.youtube_title.lower() and duration_mins >= 5:
+        concept.youtube_title = f"{concept.youtube_title} [{duration_mins} Min]"
     concept.youtube_title = concept.youtube_title[:100]
     concept.youtube_description = concept.youtube_description.replace(
         "{duration}", str(duration_mins)

@@ -14,8 +14,8 @@ PLAYLIST_PROFILES = {
     "main": {
         "label": "Afro House",
         "hybrid": True,
-        "fresh_count": 4,
-        "archive_count": 2,
+        "fresh_count": 8,
+        "archive_count": 4,
         "archive_min_pool": 12,
         "title_suffixes": [],
         "suno_prompt_addition": (
@@ -55,8 +55,8 @@ PLAYLIST_PROFILES = {
     "gym": {
         "label": "Gym Workout",
         "hybrid": True,
-        "fresh_count": 4,
-        "archive_count": 4,
+        "fresh_count": 10,
+        "archive_count": 8,
         "archive_min_pool": 12,
         "title_suffixes": [
             "| You'll Train HARDER With This", "| BEAST MODE Activated",
@@ -102,8 +102,8 @@ PLAYLIST_PROFILES = {
     "driving": {
         "label": "Driving",
         "hybrid": True,
-        "fresh_count": 4,
-        "archive_count": 6,
+        "fresh_count": 12,
+        "archive_count": 12,
         "archive_min_pool": 12,
         "title_suffixes": [
             "| Perfect For Late Night Drives", "| Your Car Will SHAKE",
@@ -149,8 +149,8 @@ PLAYLIST_PROFILES = {
     "focus": {
         "label": "Focus & Study",
         "hybrid": True,
-        "fresh_count": 4,
-        "archive_count": 4,
+        "fresh_count": 10,
+        "archive_count": 10,
         "archive_min_pool": 12,
         "title_suffixes": [
             "| You'll Focus Like NEVER Before", "| Productivity On Another Level",
@@ -196,8 +196,8 @@ PLAYLIST_PROFILES = {
     "meditation": {
         "label": "Meditation",
         "hybrid": True,
-        "fresh_count": 4,
-        "archive_count": 4,
+        "fresh_count": 10,
+        "archive_count": 10,
         "archive_min_pool": 12,
         "title_suffixes": [
             "| Fall Asleep In Minutes", "| Instant Calm Guaranteed",
