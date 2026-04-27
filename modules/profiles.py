@@ -24,8 +24,8 @@ PLAYLIST_PROFILES = {
             "full mix energy, classic tribal afro house, deep bass, spiritual groove"
         ),
         "thumbnail_style_variants": [
-            "silhouette of dancer with colorful concert lights, energetic mood, dark background",
-            "abstract neon soundwave visualization, deep bass energy, dark cinematic background",
+            "tribal mask with glowing eyes, mystical atmosphere, dark cinematic background",
+            "silhouette of dancer with colorful concert lights, energetic mood",
             "stylized African landscape at night with campfire and acacia trees",
             "bold typography design with large track name, minimal imagery, solid accent color",
             "close-up traditional African instruments (djembe, kora) with dramatic lighting",
@@ -71,9 +71,9 @@ PLAYLIST_PROFILES = {
             "intense rhythm throughout"
         ),
         "thumbnail_style_variants": [
-            "silhouette of athlete in motion, intense red and orange lighting, dark gym background",
-            "powerful bass speaker with glowing red energy waves, aggressive atmosphere",
-            "abstract explosion of energy, motion blur, fire and bass effects",
+            "silhouette of athlete in motion with tribal elements, intense lighting",
+            "tribal warrior mask with glowing red energy effects, powerful atmosphere",
+            "abstract explosion of energy with tribal drums, motion blur",
             "bold typography 'GYM BEATS' with aggressive design, red and black",
         ],
         "extra_tags": [
@@ -119,8 +119,8 @@ PLAYLIST_PROFILES = {
         ),
         "thumbnail_style_variants": [
             "night road with headlights, highway, city lights in distance, cinematic",
-            "car on empty highway at night, neon city skyline reflection, moody atmosphere",
-            "dashboard view at night with starry sky, headlights streaking, cinematic mood",
+            "car on empty highway at night with tribal mask in sky reflection",
+            "dashboard view at night with starry sky and subtle tribal elements",
             "bold 'NIGHT DRIVE' typography with road and lights theme",
         ],
         "extra_tags": [
@@ -165,10 +165,10 @@ PLAYLIST_PROFILES = {
             "gentle entry in first 5 seconds but present from start"
         ),
         "thumbnail_style_variants": [
-            "minimal abstract geometric pattern, clean design, muted palette, soft gradients",
-            "headphones on desk with soft ambient light, calm professional aesthetic",
-            "zen workspace with laptop, warm lighting, calm professional mood",
-            "typography 'DEEP FOCUS' with minimal clean accents, muted colors",
+            "minimal abstract geometric tribal pattern, clean design, muted palette",
+            "subtle tribal mask in soft focus with gentle lighting",
+            "zen workspace with tribal elements, calm professional aesthetic",
+            "typography 'DEEP FOCUS' with minimal tribal accents, muted colors",
         ],
         "extra_tags": [
             "focusmusic", "studymusic", "workmusic",
@@ -211,10 +211,10 @@ PLAYLIST_PROFILES = {
             "soft but present from second zero, hypnotic and introspective"
         ),
         "thumbnail_style_variants": [
-            "serene natural landscape, sunset over calm lake, mountains, golden hour light",
-            "peaceful meditation scene, candles, warm ambient glow, soft bokeh",
-            "abstract spiritual imagery with warm pastel palette, gentle light rays",
-            "typography 'MEDITATION' with nature elements, soft warm colors",
+            "serene natural landscape (sunset, lake, mountain) with stylized tribal mask",
+            "peaceful meditation scene with soft tribal elements, golden hour light",
+            "abstract spiritual imagery with warm pastel palette",
+            "typography 'MEDITATION' with nature and tribal blend, soft colors",
         ],
         "extra_tags": [
             "meditationmusic", "yogamusic", "relaxation",
