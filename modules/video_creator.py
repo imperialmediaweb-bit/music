@@ -440,6 +440,12 @@ def create_multiple_shorts(
         "Type YES if you vibed 🎧",
     ]
 
+    color_tints = [
+        "",
+        "colorbalance=rs=0.15:gs=-0.05:bs=-0.1,eq=brightness=0.03:saturation=1.2",
+        "colorbalance=rs=-0.1:gs=-0.05:bs=0.15,eq=brightness=0.03:saturation=1.2",
+    ]
+
     shorts = []
     for i, start in enumerate(segments):
         safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in concept.track_name)
@@ -449,15 +455,18 @@ def create_multiple_shorts(
         bait_text = comment_baits[i % len(comment_baits)]
         safe_bait = bait_text.replace("'", "'\\''").replace(":", "\\:")
 
+        tint = color_tints[i % len(color_tints)]
+        tint_filter = f",{tint}" if tint else ""
+
         vf_filter = (
             "scale=1920:1920:force_original_aspect_ratio=increase,"
-            "crop=1080:1920,"
+            "crop=1080:1920{tint},"
             "fade=in:0:15,fade=out:st={fade_out}:d=1,"
             "drawtext=text='{bait}':"
             "fontsize=52:fontcolor=white:borderw=3:bordercolor=black:"
             "x=(w-text_w)/2:y=h-180:"
             "enable='between(t,2,8)'"
-        ).format(fade_out=duration_sec - 1, bait=safe_bait)
+        ).format(fade_out=duration_sec - 1, bait=safe_bait, tint=tint_filter)
 
         _run_ffmpeg([
             "-ss", str(start), "-t", str(duration_sec),

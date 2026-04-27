@@ -710,17 +710,22 @@ def process_single_track(mp3_path: Path, concept=None,
             post_comment(video_id, comment_text)
 
     # Step 5c: Create and upload multiple YouTube Shorts (3x 45s from different segments)
+    # Short 1 = publish now, Short 2 = +8 hours, Short 3 = +16 hours
+    # Spaced out so they don't cannibalize each other on the channel
     try:
         log.info("=" * 60)
         log.info("STEP 5c: Creating 3 YouTube Shorts from different segments...")
         short_videos = create_multiple_shorts(audio_path, thumbnail_path, concept, count=3)
         from modules.youtube_uploader import upload_short_to_youtube
+        from datetime import datetime, timezone, timedelta
 
         short_titles_variants = [
             f"{concept.track_name} 🔥 #afrohouse #shorts",
             f"{concept.track_name} Part 2 🎧 #afrohouse #shorts",
             f"{concept.track_name} Part 3 💥 #afrohouse #shorts",
         ]
+
+        short_delays_hours = [0, 8, 16]
 
         result["short_urls"] = []
         for i, short_video in enumerate(short_videos):
@@ -730,7 +735,16 @@ def process_single_track(mp3_path: Path, concept=None,
                 f"{concept.description}\n\n"
                 f"#shorts #afrohouse #deephouse #{concept.genre.lower().replace(' ', '')}"
             )
-            short_url = upload_short_to_youtube(short_video, short_title, short_desc, concept)
+
+            delay_h = short_delays_hours[i] if i < len(short_delays_hours) else 0
+            publish_at = None
+            if delay_h > 0:
+                pub_time = datetime.now(timezone.utc) + timedelta(hours=delay_h)
+                publish_at = pub_time.strftime("%Y-%m-%dT%H:%M:%S.0Z")
+                log.info(f"Short {i + 1} scheduled for {publish_at} (+{delay_h}h)")
+
+            short_url = upload_short_to_youtube(short_video, short_title, short_desc, concept,
+                                                publish_at=publish_at)
             if short_url:
                 result["short_urls"].append(short_url)
                 log.info(f"YouTube Short {i + 1} URL: {short_url}")

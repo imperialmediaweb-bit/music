@@ -774,12 +774,14 @@ def upload_short_to_youtube(
     title: str,
     description: str,
     concept: MusicConcept,
+    publish_at: str | None = None,
 ) -> str | None:
     """Upload a YouTube Short (vertical, under 60s).
 
     Shorts are regular YouTube uploads — YouTube auto-detects them as Shorts
     based on vertical format (9:16) and duration under 60 seconds.
-    No playlist, no self-certification (not monetizable separately).
+    When publish_at is set, the Short is uploaded as private and auto-publishes
+    at the given ISO 8601 timestamp.
     """
     log.info(f"Uploading YouTube Short: {title}")
 
@@ -796,6 +798,16 @@ def upload_short_to_youtube(
         "tribalhouse", "music", "newmusic",
     ]
 
+    status = {
+        "selfDeclaredMadeForKids": False,
+        "embeddable": True,
+    }
+    if publish_at:
+        status["privacyStatus"] = "private"
+        status["publishAt"] = publish_at
+    else:
+        status["privacyStatus"] = "public"
+
     body = {
         "snippet": {
             "title": title[:100],
@@ -804,11 +816,7 @@ def upload_short_to_youtube(
             "categoryId": "10",
             "defaultLanguage": "en",
         },
-        "status": {
-            "privacyStatus": "public",
-            "selfDeclaredMadeForKids": False,
-            "embeddable": True,
-        },
+        "status": status,
     }
 
     from googleapiclient.http import MediaFileUpload
