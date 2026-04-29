@@ -25,10 +25,10 @@ PLAYLIST_PROFILES = {
         ),
         "thumbnail_style_variants": [
             "tribal mask with glowing eyes, mystical atmosphere, dark cinematic background",
-            "silhouette of dancer with colorful concert lights, energetic mood",
-            "stylized African landscape at night with campfire and acacia trees",
-            "bold typography design with large track name, minimal imagery, solid accent color",
-            "close-up traditional African instruments (djembe, kora) with dramatic lighting",
+            "ornate African ceremonial mask, gold and bronze metallic textures, dramatic lighting",
+            "fierce tribal warrior mask with intricate carvings, glowing energy, dark background",
+            "ancient African mask with colorful beads and feathers, spiritual atmosphere, dark",
+            "wooden tribal mask with geometric patterns, fire reflections, mystical dark scene",
         ],
         "extra_tags": [
             "afrohouse", "deephouse", "tribalhouse", "africanmusic",
@@ -71,10 +71,10 @@ PLAYLIST_PROFILES = {
             "intense rhythm throughout"
         ),
         "thumbnail_style_variants": [
-            "silhouette of athlete in motion with tribal elements, intense lighting",
-            "tribal warrior mask with glowing red energy effects, powerful atmosphere",
-            "abstract explosion of energy with tribal drums, motion blur",
-            "bold typography 'GYM BEATS' with aggressive design, red and black",
+            "aggressive tribal war mask with glowing red eyes, fire energy, intense dark background",
+            "fierce African battle mask, metallic bronze and red, powerful explosive atmosphere",
+            "tribal warrior mask with sharp edges, glowing ember effects, dark aggressive mood",
+            "ancient war mask with scars and tribal markings, red energy aura, dark cinematic",
         ],
         "extra_tags": [
             "gymmusic", "workoutmusic", "trainingmusic",
@@ -118,10 +118,10 @@ PLAYLIST_PROFILES = {
             "car bass, sub-bass impact"
         ),
         "thumbnail_style_variants": [
-            "night road with headlights, highway, city lights in distance, cinematic",
-            "car on empty highway at night with tribal mask in sky reflection",
-            "dashboard view at night with starry sky and subtle tribal elements",
-            "bold 'NIGHT DRIVE' typography with road and lights theme",
+            "tribal mask floating above night highway, headlights reflecting, cinematic dark",
+            "mysterious African mask with glowing blue eyes, night city lights in background",
+            "dark tribal mask with neon reflections, moonlit atmosphere, deep blue tones",
+            "ornate mask with chrome and blue metallic finish, night sky stars, cinematic mood",
         ],
         "extra_tags": [
             "drivingmusic", "nightdrive", "roadtripmusic",
@@ -165,10 +165,10 @@ PLAYLIST_PROFILES = {
             "gentle entry in first 5 seconds but present from start"
         ),
         "thumbnail_style_variants": [
-            "minimal abstract geometric tribal pattern, clean design, muted palette",
-            "subtle tribal mask in soft focus with gentle lighting",
-            "zen workspace with tribal elements, calm professional aesthetic",
-            "typography 'DEEP FOCUS' with minimal tribal accents, muted colors",
+            "serene tribal mask with closed eyes, soft golden glow, calm dark background",
+            "minimalist African mask with smooth clean lines, muted earth tones, zen atmosphere",
+            "elegant tribal mask with subtle geometric patterns, warm ambient light, peaceful",
+            "ancient meditation mask with third eye symbol, soft purple glow, tranquil dark scene",
         ],
         "extra_tags": [
             "focusmusic", "studymusic", "workmusic",
@@ -211,10 +211,10 @@ PLAYLIST_PROFILES = {
             "soft but present from second zero, hypnotic and introspective"
         ),
         "thumbnail_style_variants": [
-            "serene natural landscape (sunset, lake, mountain) with stylized tribal mask",
-            "peaceful meditation scene with soft tribal elements, golden hour light",
-            "abstract spiritual imagery with warm pastel palette",
-            "typography 'MEDITATION' with nature and tribal blend, soft colors",
+            "spiritual tribal mask with peaceful expression, golden sunset glow, warm atmosphere",
+            "healing African mask with soft light rays, nature elements, warm earth tones",
+            "ancient ceremonial mask with feathers, candlelight glow, serene dark background",
+            "mystical tribal mask with closed eyes, soft pastel aura, peaceful spiritual mood",
         ],
         "extra_tags": [
             "meditationmusic", "yogamusic", "relaxation",
