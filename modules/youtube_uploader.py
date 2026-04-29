@@ -24,7 +24,8 @@ from utils.browser import get_browser_context, save_cookies
 from utils.logger import log
 
 # OAuth2 scopes — full youtube scope for upload + playlist management
-SCOPES = ["https://www.googleapis.com/auth/youtube"]
+SCOPES = ["https://www.googleapis.com/auth/youtube",
+          "https://www.googleapis.com/auth/youtube.force-ssl"]
 
 # Paths for OAuth credentials
 CLIENT_SECRETS_FILE = BASE_DIR / "client_secrets.json"
@@ -43,10 +44,11 @@ def _get_authenticated_service():
             credentials = pickle.load(f)
         log.info(f"YouTube token loaded from {TOKEN_FILE}")
 
-        # Check if saved token has the required scopes
+        # Check scopes BEFORE anything else — if wrong, delete and re-auth
         saved_scopes = getattr(credentials, "scopes", None) or set()
-        if credentials.valid and not set(SCOPES).issubset(saved_scopes):
+        if not set(SCOPES).issubset(saved_scopes):
             log.warning(f"Token scopes mismatch. Have: {saved_scopes}, need: {SCOPES}")
+            log.info("Deleting old token — will re-authenticate with correct scopes")
             TOKEN_FILE.unlink(missing_ok=True)
             credentials = None
 
