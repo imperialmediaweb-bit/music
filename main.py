@@ -1043,7 +1043,10 @@ def cmd_run(args):
     songs = args.songs or SONGS_PER_CLIP
     gen_count = args.gens
     fusion = getattr(args, "fusion", False)
+    playlist_profile = getattr(args, "playlist", "") or ""
     label = f"{count} clip(s) on {platform} ({songs} songs each, {gen_count} gen(s))"
+    if playlist_profile:
+        label += f" [{playlist_profile}]"
     if fusion:
         label += " [FUSION]"
     log.info(f"Running full pipeline for {label}...")
@@ -1054,7 +1057,8 @@ def cmd_run(args):
         log.info(f"CLIP {i}/{count}")
         log.info(f"{'#' * 60}")
         try:
-            result = _run_full_pipeline(gen_count=gen_count, platform=platform, songs=songs, fusion=fusion)
+            result = _run_full_pipeline(gen_count=gen_count, platform=platform, songs=songs,
+                                        fusion=fusion, profile_name=playlist_profile)
             if result["errors"]:
                 total_errors += 1
                 log.warning(f"Clip {i} had errors: {result['errors']}")
@@ -1692,6 +1696,10 @@ def main():
     run_parser.add_argument(
         "--fusion", action="store_true", default=False,
         help="Use fusion concept generator (Afro House × another genre)",
+    )
+    run_parser.add_argument(
+        "--playlist", choices=["main", "gym", "driving", "focus", "meditation"], default="",
+        help="Playlist profile to use (default: auto from weekly plan)",
     )
     run_parser.set_defaults(func=cmd_run)
 
