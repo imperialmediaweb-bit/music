@@ -24,11 +24,11 @@ PLAYLIST_PROFILES = {
             "full mix energy, classic tribal afro house, deep bass, spiritual groove"
         ),
         "thumbnail_style_variants": [
-            "tribal mask with glowing eyes, mystical atmosphere, dark cinematic background",
-            "ornate African ceremonial mask, gold and bronze metallic textures, dramatic lighting",
-            "fierce tribal warrior mask with intricate carvings, glowing energy, dark background",
-            "ancient African mask with colorful beads and feathers, spiritual atmosphere, dark",
-            "wooden tribal mask with geometric patterns, fire reflections, mystical dark scene",
+            "oil painting of an authentic African tribal mask, carved dark wood with rich patina, cowrie shells and bone beads, warm amber side lighting, deep brown background, sacred ancestral mood, hyper-realistic, no text, 4K",
+            "photorealistic African face portrait with closed eyes, tribal scarification dots, woven geometric halo headdress, warm golden-brown tones, Renaissance painting lighting, no text, 4K",
+            "hyper-realistic Dogon ceremonial mask, intricate wood carvings, natural feathers and raffia fiber, brass ornaments, warm ochre and bronze tones, dark umber background, museum-quality oil painting, no text, 4K",
+            "realistic African ancestral mask with geometric patterns, copper and gold inlays, cowrie shell crown, warm dramatic candlelight, deep brown atmosphere, fine art style, no text, 4K",
+            "oil painting of a Yoruba ritual mask, polished dark wood, beaded crown with natural stones, tribal face paint in ochre and white kaolin, warm amber lighting, sacred spiritual mood, no text, 4K",
         ],
         "extra_tags": [
             "afrohouse", "deephouse", "tribalhouse", "africanmusic",
@@ -71,10 +71,10 @@ PLAYLIST_PROFILES = {
             "intense rhythm throughout"
         ),
         "thumbnail_style_variants": [
-            "aggressive tribal war mask with glowing red eyes, fire energy, intense dark background",
-            "fierce African battle mask, metallic bronze and red, powerful explosive atmosphere",
-            "tribal warrior mask with sharp edges, glowing ember effects, dark aggressive mood",
-            "ancient war mask with scars and tribal markings, red energy aura, dark cinematic",
+            "oil painting of a fierce African warrior mask, carved hardwood with battle scars, red ochre war paint, bone and iron ornaments, warm firelight, deep dark brown background, hyper-realistic, no text, 4K",
+            "photorealistic Chokwe battle mask, angular aggressive carvings, copper studs and animal teeth, warm red-bronze tones, dramatic side lighting like a Caravaggio painting, no text, 4K",
+            "hyper-realistic tribal war mask with sharp geometric patterns, iron and brass details, raffia mane, intense warm ember lighting, dark umber background, museum oil painting style, no text, 4K",
+            "oil painting of an ancient African warrior face with ritual scars, tribal crown of feathers and bone, red and brown earth tones, powerful sacred mood, Renaissance chiaroscuro lighting, no text, 4K",
         ],
         "extra_tags": [
             "gymmusic", "workoutmusic", "trainingmusic",
@@ -118,10 +118,10 @@ PLAYLIST_PROFILES = {
             "car bass, sub-bass impact"
         ),
         "thumbnail_style_variants": [
-            "tribal mask floating above night highway, headlights reflecting, cinematic dark",
-            "mysterious African mask with glowing blue eyes, night city lights in background",
-            "dark tribal mask with neon reflections, moonlit atmosphere, deep blue tones",
-            "ornate mask with chrome and blue metallic finish, night sky stars, cinematic mood",
+            "oil painting of a serene African mask, carved dark wood with smooth finish, deep indigo and midnight blue tones, soft moonlight glow, warm brown background, contemplative mood, hyper-realistic, no text, 4K",
+            "photorealistic Baule mask with polished wood grain, subtle blue-bronze patina, cowrie shells, warm night atmosphere with deep amber and indigo, fine art painting style, no text, 4K",
+            "hyper-realistic African ancestral mask, dark mahogany wood, turquoise stone inlays, brass wire details, warm golden-blue twilight tones, oil painting style, no text, 4K",
+            "oil painting of a mysterious Fang mask, sleek dark wood with bronze highlights, deep warm tones with hints of blue, sacred night ritual mood, Renaissance lighting, no text, 4K",
         ],
         "extra_tags": [
             "drivingmusic", "nightdrive", "roadtripmusic",
@@ -165,10 +165,10 @@ PLAYLIST_PROFILES = {
             "gentle entry in first 5 seconds but present from start"
         ),
         "thumbnail_style_variants": [
-            "serene tribal mask with closed eyes, soft golden glow, calm dark background",
-            "minimalist African mask with smooth clean lines, muted earth tones, zen atmosphere",
-            "elegant tribal mask with subtle geometric patterns, warm ambient light, peaceful",
-            "ancient meditation mask with third eye symbol, soft purple glow, tranquil dark scene",
+            "oil painting of a serene African face portrait with closed eyes, tribal dots on cheeks, smooth skin, woven circular halo, warm golden-brown tones, soft ambient light, peaceful sacred mood, no text, 4K",
+            "hyper-realistic Punu mask with smooth white kaolin finish, delicate scarification lines, calm expression, warm ochre and cream tones, soft Renaissance lighting, museum oil painting, no text, 4K",
+            "photorealistic African meditation mask, polished light wood, minimalist geometric patterns, gentle warm amber glow, deep brown background, serene contemplative mood, fine art style, no text, 4K",
+            "oil painting of an elegant Baule portrait mask, smooth curved features, subtle gold leaf accents, warm earth tones, soft candlelight, tranquil spiritual atmosphere, no text, 4K",
         ],
         "extra_tags": [
             "focusmusic", "studymusic", "workmusic",
@@ -211,10 +211,10 @@ PLAYLIST_PROFILES = {
             "soft but present from second zero, hypnotic and introspective"
         ),
         "thumbnail_style_variants": [
-            "spiritual tribal mask with peaceful expression, golden sunset glow, warm atmosphere",
-            "healing African mask with soft light rays, nature elements, warm earth tones",
-            "ancient ceremonial mask with feathers, candlelight glow, serene dark background",
-            "mystical tribal mask with closed eyes, soft pastel aura, peaceful spiritual mood",
+            "oil painting of a spiritual African healing mask, warm wood with golden patina, natural feathers and dried flowers, soft sunset amber light, warm earth tone background, peaceful ancestral mood, no text, 4K",
+            "photorealistic African face portrait with closed eyes and peaceful smile, ritual ochre dots, woven grass crown, warm honey and brown tones, soft glowing light, fine art oil painting, no text, 4K",
+            "hyper-realistic ceremonial Songye mask, smooth carved wood, cowrie shell details, feather headdress, warm candlelight glow, deep brown background, sacred healing atmosphere, no text, 4K",
+            "oil painting of a Makonde spirit mask, organic flowing wood grain, subtle earth-tone pigments, natural fibers, warm golden hour lighting, serene meditative mood, museum quality, no text, 4K",
         ],
         "extra_tags": [
             "meditationmusic", "yogamusic", "relaxation",
