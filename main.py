@@ -56,7 +56,8 @@ def _get_music_generator(platform: str):
 
 def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = None,
                        genre: str = "", music_style: str = "", thumbnail_style: str = "",
-                       fusion: bool = False, profile_name: str = ""):
+                       fusion: bool = False, profile_name: str = "",
+                       target_minutes: int = 0):
     """Full pipeline: generate music → merge → thumbnail → video → upload.
 
     Args:
@@ -69,6 +70,8 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
         fusion: If True, use the fusion concept generator (Afro House × another genre).
         profile_name: Playlist profile ("main", "gym", "driving", "focus",
             "meditation"). If empty, uses today's profile from WEEKLY_PLAN.
+        target_minutes: Target duration in minutes. If set, overrides profile's
+            fresh_count/archive_count to hit this duration.
     """
     from modules.audio_merger import merge_mp3s, merge_mp3s_crossfade, trim_quiet_intro
     from modules.archive_manager import archive_mp3s, pick_from_archive, archive_size
@@ -86,10 +89,14 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
     log.info(f"Playlist profile: {profile_name} ({profile['label']})")
 
     # Use profile's fresh_count as default (gen_count=0 means "use profile")
+    # Each generation = 2 MP3s, each MP3 ≈ 2 min
     if songs:
         gen_count = max(1, songs // 2)
     elif gen_count <= 0:
-        gen_count = profile.get("fresh_count", 2)
+        if target_minutes > 0:
+            gen_count = max(2, target_minutes // 8)
+        else:
+            gen_count = profile.get("fresh_count", 2)
 
     # Profile feeds into existing generate_concept params (only if not overridden)
     if not music_style and profile.get("suno_prompt_addition"):
@@ -140,8 +147,13 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
     # Hybrid mode: add archived MP3s if pool is large enough
     archive_mp3s_list = []
     if profile.get("hybrid") and archive_size() >= profile.get("archive_min_pool", 12):
-        want = profile.get("archive_count", 2)
-        archive_mp3s_list = pick_from_archive(want, exclude_files=mp3_files)
+        if target_minutes > 0:
+            fresh_minutes = len(mp3_files) * 2
+            want = max(0, (target_minutes - fresh_minutes) // 2)
+        else:
+            want = profile.get("archive_count", 2)
+        if want > 0:
+            archive_mp3s_list = pick_from_archive(want, exclude_files=mp3_files)
         if archive_mp3s_list:
             log.info(f"Hybrid mode: {len(mp3_files)} fresh + {len(archive_mp3s_list)} from archive")
             mp3_files = mp3_files + archive_mp3s_list
@@ -1044,7 +1056,10 @@ def cmd_run(args):
     gen_count = args.gens
     fusion = getattr(args, "fusion", False)
     playlist_profile = getattr(args, "playlist", "") or ""
+    target_minutes = getattr(args, "target_minutes", 0) or 0
     label = f"{count} clip(s) on {platform} ({songs} songs each, {gen_count} gen(s))"
+    if target_minutes:
+        label += f" [~{target_minutes}min]"
     if playlist_profile:
         label += f" [{playlist_profile}]"
     if fusion:
@@ -1058,7 +1073,8 @@ def cmd_run(args):
         log.info(f"{'#' * 60}")
         try:
             result = _run_full_pipeline(gen_count=gen_count, platform=platform, songs=songs,
-                                        fusion=fusion, profile_name=playlist_profile)
+                                        fusion=fusion, profile_name=playlist_profile,
+                                        target_minutes=target_minutes)
             if result["errors"]:
                 total_errors += 1
                 log.warning(f"Clip {i} had errors: {result['errors']}")
@@ -1227,13 +1243,11 @@ def cmd_autostart(args):
     ))
     task_prefix = "LUTH_Music_Pipeline"
 
-    # (hour, minute, gen_count, extra_cli_args) — use cli_args="__FLUSH__"
-    # for the late-day flush-pending slot (Suno split-upload second half).
+    # (hour, minute, gen_count, extra_cli_args)
+    # 2x/day: long track at 18:00 (~50 min), short track at 23:00 (~20 min)
     SCHEDULE_SLOTS = [
-        (13, 0,  1, "--fusion"),   # 13:00 → FUSION: Afro House × another genre
-        (16, 15, 2, ""),           # 16:15 → 2 gen = 4 MP3s
-        (18, 0,  0, "__FLUSH__"),  # 18:00 → flush pending (Suno split 2nd half)
-        (19, 0,  4, ""),           # 19:00 → 4 gen = 8 MP3s
+        (18, 0, 0, "--target-minutes 50"),   # 18:00 → long track (~50 min)
+        (23, 0, 0, "--target-minutes 20"),   # 23:00 → short track (~20 min)
     ]
 
     def _cleanup_all():
@@ -1298,7 +1312,9 @@ def cmd_autostart(args):
         if extra_args == "__FLUSH__":
             cli_args = "flush-pending"
         else:
-            cli_args = f"run -g {gen_count}"
+            cli_args = f"run"
+            if gen_count > 0:
+                cli_args += f" -g {gen_count}"
             if extra_args:
                 cli_args += f" {extra_args}"
 
@@ -1306,11 +1322,9 @@ def cmd_autostart(args):
         ps1_name = f"music_pipeline_slot_{i}.ps1"
         ps1_path = Path(project_dir) / ps1_name
         if extra_args == "__FLUSH__":
-            slot_label = "flush-pending (Suno split 2nd half)"
-        elif extra_args == "--fusion":
-            slot_label = f"{gen_count} generation(s) [FUSION]"
+            slot_label = "flush-pending"
         else:
-            slot_label = f"{gen_count} generation(s)"
+            slot_label = extra_args or f"{gen_count} generation(s)"
         ps1_lines = [
             f'# LUTH Music Pipeline — Slot {i} ({hour}:{minute:02d})',
             f'# {slot_label}',
@@ -1353,9 +1367,7 @@ def cmd_autostart(args):
             if extra_args == "__FLUSH__":
                 label = f"{time_str} → flush-pending"
             else:
-                label = f"{time_str} → {gen_count} gen"
-                if extra_args == "--fusion":
-                    label += " [FUSION]"
+                label = f"{time_str} → {slot_label}"
             log.info(f"Task '{task_name}' created: {label}")
         else:
             log.error(f"Failed to create task '{task_name}': {result.stderr.strip()}")
@@ -1369,13 +1381,11 @@ def cmd_autostart(args):
 
 
 def cmd_schedule(args):
-    """Schedule 7 clips per week — one per day, each with a playlist profile.
+    """Schedule 2 clips per day — long (18:00) + short (23:00).
 
     Default schedule (Europe/Bucharest timezone):
-      MON 18:00 — gym       THU 18:00 — main
-      TUE 18:00 — main      FRI 19:00 — driving
-      WED 18:00 — focus     SAT 14:00 — meditation
-                             SUN 12:00 — main
+      Every day 18:00 — long track (40-60 min), alternating profiles
+      Every day 23:00 — short track (20 min), alternating profiles
 
     Uses misfire_grace_time=3600 so jobs still run even if the PC
     wakes from sleep up to 1 hour late.
@@ -1429,16 +1439,23 @@ def cmd_schedule(args):
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-    # 7x/week: one upload per day, each with a playlist profile.
-    # (day_of_week, hour, minute, gen_count, profile_name)
+    # 2x/day: long track at 18:00 (40-60 min) + short track at 23:00 (20 min)
+    # (day_of_week, hour, minute, gen_count, profile_name, target_minutes)
     WEEKLY_SCHEDULE = [
-        ("mon", 18, 0, 0, "gym"),
-        ("tue", 18, 0, 0, "main"),
-        ("wed", 18, 0, 0, "focus"),
-        ("thu", 18, 0, 0, "main"),
-        ("fri", 19, 0, 0, "driving"),
-        ("sat", 14, 0, 0, "meditation"),
-        ("sun", 12, 0, 0, "main"),
+        ("mon", 18, 0, 0, "gym",        50),
+        ("mon", 23, 0, 0, "main",       20),
+        ("tue", 18, 0, 0, "main",       50),
+        ("tue", 23, 0, 0, "focus",      20),
+        ("wed", 18, 0, 0, "focus",      50),
+        ("wed", 23, 0, 0, "gym",        20),
+        ("thu", 18, 0, 0, "driving",    50),
+        ("thu", 23, 0, 0, "main",       20),
+        ("fri", 18, 0, 0, "main",       50),
+        ("fri", 23, 0, 0, "driving",    20),
+        ("sat", 18, 0, 0, "meditation", 50),
+        ("sat", 23, 0, 0, "main",       20),
+        ("sun", 18, 0, 0, "main",       50),
+        ("sun", 23, 0, 0, "meditation", 20),
     ]
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
@@ -1466,22 +1483,23 @@ def cmd_schedule(args):
     else:
         clips_per_week = args.clips or len(WEEKLY_SCHEDULE)
         selected_slots = WEEKLY_SCHEDULE[:clips_per_week]
-        for i, (dow, hour, minute, gen_count, profile) in enumerate(selected_slots):
+        for i, (dow, hour, minute, gen_count, profile, tgt_min) in enumerate(selected_slots):
             scheduler.add_job(
                 _run_full_pipeline,
                 CronTrigger(day_of_week=dow, hour=hour, minute=minute,
                             timezone=TIMEZONE),
-                kwargs={"gen_count": gen_count, "profile_name": profile},
+                kwargs={"gen_count": gen_count, "profile_name": profile,
+                         "target_minutes": tgt_min},
                 id=f"music_pipeline_{i + 1}",
-                name=f"{dow.upper()} {hour}:{minute:02d} — {profile} ({gen_count} gen)",
+                name=f"{dow.upper()} {hour}:{minute:02d} — {profile} (~{tgt_min}min)",
                 misfire_grace_time=MISFIRE_GRACE,
                 coalesce=True,
             )
         schedule_desc = ", ".join(
-            f"{dow.upper()} {h}:{m:02d} ({prof})"
-            for dow, h, m, g, prof in selected_slots
+            f"{dow.upper()} {h}:{m:02d} ({prof} ~{t}min)"
+            for dow, h, m, g, prof, t in selected_slots
         )
-        log.info(f"Scheduled {len(selected_slots)} clips/week: {schedule_desc}")
+        log.info(f"Scheduled {len(selected_slots)} slots/week: {schedule_desc}")
         log.info(f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s")
 
         # Auto-reply to comments 2x/day (10:00 and 20:00)
@@ -1700,6 +1718,10 @@ def main():
     run_parser.add_argument(
         "--playlist", choices=["main", "gym", "driving", "focus", "meditation"], default="",
         help="Playlist profile to use (default: auto from weekly plan)",
+    )
+    run_parser.add_argument(
+        "--target-minutes", type=int, default=0,
+        help="Target track duration in minutes (overrides profile defaults)",
     )
     run_parser.set_defaults(func=cmd_run)
 
