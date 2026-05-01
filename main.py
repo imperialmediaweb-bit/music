@@ -1322,7 +1322,7 @@ def cmd_autostart(args):
         if extra_args == "__FLUSH__":
             slot_label = "flush-pending"
         else:
-            slot_label = extra_args or f"{gen_count} generation(s)"
+            slot_label = extra_args or "auto (profile-driven)"
         ps1_lines = [
             f'# LUTH Music Pipeline — Slot {i} ({hour}:{minute:02d})',
             f'# {slot_label}',
