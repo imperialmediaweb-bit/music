@@ -48,6 +48,8 @@ THUMBNAIL_STYLE_PROMPT = os.getenv("THUMBNAIL_STYLE_PROMPT", "")
 
 # Skip TuneCore upload in the pipeline (set to "true" to disable)
 SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "false").lower() == "true"
+TUNECORE_EMAIL = os.getenv("TUNECORE_EMAIL", "")
+TUNECORE_PASSWORD = os.getenv("TUNECORE_PASSWORD", "")
 
 # Skip SoundCloud upload in the pipeline (disabled by default — uploads kept failing)
 SKIP_SOUNDCLOUD = os.getenv("SKIP_SOUNDCLOUD", "true").lower() == "true"

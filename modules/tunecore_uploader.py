@@ -26,7 +26,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from modules.concept_generator import MusicConcept
-from config import TUNECORE_STATE_FILE, HEADLESS
+from config import TUNECORE_STATE_FILE, HEADLESS, TUNECORE_EMAIL, TUNECORE_PASSWORD
 from utils.logger import log
 
 TUNECORE_BASE = "https://web.tunecore.com"
@@ -189,11 +189,18 @@ def continue_tunecore_draft(
     log.info(f"Continuing TuneCore draft: {track_name}")
 
     if not TUNECORE_STATE_FILE.exists():
-        log.error(
-            f"TuneCore session not found: {TUNECORE_STATE_FILE}\n"
-            "Run: python main.py tunecore-login"
-        )
-        return None
+        if TUNECORE_EMAIL and TUNECORE_PASSWORD:
+            log.info("TuneCore session not found — will auto-login with credentials")
+            _bootstrap_tunecore_session()
+            if not TUNECORE_STATE_FILE.exists():
+                log.error("TuneCore auto-login failed to create session file")
+                return None
+        else:
+            log.error(
+                f"TuneCore session not found: {TUNECORE_STATE_FILE}\n"
+                "Run: python main.py tunecore-login"
+            )
+            return None
 
     concept = MusicConcept(
         track_name=track_name,
@@ -282,11 +289,18 @@ def upload_to_tunecore(
     log.info(f"Uploading to TuneCore: {concept.track_name}")
 
     if not TUNECORE_STATE_FILE.exists():
-        log.error(
-            f"TuneCore session not found: {TUNECORE_STATE_FILE}\n"
-            "Run: python main.py tunecore-login"
-        )
-        return None
+        if TUNECORE_EMAIL and TUNECORE_PASSWORD:
+            log.info("TuneCore session not found — will auto-login with credentials")
+            _bootstrap_tunecore_session()
+            if not TUNECORE_STATE_FILE.exists():
+                log.error("TuneCore auto-login failed to create session file")
+                return None
+        else:
+            log.error(
+                f"TuneCore session not found: {TUNECORE_STATE_FILE}\n"
+                "Run: python main.py tunecore-login"
+            )
+            return None
 
     if not wav_path.exists():
         log.error(f"WAV file not found: {wav_path}")
@@ -1729,10 +1743,89 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
     log.warning(f"Upload wait timed out after {timeout}s — continuing anyway")
 
 
-def _check_login(page) -> bool:
-    """Check if we're still logged in (not redirected to login page)."""
+def _bootstrap_tunecore_session():
+    """Create a fresh TuneCore session file by logging in from scratch."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=HEADLESS,
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(viewport={"width": 1920, "height": 1080})
+        context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+            window.chrome = { runtime: {} };
+        """)
+        page = context.new_page()
+        try:
+            ok = _auto_login(page, context)
+            if not ok:
+                log.error("TuneCore bootstrap login failed")
+        finally:
+            browser.close()
+
+
+def _auto_login(page, context) -> bool:
+    """Log in to TuneCore using email/password credentials and save session."""
+    if not TUNECORE_EMAIL or not TUNECORE_PASSWORD:
+        log.error("TuneCore auto-login failed: TUNECORE_EMAIL / TUNECORE_PASSWORD not set in .env")
+        return False
+
+    log.info("TuneCore session expired — attempting auto-login...")
+    try:
+        page.goto(f"{TUNECORE_BASE}/login", wait_until="domcontentloaded", timeout=30_000)
+        page.wait_for_timeout(2000)
+
+        email_sel = 'input[name="email"], input[type="email"], input[id*="email"], input[placeholder*="mail"]'
+        pass_sel = 'input[name="password"], input[type="password"], input[id*="password"]'
+
+        email_input = page.locator(email_sel).first
+        email_input.wait_for(state="visible", timeout=10_000)
+        email_input.click()
+        email_input.fill(TUNECORE_EMAIL)
+        page.wait_for_timeout(500)
+
+        pass_input = page.locator(pass_sel).first
+        pass_input.wait_for(state="visible", timeout=5_000)
+        pass_input.click()
+        pass_input.fill(TUNECORE_PASSWORD)
+        page.wait_for_timeout(500)
+
+        submit = page.locator(
+            'button[type="submit"], button:has-text("Log In"), '
+            'button:has-text("Sign In"), input[type="submit"]'
+        ).first
+        submit.click()
+        page.wait_for_timeout(5000)
+
+        url = page.url.lower()
+        if "/login" in url or "/sign" in url:
+            log.error("TuneCore auto-login failed — still on login page")
+            page.screenshot(path="output/tunecore_autologin_fail.png")
+            return False
+
+        log.info(f"TuneCore auto-login successful: {page.url}")
+        context.storage_state(path=str(TUNECORE_STATE_FILE))
+        log.info(f"Session saved to {TUNECORE_STATE_FILE}")
+        return True
+    except Exception as e:
+        log.error(f"TuneCore auto-login error: {e}")
+        page.screenshot(path="output/tunecore_autologin_error.png")
+        return False
+
+
+def _check_login(page, context=None) -> bool:
+    """Check if we're still logged in. Attempts auto-login if session expired."""
     url = page.url.lower()
     if "/login" in url or "/sign" in url:
+        if context and _auto_login(page, context):
+            page.goto(f"{TUNECORE_BASE}/dashboard", wait_until="domcontentloaded", timeout=30_000)
+            page.wait_for_timeout(3000)
+            new_url = page.url.lower()
+            if "/login" not in new_url and "/sign" not in new_url:
+                return True
+            log.error("TuneCore: still redirected after auto-login")
+            return False
         log.error("TuneCore session expired — run: python main.py tunecore-login")
         page.screenshot(path="output/tunecore_login_redirect.png")
         return False
@@ -1934,7 +2027,7 @@ def _do_upload(
             page.goto(f"{TUNECORE_BASE}/dashboard", wait_until="domcontentloaded", timeout=30_000)
             page.wait_for_timeout(3000)
 
-            if not _check_login(page):
+            if not _check_login(page, context):
                 return None
             log.info(f"  Logged in: {page.url}")
 
