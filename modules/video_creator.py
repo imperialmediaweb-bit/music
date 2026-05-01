@@ -403,11 +403,13 @@ def create_short_video(
     _run_ffmpeg([
         "-ss", str(start), "-t", str(duration_sec),
         "-i", str(audio_path),
-        "-loop", "1", "-i", str(thumbnail_path),
+        "-loop", "1", "-t", str(duration_sec),
+        "-i", str(thumbnail_path),
         "-vf", vf_filter,
         "-c:v", "libx264", "-preset", "medium", "-crf", "23",
         "-c:a", "aac", "-b:a", "192k",
-        "-shortest", "-pix_fmt", "yuv420p",
+        "-map", "0:a", "-map", "1:v",
+        "-pix_fmt", "yuv420p",
         str(short_path),
     ], label="short video")
 
@@ -471,11 +473,13 @@ def create_multiple_shorts(
         _run_ffmpeg([
             "-ss", str(start), "-t", str(duration_sec),
             "-i", str(audio_path),
-            "-loop", "1", "-i", str(thumbnail_path),
+            "-loop", "1", "-t", str(duration_sec),
+            "-i", str(thumbnail_path),
             "-vf", vf_filter,
             "-c:v", "libx264", "-preset", "medium", "-crf", "23",
             "-c:a", "aac", "-b:a", "192k",
-            "-shortest", "-pix_fmt", "yuv420p",
+            "-map", "0:a", "-map", "1:v",
+            "-pix_fmt", "yuv420p",
             str(short_path),
         ], label=f"short video {i + 1}/{len(segments)}")
 
