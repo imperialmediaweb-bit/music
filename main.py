@@ -1243,11 +1243,9 @@ def cmd_autostart(args):
     ))
     task_prefix = "LUTH_Music_Pipeline"
 
-    # (hour, minute, gen_count, extra_cli_args)
-    # 2x/day: long track at 18:00 (~50 min), short track at 23:00 (~20 min)
+    # 1x/day at 18:00 — duration varies by day (handled by scheduler profile)
     SCHEDULE_SLOTS = [
-        (18, 0, 0, "--target-minutes 50"),   # 18:00 → long track (~50 min)
-        (23, 0, 0, "--target-minutes 20"),   # 23:00 → short track (~20 min)
+        (18, 0, 0, ""),   # 18:00 → profile + duration from scheduler
     ]
 
     def _cleanup_all():
@@ -1381,11 +1379,13 @@ def cmd_autostart(args):
 
 
 def cmd_schedule(args):
-    """Schedule 2 clips per day — long (18:00) + short (23:00).
+    """Schedule 1 clip per day at 18:00 with varying durations.
 
     Default schedule (Europe/Bucharest timezone):
-      Every day 18:00 — long track (40-60 min), alternating profiles
-      Every day 23:00 — short track (20 min), alternating profiles
+      MON 18:00 — gym (50min)         FRI 18:00 — main (30min)
+      TUE 18:00 — main (20min)        SAT 18:00 — meditation (40min)
+      WED 18:00 — focus (40min)       SUN 18:00 — main (20min)
+      THU 18:00 — driving (50min)
 
     Uses misfire_grace_time=3600 so jobs still run even if the PC
     wakes from sleep up to 1 hour late.
@@ -1439,23 +1439,16 @@ def cmd_schedule(args):
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-    # 2x/day: long track at 18:00 (40-60 min) + short track at 23:00 (20 min)
+    # 1x/day at 18:00, alternating profiles and durations
     # (day_of_week, hour, minute, gen_count, profile_name, target_minutes)
     WEEKLY_SCHEDULE = [
         ("mon", 18, 0, 0, "gym",        50),
-        ("mon", 23, 0, 0, "main",       20),
-        ("tue", 18, 0, 0, "main",       50),
-        ("tue", 23, 0, 0, "focus",      20),
-        ("wed", 18, 0, 0, "focus",      50),
-        ("wed", 23, 0, 0, "gym",        20),
+        ("tue", 18, 0, 0, "main",       20),
+        ("wed", 18, 0, 0, "focus",      40),
         ("thu", 18, 0, 0, "driving",    50),
-        ("thu", 23, 0, 0, "main",       20),
-        ("fri", 18, 0, 0, "main",       50),
-        ("fri", 23, 0, 0, "driving",    20),
-        ("sat", 18, 0, 0, "meditation", 50),
-        ("sat", 23, 0, 0, "main",       20),
-        ("sun", 18, 0, 0, "main",       50),
-        ("sun", 23, 0, 0, "meditation", 20),
+        ("fri", 18, 0, 0, "main",       30),
+        ("sat", 18, 0, 0, "meditation", 40),
+        ("sun", 18, 0, 0, "main",       20),
     ]
 
     # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
