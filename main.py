@@ -1382,10 +1382,10 @@ def cmd_schedule(args):
     """Schedule 1 clip per day at 18:00 with varying durations.
 
     Default schedule (Europe/Bucharest timezone):
-      MON 18:00 — gym (50min)         FRI 18:00 — main (30min)
-      TUE 18:00 — main (20min)        SAT 18:00 — meditation (40min)
-      WED 18:00 — focus (40min)       SUN 18:00 — main (20min)
-      THU 18:00 — driving (50min)
+      MON 18:00 — gym (40min)         FRI 18:00 — main (25min)
+      TUE 18:00 — main (20min)        SAT 18:00 — meditation (30min)
+      WED 18:00 — focus (30min)       SUN 18:00 — main (20min)
+      THU 18:00 — driving (40min)
 
     Uses misfire_grace_time=3600 so jobs still run even if the PC
     wakes from sleep up to 1 hour late.
@@ -1439,15 +1439,15 @@ def cmd_schedule(args):
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-    # 1x/day at 18:00, alternating profiles and durations
+    # 1x/day at 18:00, alternating profiles and durations (20-40 min)
     # (day_of_week, hour, minute, gen_count, profile_name, target_minutes)
     WEEKLY_SCHEDULE = [
-        ("mon", 18, 0, 0, "gym",        50),
+        ("mon", 18, 0, 0, "gym",        40),
         ("tue", 18, 0, 0, "main",       20),
-        ("wed", 18, 0, 0, "focus",      40),
-        ("thu", 18, 0, 0, "driving",    50),
-        ("fri", 18, 0, 0, "main",       30),
-        ("sat", 18, 0, 0, "meditation", 40),
+        ("wed", 18, 0, 0, "focus",      30),
+        ("thu", 18, 0, 0, "driving",    40),
+        ("fri", 18, 0, 0, "main",       25),
+        ("sat", 18, 0, 0, "meditation", 30),
         ("sun", 18, 0, 0, "main",       20),
     ]
 
