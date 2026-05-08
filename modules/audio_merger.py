@@ -276,7 +276,7 @@ def merge_mp3s_crossfade(mp3_files: list[Path], output_name: str = "merged",
          "-map", last_label,
          "-c:a", "libmp3lame", "-b:a", "192k",
          str(output_path)],
-        capture_output=True, text=True, timeout=600,
+        capture_output=True, text=True, timeout=1800,
     )
 
     if result.returncode != 0:

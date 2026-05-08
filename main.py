@@ -144,12 +144,18 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
                  track_name=concept.track_name,
                  tags=profile.get("extra_tags", []))
 
-    # Hybrid mode: add archived MP3s if pool is large enough
+    # Hybrid mode: add archived MP3s if pool is large enough.
+    # Each aimusicfactory MP3 is ~4 min — using a higher estimate keeps the
+    # archive add-on small (more fresh, less repetition) and prevents the
+    # merged track from blowing past `target_minutes`.
+    AVG_MP3_MIN = 4
+    MAX_TRACK_MIN = 50
     archive_mp3s_list = []
     if profile.get("hybrid") and archive_size() >= profile.get("archive_min_pool", 12):
         if target_minutes > 0:
-            fresh_minutes = len(mp3_files) * 2
-            want = max(0, (target_minutes - fresh_minutes) // 2)
+            capped_target = min(target_minutes, MAX_TRACK_MIN)
+            fresh_minutes = len(mp3_files) * AVG_MP3_MIN
+            want = max(0, (capped_target - fresh_minutes) // AVG_MP3_MIN)
         else:
             want = profile.get("archive_count", 2)
         if want > 0:
