@@ -350,18 +350,25 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
                 else:
                     log.warning("Upload not confirmed after 5 min, continuing anyway")
 
-            # Wait 5 minutes for TikTok to process the video on their servers.
-            # Without this, the Post button may be enabled but the video won't
-            # actually publish correctly.
-            log.info("Waiting 5 minutes for TikTok to process the video...")
-            for i in range(30):  # 30 × 10s = 5 minutes
-                page.wait_for_timeout(10_000)
+            # Wait up to 3 minutes for TikTok to finish processing the video.
+            # Use real-time sleep (not page.wait_for_timeout) so a broken
+            # Chromium WS connection during the wait doesn't kill the run,
+            # and ping the page only periodically to check liveness.
+            PROCESSING_TIMEOUT_S = 180
+            log.info(f"Waiting up to {PROCESSING_TIMEOUT_S}s for TikTok to process the video...")
+            for i in range(PROCESSING_TIMEOUT_S // 10):
+                time.sleep(10)
                 if (i + 1) % 6 == 0:  # Log + screenshot every 60 seconds
                     elapsed_min = (i + 1) * 10 / 60
-                    log.info(f"Processing wait: {elapsed_min:.0f} min / 5 min")
-                    page.screenshot(
-                        path=str(debug_dir / f"debug_tiktok_processing_{int(elapsed_min)}m.png")
-                    )
+                    log.info(f"Processing wait: {elapsed_min:.0f} min / {PROCESSING_TIMEOUT_S // 60} min")
+                    try:
+                        page.screenshot(
+                            path=str(debug_dir / f"debug_tiktok_processing_{int(elapsed_min)}m.png")
+                        )
+                    except Exception as exc:
+                        log.warning(f"Screenshot failed during processing wait: {exc}")
+                        # If the browser is dead, no point continuing the wait
+                        break
 
             page.screenshot(path=str(debug_dir / "debug_tiktok_03_after_processing.png"))
 
@@ -589,4 +596,10 @@ def _do_upload(video_path: Path, concept: MusicConcept) -> str | None:
                 pass
             raise
         finally:
-            browser.close()
+            try:
+                browser.close()
+            except Exception:
+                # Browser was already disconnected (Chromium crashed / WS
+                # closed mid-wait); nothing to do, swallow so the retry
+                # doesn't fail trying to clean up a dead handle.
+                pass
