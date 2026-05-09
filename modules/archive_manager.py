@@ -45,13 +45,38 @@ def _save_catalog(catalog: list[dict]) -> None:
     )
 
 
+def _is_suno(entry: dict) -> bool:
+    """Identify Suno-sourced archive entries.
+
+    TuneCore's AI detector flags Suno output reliably; AIMusicFactory passes,
+    so we exclude Suno from hybrid-mode picks. Detection rules:
+      - Explicit `source` field == 'suno' (set on new entries)
+      - Filename or original_name contains 'suno' (legacy bootstrap files)
+      - Profile == 'seed' (these were imported by seed_from_output and were
+        all Afro-house Suno generations)
+    """
+    if (entry.get("source") or "").lower() == "suno":
+        return True
+    fn = (entry.get("filename") or "").lower()
+    on = (entry.get("original_name") or "").lower()
+    if "suno" in fn or "suno" in on:
+        return True
+    if (entry.get("profile") or "").lower() == "seed":
+        return True
+    return False
+
+
 def archive_mp3s(
     mp3_paths: list[Path],
     profile_name: str = "",
     track_name: str = "",
     tags: list[str] | None = None,
+    source: str = "",
 ) -> int:
     """Copy MP3s into the archive pool and update catalog.
+
+    `source` records the generator platform ("aimusicfactory" / "suno") so
+    `pick_from_archive` can later exclude detectable sources.
 
     Returns the number of files archived.
     """
@@ -74,6 +99,7 @@ def archive_mp3s(
             "profile": profile_name,
             "track_name": track_name,
             "tags": tags or [],
+            "source": source,
             "archived_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         })
         archived += 1
@@ -99,17 +125,20 @@ def pick_from_archive(count: int, exclude_files: list[Path] | None = None) -> li
         e for e in catalog
         if e["filename"] not in exclude_names
         and (ARCHIVE_DIR / e["filename"]).exists()
+        and not _is_suno(e)
     ]
 
     selected = random.sample(candidates, min(count, len(candidates)))
     paths = [ARCHIVE_DIR / e["filename"] for e in selected]
-    log.info(f"Picked {len(paths)} MP3(s) from archive (pool: {len(candidates)})")
+    log.info(f"Picked {len(paths)} MP3(s) from archive (AIMusicFactory pool: {len(candidates)})")
     return paths
 
 
 def archive_size() -> int:
-    """Return number of MP3s in the archive pool."""
-    return len(_load_catalog())
+    """Return number of non-Suno MP3s in the archive pool (the ones eligible
+    for hybrid picks). Suno entries are excluded because TuneCore's AI
+    detector flags them reliably."""
+    return sum(1 for e in _load_catalog() if not _is_suno(e))
 
 
 def seed_from_output() -> int:
