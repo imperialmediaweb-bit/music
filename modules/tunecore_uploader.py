@@ -1221,12 +1221,17 @@ def _fill_new_ui_track(page, concept, artist, wav_path):
             const fi = document.querySelector('input[type="file"]');
             if (fi) return 'file_input';
             const els = document.querySelectorAll(
-                'button, label, div, [class*="upload" i], [class*="dropzone" i]');
+                'button, label, div, a, [class*="upload" i], [class*="dropzone" i]');
             for (const el of els) {
                 const t = (el.textContent || '').trim().toLowerCase();
+                if (el.offsetWidth === 0) continue;
                 if ((t.includes('upload') && t.includes('stereo'))
-                    || t.includes('add audio')) {
-                    if (el.offsetWidth > 0) return 'upload_btn';
+                    || t.includes('add audio')
+                    || t.includes('click to browse')
+                    || t.includes('drag & drop')
+                    || t.includes('drag and drop')
+                    || (t.includes('.wav') && t.includes('192'))) {
+                    return 'upload_btn';
                 }
             }
             return null;
@@ -1617,6 +1622,8 @@ def _upload_file(page, file_path: Path):
     for selector in [
         "text=UPLOAD STEREO", "text=Upload Stereo",
         "button:has-text('UPLOAD STEREO')", "button:has-text('Upload Stereo')",
+        "text=Click to Browse", "text=click to browse",
+        "a:has-text('Click to Browse')", "button:has-text('Click to Browse')",
         "[class*='upload' i]", "[class*='drop' i]", "[class*='dropzone' i]",
         "[class*='drag' i]", "[data-testid*='upload' i]",
         "text=Upload", "text=Choose File", "text=Browse",
