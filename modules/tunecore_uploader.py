@@ -1665,12 +1665,14 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
 
     start = time.time()
     seen_progress = False
+    progress_gone_since = None
 
     # Give TuneCore a moment to start processing the file
     page.wait_for_timeout(5000)
 
-    # Minimum wait — WAV processing on TuneCore takes ~1 min even when upload bar finishes
-    MIN_WAIT_S = 60
+    # Minimum wait — 24-bit/192 kHz WAVs are ~4× bigger than 16-bit/44.1 kHz,
+    # so the upload + server-side processing routinely takes 2-3 minutes.
+    MIN_WAIT_S = 180
 
     while time.time() - start < timeout:
         try:
@@ -1685,6 +1687,16 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
                 // Success keywords
                 if (/upload\\s*complete|successfully\\s*uploaded/i.test(body))
                     return 'completed';
+
+                // MUI LinearProgress / progress bar visible? Check this BEFORE
+                // looking at the Continue button — if a progress bar is on
+                // screen, the upload is still happening even if some Continue
+                // button elsewhere on the page is enabled.
+                const prog = document.querySelector(
+                    '[class*="progress" i], [class*="Progress" i], '
+                  + '[role="progressbar"], .MuiLinearProgress-root');
+                const progVisible = prog && prog.offsetWidth > 0;
+                if (progVisible) return 'in_progress';
 
                 // ONLY consider "Save & Continue" / "Continue" buttons — NOT plain "Save"
                 // (Save is always enabled once form is filled and does NOT indicate
@@ -1702,12 +1714,6 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
                         || /Mui-disabled|disabled/i.test(cls);
                     if (!disabled) return 'continue_enabled';
                 }
-
-                // MUI LinearProgress / progress bar visible?
-                const prog = document.querySelector(
-                    '[class*="progress" i], [class*="Progress" i], '
-                  + '[role="progressbar"], .MuiLinearProgress-root');
-                if (prog && prog.offsetWidth > 0) return 'in_progress';
 
                 return 'waiting';
             }""")
@@ -1729,7 +1735,10 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
         except Exception:
             pass
 
-        # Progress bar was visible before but now gone
+        # Progress bar was visible before but now gone — require it to be
+        # gone for at least 10s AND past MIN_WAIT_S, to avoid exiting on a
+        # transient gap between client-upload and server-side processing
+        # (TuneCore briefly hides the bar before the verification phase).
         if seen_progress:
             try:
                 still = page.evaluate("""() => {
@@ -1737,9 +1746,16 @@ def _wait_for_upload(page, timeout: int = 300, file_was_set: bool = True):
                         '[class*="progress" i], [role="progressbar"], .MuiLinearProgress-root');
                     return p && p.offsetWidth > 0;
                 }""")
-                if not still:
-                    log.info("  Upload progress bar gone — upload complete")
-                    return
+                if still:
+                    progress_gone_since = None
+                else:
+                    if progress_gone_since is None:
+                        progress_gone_since = time.time()
+                    gone_for = time.time() - progress_gone_since
+                    elapsed = time.time() - start
+                    if gone_for >= 10 and elapsed >= MIN_WAIT_S:
+                        log.info(f"  Upload progress bar gone for {int(gone_for)}s — upload complete")
+                        return
             except Exception:
                 pass
 
