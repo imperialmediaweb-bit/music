@@ -112,7 +112,7 @@ def wav_from_mp3(mp3_path: Path) -> Path:
     log.info(f"Exporting WAV: {wav_path}")
     result = subprocess.run(
         ["ffmpeg", "-y", "-i", str(mp3_path),
-         "-acodec", "pcm_s16le", str(wav_path)],
+         "-acodec", "pcm_s24le", "-ar", "192000", str(wav_path)],
         capture_output=True, text=True, timeout=600,
     )
     if result.returncode != 0:
@@ -143,7 +143,7 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
             log.info(f"Exporting WAV for TuneCore: {wav_path}")
             wav_result = subprocess.run(
                 ["ffmpeg", "-y", "-i", str(single),
-                 "-acodec", "pcm_s16le", str(wav_path)],
+                 "-acodec", "pcm_s24le", "-ar", "192000", str(wav_path)],
                 capture_output=True, text=True, timeout=600,
             )
             if wav_result.returncode == 0:
@@ -214,7 +214,7 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
         log.info(f"Exporting WAV for TuneCore: {wav_path}")
         wav_result = subprocess.run(
             ["ffmpeg", "-y", "-i", str(output_path),
-             "-acodec", "pcm_s16le", str(wav_path)],
+             "-acodec", "pcm_s24le", "-ar", "192000", str(wav_path)],
             capture_output=True, text=True, timeout=600,
         )
         if wav_result.returncode == 0:
@@ -292,7 +292,7 @@ def merge_mp3s_crossfade(mp3_files: list[Path], output_name: str = "merged",
     log.info(f"Exporting WAV: {wav_path}")
     wav_result = subprocess.run(
         ["ffmpeg", "-y", "-i", str(output_path),
-         "-acodec", "pcm_s16le", str(wav_path)],
+         "-acodec", "pcm_s24le", "-ar", "192000", str(wav_path)],
         capture_output=True, text=True, timeout=600,
     )
     if wav_result.returncode == 0:
