@@ -11,6 +11,35 @@ from config import OUTPUT_DIR
 from utils.logger import log
 
 TUNECORE_MIN_DURATION_SEC = 65
+MAX_TRACK_DURATION_SEC = 50 * 60  # Hard cap — TikTok / TuneCore reject longer
+
+
+def cap_duration(audio_path: Path, max_sec: float = MAX_TRACK_DURATION_SEC) -> Path:
+    """Trim `audio_path` in-place to at most `max_sec` seconds.
+
+    No-op when the file is already within the cap. Re-encodes with libmp3lame
+    so the output stays a valid MP3 (`-c copy` would leave dangling frames).
+    """
+    if not audio_path.exists():
+        return audio_path
+    dur = get_duration(audio_path)
+    if dur <= max_sec + 0.5:
+        return audio_path
+
+    tmp_path = audio_path.with_suffix(f".capped{audio_path.suffix}")
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", str(audio_path), "-t", str(max_sec),
+         "-c:a", "libmp3lame", "-b:a", "192k", str(tmp_path)],
+        capture_output=True, text=True, timeout=900,
+    )
+    if result.returncode != 0:
+        log.warning(f"Duration cap failed: {result.stderr[-200:]}")
+        tmp_path.unlink(missing_ok=True)
+        return audio_path
+
+    shutil.move(str(tmp_path), str(audio_path))
+    log.info(f"Capped {audio_path.name}: {dur:.1f}s → {max_sec:.1f}s")
+    return audio_path
 
 
 def get_duration(audio_path: Path) -> float:
@@ -194,6 +223,8 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
             log.error(f"FFmpeg merge stderr: {result.stderr[-500:]}")
             raise RuntimeError(f"FFmpeg merge failed: {result.stderr[-200:]}")
 
+        cap_duration(output_path)
+
         # Log duration
         try:
             probe = subprocess.run(
@@ -282,6 +313,8 @@ def merge_mp3s_crossfade(mp3_files: list[Path], output_name: str = "merged",
     if result.returncode != 0:
         log.warning(f"Crossfade merge failed ({result.stderr[-300:]}), falling back to concat")
         return merge_mp3s(mp3_files, output_name=output_name)
+
+    cap_duration(output_path)
 
     duration = get_duration(output_path)
     mins = int(duration) // 60
