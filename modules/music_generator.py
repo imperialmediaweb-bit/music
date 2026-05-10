@@ -208,10 +208,28 @@ def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
 
     _ensure_toggle_on(page, "Custom Mode")
     page.wait_for_timeout(500)
+
+    # Detect which UI version is active. The legacy UI (Custom Mode) shows
+    # textarea[name="tags"] + textarea[name="title"]. The 2026 redesign
+    # collapses everything into textarea[name="gptPrompt"] and that field
+    # is only valid with Custom Mode OFF — leaving Custom Mode ON sends
+    # an empty form to the backend, which silently produces no track.
+    has_legacy_fields = bool(
+        page.query_selector('textarea[name="tags"]')
+        and page.query_selector('textarea[name="title"]')
+    )
+    has_gpt_prompt = bool(page.query_selector('textarea[name="gptPrompt"]'))
+
+    if not has_legacy_fields and has_gpt_prompt:
+        log.info("New UI detected (gptPrompt only) — disabling Custom Mode")
+        _ensure_toggle_off(page, "Custom Mode")
+        page.wait_for_timeout(800)
+
     _ensure_toggle_on(page, "Instrumental")
     page.wait_for_timeout(500)
 
-    # Verify Instrumental is ON
+    # Verify Instrumental is ON (only meaningful in legacy UI which has the
+    # lyrics textarea; new UI hides lyrics entirely under gptPrompt mode)
     lyrics_el = page.query_selector('textarea[name="prompt"]')
     if lyrics_el and lyrics_el.is_visible():
         log.warning("Instrumental toggle didn't work — lyrics field still visible. Clicking again...")
@@ -1598,8 +1616,27 @@ def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
 
 def _ensure_toggle_on(page, label_text: str):
     """Ensure a HeadlessUI toggle (Custom Mode / Instrumental) is ON."""
+    return _set_toggle(page, label_text, want_on=True)
+
+
+def _ensure_toggle_off(page, label_text: str):
+    """Ensure a HeadlessUI toggle is OFF."""
+    return _set_toggle(page, label_text, want_on=False)
+
+
+def _set_toggle(page, label_text: str, want_on: bool):
+    """Set a HeadlessUI toggle to the desired state."""
     try:
-        result = page.evaluate("""(labelText) => {
+        result = page.evaluate("""(args) => {
+            const labelText = args.labelText;
+            const wantOn = args.wantOn;
+            const setState = (sw) => {
+                const isOn = sw.getAttribute('aria-checked') === 'true'
+                    || sw.hasAttribute('data-checked');
+                if (isOn === wantOn) return wantOn ? 'already_on' : 'already_off';
+                sw.click();
+                return wantOn ? 'turned_on' : 'turned_off';
+            };
             const walker = document.createTreeWalker(
                 document.body, NodeFilter.SHOW_TEXT, null);
             while (walker.nextNode()) {
@@ -1609,40 +1646,32 @@ def _ensure_toggle_on(page, label_text: str):
                     for (let i = 0; i < 8; i++) {
                         if (!el) break;
                         const sw = el.querySelector('button[role="switch"]');
-                        if (sw) {
-                            const isOn = sw.getAttribute('aria-checked') === 'true'
-                                || sw.hasAttribute('data-checked');
-                            if (!isOn) { sw.click(); return 'turned_on'; }
-                            return 'already_on';
-                        }
+                        if (sw) return setState(sw);
                         el = el.parentElement;
                     }
                 }
             }
-
             const switches = document.querySelectorAll('button[role="switch"]');
             for (const sw of switches) {
                 const container = sw.closest('div')?.parentElement
                     || sw.parentElement?.parentElement;
-                if (container && container.textContent.includes(labelText)) {
-                    const isOn = sw.getAttribute('aria-checked') === 'true'
-                        || sw.hasAttribute('data-checked');
-                    if (!isOn) { sw.click(); return 'turned_on'; }
-                    return 'already_on';
-                }
+                if (container && container.textContent.includes(labelText))
+                    return setState(sw);
             }
             return 'not_found';
-        }""", label_text)
+        }""", {"labelText": label_text, "wantOn": want_on})
 
-        if result == "already_on":
-            log.info(f"{label_text}: already ON")
-        elif result == "turned_on":
-            log.info(f"{label_text}: turned ON")
+        if result in ("already_on", "already_off"):
+            log.info(f"{label_text}: {result.replace('_', ' ')}")
+        elif result in ("turned_on", "turned_off"):
+            log.info(f"{label_text}: {result.replace('_', ' ')}")
             page.wait_for_timeout(500)
         else:
             log.info(f"{label_text}: toggle not found")
+        return result
     except Exception as e:
         log.info(f"{label_text} toggle: {e}")
+        return None
 
 
 def download_existing_tracks(track_name: str, max_cards: int = 4) -> list[Path]:
