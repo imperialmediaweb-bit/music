@@ -1546,37 +1546,54 @@ def _debug_form_fields(page):
 
 
 def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
-    """Fill the aimusicfactory.ai form fields."""
-    style_filled = False
-    title_filled = False
+    """Fill the aimusicfactory.ai form fields.
 
+    Supports two UI versions:
+      - Legacy: separate 'tags' (Style of Music) + 'title' textareas
+      - New (2026): single 'gptPrompt' textarea — fill with a combined
+        prompt that bundles style + title so the model gets both.
+    """
+    # ── Legacy UI: separate Style + Title fields ──
     tags_el = page.query_selector('textarea[name="tags"]')
-    if tags_el and tags_el.is_visible():
+    title_el = page.query_selector('textarea[name="title"]')
+
+    if tags_el and tags_el.is_visible() and title_el and title_el.is_visible():
         tags_el.click()
         tags_el.fill(STYLE_OF_MUSIC_PROMPT)
-        style_filled = True
         log.info(f"Filled Style of Music (name='tags', {len(STYLE_OF_MUSIC_PROMPT)} chars)")
 
-    title_el = page.query_selector('textarea[name="title"]')
-    if title_el and title_el.is_visible():
         title_el.click()
         title_el.fill(concept.track_name)
-        title_filled = True
         log.info(f"Filled Title (name='title'): {concept.track_name}")
 
-    lyrics_el = page.query_selector('textarea[name="prompt"]')
-    if lyrics_el and lyrics_el.is_visible():
-        lyrics_el.click()
-        lyrics_el.fill("")
-        log.info("Cleared Lyrics field (Instrumental toggle may have failed)")
-    else:
-        log.info("Lyrics field hidden (Instrumental mode active)")
+        lyrics_el = page.query_selector('textarea[name="prompt"]')
+        if lyrics_el and lyrics_el.is_visible():
+            lyrics_el.click()
+            lyrics_el.fill("")
+            log.info("Cleared Lyrics field (Instrumental toggle may have failed)")
+        else:
+            log.info("Lyrics field hidden (Instrumental mode active)")
+        return
 
-    if not style_filled:
-        log.warning("Could not find Style of Music field (name='tags')!")
-    if not title_filled:
-        page.screenshot(path=str(OUTPUT_DIR / f"debug_no_title_{batch_num}.png"))
-        raise RuntimeError("Could not find Title field (name='title')")
+    # ── New UI (2026): single combined gptPrompt textarea ──
+    gpt_el = page.query_selector('textarea[name="gptPrompt"]')
+    if gpt_el and gpt_el.is_visible():
+        combined = (
+            f"Track title: {concept.track_name}\n\n"
+            f"{STYLE_OF_MUSIC_PROMPT}"
+        )
+        gpt_el.click()
+        gpt_el.fill(combined)
+        log.info(
+            f"Filled gptPrompt (new UI): title='{concept.track_name}' "
+            f"+ style ({len(combined)} chars total)"
+        )
+        return
+
+    # Neither layout matched — dump and fail
+    page.screenshot(path=str(OUTPUT_DIR / f"debug_no_form_{batch_num}.png"))
+    log.warning("Could not find any known form fields (tags/title or gptPrompt)")
+    raise RuntimeError("Could not find aimusicfactory form fields")
 
 
 def _ensure_toggle_on(page, label_text: str):
