@@ -251,12 +251,19 @@ def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
     _ensure_toggle_on(page, "Instrumental")
     page.wait_for_timeout(500)
 
-    # Verify Instrumental is ON (only meaningful in legacy UI which has the
-    # lyrics textarea; gptPrompt path hides lyrics entirely)
+    # Legacy-only safety: if the lyrics textarea is still visible after the
+    # toggle, click 'Instrumental' once more. In the 2026 UI the lyrics
+    # textarea stays on screen even when Instrumental is ON (placeholder
+    # 'Leave lyrics blank for instrumental music.'), so don't fail the
+    # whole generation if the re-click can't find a clickable target.
     lyrics_el = page.query_selector('textarea[name="prompt"]')
     if lyrics_el and lyrics_el.is_visible():
-        log.warning("Instrumental toggle didn't work — lyrics field still visible. Clicking again...")
-        page.click('text="Instrumental"', timeout=5000)
+        log.info("Lyrics textarea still visible — re-toggling Instrumental as a precaution")
+        try:
+            page.click('text="Instrumental"', timeout=2000)
+            page.wait_for_timeout(1000)
+        except Exception as exc:
+            log.info(f"Instrumental re-click skipped (new UI keeps lyrics visible): {exc.__class__.__name__}")
         page.wait_for_timeout(1000)
 
     _debug_form_fields(page)
