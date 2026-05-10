@@ -206,17 +206,15 @@ def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
     page.wait_for_timeout(5000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_before_gen_{batch_num}.png"))
 
-    _ensure_toggle_on(page, "Custom Mode")
+    # Custom Mode is typically already ON by default in the new UI.
+    # On desktop it's a tab button ("Custom"); on mobile a role="switch" ("Custom Mode").
+    _set_form_toggle(page, "isCustom", on=True, visible_labels=("Custom Mode", "Custom"))
     page.wait_for_timeout(500)
-    _ensure_toggle_on(page, "Instrumental")
+    # Instrumental: on desktop a button[aria-pressed] with text "Instrumental";
+    # on mobile a role="switch" toggle. In new UI lyrics textarea stays visible
+    # regardless — verify via the hidden checkbox state, not by element visibility.
+    _set_form_toggle(page, "isInstrumental", on=True, visible_labels=("Instrumental",))
     page.wait_for_timeout(500)
-
-    # Verify Instrumental is ON
-    lyrics_el = page.query_selector('textarea[name="prompt"]')
-    if lyrics_el and lyrics_el.is_visible():
-        log.warning("Instrumental toggle didn't work — lyrics field still visible. Clicking again...")
-        page.click('text="Instrumental"', timeout=5000)
-        page.wait_for_timeout(1000)
 
     _debug_form_fields(page)
     _fill_form_fields(page, concept, batch_num)
@@ -1545,38 +1543,136 @@ def _debug_form_fields(page):
         log.warning(f"Could not save page HTML: {e}")
 
 
+def _find_visible(page, *selectors):
+    """Return the first VISIBLE element matching any selector, or None.
+
+    Needed because the new aimusicfactory UI renders the form twice (mobile + desktop)
+    and `query_selector` returns the first match, which may be the hidden mobile copy.
+    """
+    for sel in selectors:
+        for el in page.query_selector_all(sel):
+            try:
+                if el.is_visible():
+                    return el
+            except Exception:
+                continue
+    return None
+
+
 def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
     """Fill the aimusicfactory.ai form fields."""
     style_filled = False
     title_filled = False
 
-    tags_el = page.query_selector('textarea[name="tags"]')
-    if tags_el and tags_el.is_visible():
+    # Style of Music — textarea (maxLength 985 in new UI). Truncate if needed.
+    tags_el = _find_visible(page, 'textarea[name="tags"]')
+    if tags_el:
+        style_text = STYLE_OF_MUSIC_PROMPT[:980]
         tags_el.click()
-        tags_el.fill(STYLE_OF_MUSIC_PROMPT)
+        tags_el.fill(style_text)
         style_filled = True
-        log.info(f"Filled Style of Music (name='tags', {len(STYLE_OF_MUSIC_PROMPT)} chars)")
+        log.info(f"Filled Style of Music (name='tags', {len(style_text)} chars)")
 
-    title_el = page.query_selector('textarea[name="title"]')
-    if title_el and title_el.is_visible():
+    # Title — desktop uses <input>, mobile uses <textarea>. Try both.
+    title_el = _find_visible(page, 'input[name="title"]', 'textarea[name="title"]')
+    if title_el:
         title_el.click()
         title_el.fill(concept.track_name)
         title_filled = True
         log.info(f"Filled Title (name='title'): {concept.track_name}")
 
-    lyrics_el = page.query_selector('textarea[name="prompt"]')
-    if lyrics_el and lyrics_el.is_visible():
+    # Lyrics — clear unconditionally. In new UI the textarea stays visible
+    # even with Instrumental ON (only placeholder changes).
+    lyrics_el = _find_visible(page, 'textarea[name="prompt"]')
+    if lyrics_el:
         lyrics_el.click()
         lyrics_el.fill("")
-        log.info("Cleared Lyrics field (Instrumental toggle may have failed)")
-    else:
-        log.info("Lyrics field hidden (Instrumental mode active)")
+        log.info("Cleared Lyrics field")
 
     if not style_filled:
         log.warning("Could not find Style of Music field (name='tags')!")
     if not title_filled:
         page.screenshot(path=str(OUTPUT_DIR / f"debug_no_title_{batch_num}.png"))
         raise RuntimeError("Could not find Title field (name='title')")
+
+
+def _set_form_toggle(page, input_name: str, on: bool = True, visible_labels: tuple = ()):
+    """Ensure the form toggle backed by `input[name=input_name]` is in the desired state.
+
+    The new aimusicfactory UI renders the form twice (mobile + desktop). The hidden
+    checkbox <input name="isCustom"|"isInstrumental"> reflects React form state and
+    works on both layouts. To flip it, click the *visible* control: a desktop tab
+    button, a desktop aria-pressed button, or a mobile role="switch".
+    """
+    desired = bool(on)
+    label_list = list(visible_labels)
+
+    try:
+        # Check current state via any matching hidden checkbox.
+        cur = page.evaluate("""(name) => {
+            const cbs = document.querySelectorAll(`input[name="${name}"]`);
+            for (const cb of cbs) {
+                if (cb.checked !== undefined) return cb.checked;
+            }
+            return null;
+        }""", input_name)
+
+        if cur is None:
+            log.info(f"Toggle '{input_name}': hidden checkbox not found (UI may have changed)")
+            return
+        if bool(cur) == desired:
+            log.info(f"Toggle '{input_name}': already {'ON' if desired else 'OFF'}")
+            return
+
+        # Need to flip — click the first visible button matching one of the labels.
+        result = page.evaluate(
+            """({labels}) => {
+                const buttons = document.querySelectorAll('button');
+                for (const lbl of labels) {
+                    for (const btn of buttons) {
+                        const txt = (btn.textContent || '').trim();
+                        if (txt !== lbl) continue;
+                        const rect = btn.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            btn.scrollIntoView({block: 'center'});
+                            btn.click();
+                            return {clicked: true, label: lbl};
+                        }
+                    }
+                }
+                // Fallback: click any visible role="switch" sitting next to a label
+                for (const lbl of labels) {
+                    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+                    while (walker.nextNode()) {
+                        if (walker.currentNode.textContent.trim() !== lbl) continue;
+                        let el = walker.currentNode.parentElement;
+                        for (let i = 0; i < 8 && el; i++) {
+                            const sw = el.querySelector('button[role="switch"], button[aria-pressed]');
+                            if (sw) {
+                                const r = sw.getBoundingClientRect();
+                                if (r.width > 0 && r.height > 0) {
+                                    sw.click();
+                                    return {clicked: true, label: lbl, fallback: true};
+                                }
+                            }
+                            el = el.parentElement;
+                        }
+                    }
+                }
+                return {clicked: false};
+            }""",
+            {"labels": label_list},
+        )
+
+        if result.get("clicked"):
+            log.info(f"Toggle '{input_name}': flipped via label '{result.get('label')}'"
+                     f"{' (fallback)' if result.get('fallback') else ''}")
+            page.wait_for_timeout(500)
+        else:
+            log.warning(f"Toggle '{input_name}': could not find visible control to click "
+                        f"(labels tried: {label_list})")
+    except Exception as e:
+        log.warning(f"Toggle '{input_name}' error: {e}")
 
 
 def _ensure_toggle_on(page, label_text: str):
