@@ -201,35 +201,58 @@ def _check_logged_in(page) -> bool:
 
 def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: int):
     """Fill form and click Generate, then wait for generation to complete."""
-    log.info("Navigating to Generate page...")
-    page.goto("https://aimusicfactory.ai/#Generate", wait_until="domcontentloaded", timeout=60_000)
+    log.info("Navigating to Create Music page...")
+    # 2026 redesign moved generation from /#Generate to /create-music with
+    # tabs: Prompt | Custom | Create Singer | By Photo. The Custom tab
+    # exposes the legacy fields (Style Of Music + Title + Lyrics +
+    # Instrumental); the Prompt tab shows only gptPrompt.
+    page.goto("https://aimusicfactory.ai/create-music",
+              wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(5000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_before_gen_{batch_num}.png"))
 
+    # Click the "Custom" tab so we get Style Of Music + Title fields.
+    # The tab is a button/div with text "Custom" near the top of the page.
+    tab_clicked = page.evaluate("""() => {
+        const candidates = document.querySelectorAll(
+            'button, a, div[role="tab"], [class*="tab" i]');
+        for (const el of candidates) {
+            const t = (el.textContent || '').trim();
+            if (t === 'Custom' && el.offsetWidth > 0 && el.offsetHeight > 0) {
+                el.click();
+                return true;
+            }
+        }
+        return false;
+    }""")
+    if tab_clicked:
+        log.info("Clicked 'Custom' tab")
+        page.wait_for_timeout(1500)
+    else:
+        log.info("'Custom' tab not found (may already be active or legacy UI)")
+
+    # Legacy UI also has a Custom Mode toggle — turn it ON if present
     _ensure_toggle_on(page, "Custom Mode")
     page.wait_for_timeout(500)
 
-    # Detect which UI version is active. The legacy UI (Custom Mode) shows
-    # textarea[name="tags"] + textarea[name="title"]. The 2026 redesign
-    # collapses everything into textarea[name="gptPrompt"] and that field
-    # is only valid with Custom Mode OFF — leaving Custom Mode ON sends
-    # an empty form to the backend, which silently produces no track.
+    # Detect which form is on screen now
     has_legacy_fields = bool(
         page.query_selector('textarea[name="tags"]')
         and page.query_selector('textarea[name="title"]')
     )
     has_gpt_prompt = bool(page.query_selector('textarea[name="gptPrompt"]'))
 
+    # If we still ended up on the Prompt-only layout, _fill_form_fields will
+    # fall back to gptPrompt — but log it so we know the Custom tab click
+    # didn't take effect.
     if not has_legacy_fields and has_gpt_prompt:
-        log.info("New UI detected (gptPrompt only) — disabling Custom Mode")
-        _ensure_toggle_off(page, "Custom Mode")
-        page.wait_for_timeout(800)
+        log.warning("Legacy fields not visible — falling back to gptPrompt")
 
     _ensure_toggle_on(page, "Instrumental")
     page.wait_for_timeout(500)
 
     # Verify Instrumental is ON (only meaningful in legacy UI which has the
-    # lyrics textarea; new UI hides lyrics entirely under gptPrompt mode)
+    # lyrics textarea; gptPrompt path hides lyrics entirely)
     lyrics_el = page.query_selector('textarea[name="prompt"]')
     if lyrics_el and lyrics_el.is_visible():
         log.warning("Instrumental toggle didn't work — lyrics field still visible. Clicking again...")
@@ -659,7 +682,9 @@ def _find_grid_cards(page, track_name: str) -> list[dict]:
 
         if (!bestContainer || bestImgCount < 2) {
             // ── Strategy B: Find all visible elements with images ──
-            // Fallback: look for any square-ish elements with images
+            // Match BOTH square cards (legacy grid) and wide rows (2026
+            // Library list layout). Rows are ~80px tall and span the
+            // viewport width with a small thumbnail on the left.
             const allImgParents = document.querySelectorAll('div, li, article');
             for (const el of allImgParents) {
                 if (el.closest('nav') || el.closest('footer') || el.closest('header')) continue;
@@ -667,11 +692,13 @@ def _find_grid_cards(page, track_name: str) -> list[dict]:
                 if (!el.querySelector('img')) continue;
 
                 const rect = el.getBoundingClientRect();
-                // Card-like: roughly square, between 100-500px
-                if (rect.width < 100 || rect.width > 500) continue;
-                if (rect.height < 100 || rect.height > 500) continue;
-                const ratio = rect.width / rect.height;
-                if (ratio < 0.5 || ratio > 2.0) continue;
+                const ratio = rect.width / Math.max(1, rect.height);
+                const isCard = rect.width >= 100 && rect.width <= 500
+                    && rect.height >= 100 && rect.height <= 500
+                    && ratio >= 0.5 && ratio <= 2.0;
+                const isRow = rect.width >= 400 && rect.height >= 50
+                    && rect.height <= 160 && ratio >= 4;
+                if (!isCard && !isRow) continue;
 
                 // Get the track name from the card text
                 // Track name is usually the last short text in the card
