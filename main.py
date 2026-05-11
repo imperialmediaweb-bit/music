@@ -1330,11 +1330,17 @@ def cmd_autostart(args):
         time_str = f"{hour:02d}:{minute:02d}"
         ps1_path_str = str(ps1_path).replace("'", "''")
         ps_argument = f"-ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File '{ps1_path_str}'"
+        # Build a StartBoundary anchored to today (or tomorrow if the time
+        # already passed) so the first run is the upcoming HH:MM, not skipped
+        # to next day by PowerShell's default trigger handling.
         ps_command = (
             f"$action = New-ScheduledTaskAction "
             f"-Execute '{ps_exe}' "
             f"-Argument '{ps_argument}'; "
-            f"$trigger = New-ScheduledTaskTrigger -Daily -At '{time_str}'; "
+            f"$now = Get-Date; "
+            f"$start = Get-Date -Hour {hour} -Minute {minute} -Second 0 -Millisecond 0; "
+            f"if ($start -lt $now) {{ $start = $start.AddDays(1) }}; "
+            f"$trigger = New-ScheduledTaskTrigger -Daily -At $start; "
             f"$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -WakeToRun; "
             f"Register-ScheduledTask -TaskName '{task_name}' -Action $action -Trigger $trigger -Settings $settings -Force"
         )
