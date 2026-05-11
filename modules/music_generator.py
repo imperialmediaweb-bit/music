@@ -571,6 +571,11 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
     if matching:
         log.info(f"Found {len(matching)} matching row(s) via '...' menu approach "
                  f"({len(row_matches)} action buttons on page total)")
+        # Cap to the requested number (cards are listed newest-first, so taking
+        # the head keeps the freshly-generated ones and skips older duplicates).
+        if expected_cards and len(matching) > expected_cards:
+            log.info(f"Capping to first {expected_cards} (newest) of {len(matching)} matches")
+            matching = matching[:expected_cards]
         all_mp3s = []
         for i, row in enumerate(matching):
             card_num = i + 1
