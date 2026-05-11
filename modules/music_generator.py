@@ -183,19 +183,43 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
 
 
 def _check_logged_in(page) -> bool:
-    """Navigate to the site and return True if already logged in."""
-    page.goto("https://aimusicfactory.ai", wait_until="domcontentloaded", timeout=60_000)
-    page.wait_for_timeout(5000)
+    """Return True if the session is actually logged into aimusicfactory.
 
+    Goes to /myMusic and inspects the sidebar account entry: when logged out it
+    shows a "Login" button (data-tour="desktop-account-entry"); when logged in
+    it shows the user's avatar + plan name. Just checking the homepage is not
+    enough — cookies can be present yet rejected by the backend.
+    """
+    page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
+    page.wait_for_timeout(7000)
+
+    # 1. The sidebar account-entry button shows "Login" only when logged out.
+    account_text = page.evaluate(
+        """() => {
+            const btn = document.querySelector('button[data-tour="desktop-account-entry"]');
+            return btn ? (btn.textContent || '').trim() : '__no_button__';
+        }"""
+    )
+    if account_text and account_text.lower() in ("login", "log in", "sign in"):
+        log.warning(f"Sidebar account entry shows '{account_text}' — session is NOT logged in")
+        return False
+
+    # 2. Legacy text-presence check for any visible Login/Sign-in CTA.
     for sel in ['text="Sign In"', 'text="Login"', 'text="Log In"',
-                'text="Sign in"', 'text="sign in"', 'a:has-text("Sign")',
-                'button:has-text("Sign")', 'button:has-text("Login")']:
+                'text="Sign in"', 'a:has-text("Sign In")']:
         try:
             el = page.query_selector(sel)
             if el and el.is_visible():
-                return False
+                # The sidebar 'Login' might be the only one — already handled above.
+                # Any *other* visible Sign In CTA means not logged in.
+                txt = (el.text_content() or "").strip()
+                if txt.lower() in ("login", "log in", "sign in"):
+                    log.warning(f"Visible auth CTA found: '{txt}' — not logged in")
+                    return False
         except Exception:
             continue
+
+    log.info(f"Logged-in check OK (sidebar account entry text: {account_text!r})")
     return True
 
 
