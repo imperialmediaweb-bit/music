@@ -119,21 +119,10 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
                                    thumbnail_style=thumbnail_style)
     log.info(f"Track name: {concept.track_name}")
 
-    # Step 2: Generate music (fall back to Suno if aimusicfactory fails —
-    # out of credits, captcha, UI broken, whatever)
+    # Step 2: Generate music
     log.info("=" * 60)
     log.info(f"STEP 2: Generating music on {platform} ({gen_count} generation(s) = {gen_count * 2} songs)...")
-    try:
-        mp3_files = generate_music_batch(concept, count=gen_count)
-    except Exception as e:
-        if platform == "aimusicfactory":
-            log.warning(f"aimusicfactory generation failed ({e}) — falling back to Suno")
-            platform = "suno"
-            generate_music_batch = _get_music_generator("suno")
-            log.info(f"STEP 2 (retry): Generating music on suno ({gen_count} generation(s) = {gen_count * 2} songs)...")
-            mp3_files = generate_music_batch(concept, count=gen_count)
-        else:
-            raise
+    mp3_files = generate_music_batch(concept, count=gen_count)
     log.info(f"Generated {len(mp3_files)} MP3 files")
 
     # Trim quiet intros from individual MP3s before merging
@@ -217,15 +206,7 @@ def _run_generate_only(gen_count: int = 2, profile_name: str = ""):
 
     log.info("=" * 60)
     log.info(f"[GENERATE] STEP 2: Generating music on {platform}...")
-    try:
-        mp3_files = generate_music_batch(concept, count=gen_count)
-    except Exception as e:
-        if platform == "aimusicfactory":
-            log.warning(f"aimusicfactory failed ({e}) — falling back to Suno")
-            generate_music_batch = _get_music_generator("suno")
-            mp3_files = generate_music_batch(concept, count=gen_count)
-        else:
-            raise
+    mp3_files = generate_music_batch(concept, count=gen_count)
     log.info(f"Generated {len(mp3_files)} MP3 files")
 
     mp3_files = [trim_quiet_intro(f) for f in mp3_files]
