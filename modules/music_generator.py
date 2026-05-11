@@ -542,7 +542,59 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
 
     track_name = concept.track_name
 
-    # ── PRIMARY STRATEGY: Find grid cards (divs with images + track names) ──
+    # ── PRIMARY STRATEGY (new UI): find rows via the "..." action button ──
+    # Each row in the new My Music UI has a button[data-tour="desktop-song-action-menu"].
+    # We look at each button's ancestors for the track name. This is far more
+    # reliable than the old grid-heuristic which mistakes the "Share" button
+    # text for the track title.
+    row_matches = _find_song_rows(page, track_name)
+    matching = [r for r in row_matches if r.get("nameMatch")]
+    if not matching:
+        log.warning(f"No '...' menu rows match '{track_name}' yet — trying search box...")
+        _search_mymusic(page, track_name)
+        page.wait_for_timeout(5000)
+        _scroll_page(page)
+        page.screenshot(path=str(OUTPUT_DIR / "debug_mymusic_search.png"))
+        row_matches = _find_song_rows(page, track_name)
+        matching = [r for r in row_matches if r.get("nameMatch")]
+
+    if not matching:
+        log.warning("Still no rows match — reloading My Music page...")
+        page.goto("https://aimusicfactory.ai/myMusic", wait_until="domcontentloaded", timeout=60_000)
+        if cdp:
+            _send_cdp_download_behavior(cdp, download_dir)
+        page.wait_for_timeout(15_000)
+        _scroll_page(page)
+        row_matches = _find_song_rows(page, track_name)
+        matching = [r for r in row_matches if r.get("nameMatch")]
+
+    if matching:
+        log.info(f"Found {len(matching)} matching row(s) via '...' menu approach "
+                 f"({len(row_matches)} action buttons on page total)")
+        all_mp3s = []
+        for i, row in enumerate(matching):
+            card_num = i + 1
+            song_id = str(int(time.time()) + i)
+            log.info(f"\n--- Row {card_num}/{len(matching)}: button index {row['buttonIndex']} ---")
+            try:
+                downloaded = _download_via_actions_menu(
+                    page, row["buttonIndex"], safe_name, card_num, song_id,
+                    download_dir=download_dir,
+                )
+                all_mp3s.extend(downloaded)
+            except Exception as e:
+                log.warning(f"Row {card_num} download failed: {e}")
+                page.screenshot(path=str(OUTPUT_DIR / f"debug_row_fail_{card_num}.png"))
+                try:
+                    page.keyboard.press("Escape")
+                    page.wait_for_timeout(500)
+                except Exception:
+                    pass
+        return all_mp3s
+
+    log.warning("No action-menu rows found at all — falling back to legacy grid heuristic")
+
+    # ── LEGACY FALLBACK: Find grid cards (divs with images + track names) ──
     grid_cards = _find_grid_cards(page, track_name)
 
     # If no cards found, try search box
@@ -587,41 +639,9 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
         return []
 
     cards_to_use = name_matches
-    log.info(f"Found {len(cards_to_use)} card(s) matching '{track_name}'")
+    log.info(f"Found {len(cards_to_use)} card(s) matching '{track_name}' (legacy heuristic)")
 
-    # ── NEW UI: download inline via "..." menu on each row ──
-    # The new aimusicfactory My Music page no longer uses a card-grid → detail-page
-    # flow. Instead each row has a "..." button (aria-label="Song actions",
-    # data-tour="desktop-song-action-menu") that opens a Radix menu with
-    # Download → MP3 / WAV / etc. — file downloads without navigation.
-    rows = _find_song_rows(page, track_name)
-    matching_rows = [r for r in rows if r.get("nameMatch")]
-    if matching_rows:
-        log.info(f"Found {len(matching_rows)} matching row(s) via '...' menu approach")
-        all_mp3s = []
-        for i, row in enumerate(matching_rows):
-            card_num = i + 1
-            song_id = str(int(time.time()) + i)
-            log.info(f"\n--- Row {card_num}/{len(matching_rows)}: button index {row['buttonIndex']} ---")
-            try:
-                downloaded = _download_via_actions_menu(
-                    page, row["buttonIndex"], safe_name, card_num, song_id,
-                    download_dir=download_dir,
-                )
-                all_mp3s.extend(downloaded)
-            except Exception as e:
-                log.warning(f"Row {card_num} download failed: {e}")
-                page.screenshot(path=str(OUTPUT_DIR / f"debug_row_fail_{card_num}.png"))
-                # Close any open menu before retrying next row
-                try:
-                    page.keyboard.press("Escape")
-                    page.wait_for_timeout(500)
-                except Exception:
-                    pass
-        return all_mp3s
-
-    # ── LEGACY FALLBACK: old detail-page flow ──
-    log.warning("No rows found via '...' menu approach — falling back to legacy card-click flow")
+    # ── LEGACY: old detail-page flow (new '...'-menu flow already tried above) ──
     all_mp3s = []
     for i, card_info in enumerate(cards_to_use):
         card_num = i + 1
