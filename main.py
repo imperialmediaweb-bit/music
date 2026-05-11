@@ -1328,15 +1328,24 @@ def cmd_autostart(args):
 
         # Register Windows Task Scheduler task using PowerShell (no CMD)
         time_str = f"{hour:02d}:{minute:02d}"
-        ps1_path_str = str(ps1_path).replace("'", "''")
-        ps_argument = f"-ExecutionPolicy Bypass -NoProfile -NonInteractive -WindowStyle Hidden -File '{ps1_path_str}'"
+        # Use double quotes around the PS1 path inside the (single-quoted)
+        # PS argument string. Nesting single quotes broke parsing and Windows
+        # ended up running the task with no working directory → 0x8007010B
+        # (ERROR_DIRECTORY) on launch.
+        ps1_path_str = str(ps1_path)
+        project_dir_ps = project_dir.replace("'", "''")
+        ps_argument = (
+            f'-ExecutionPolicy Bypass -NoProfile -NonInteractive '
+            f'-WindowStyle Hidden -File "{ps1_path_str}"'
+        )
         # Build a StartBoundary anchored to today (or tomorrow if the time
         # already passed) so the first run is the upcoming HH:MM, not skipped
         # to next day by PowerShell's default trigger handling.
         ps_command = (
             f"$action = New-ScheduledTaskAction "
             f"-Execute '{ps_exe}' "
-            f"-Argument '{ps_argument}'; "
+            f"-Argument '{ps_argument}' "
+            f"-WorkingDirectory '{project_dir_ps}'; "
             f"$now = Get-Date; "
             f"$start = Get-Date -Hour {hour} -Minute {minute} -Second 0 -Millisecond 0; "
             f"if ($start -lt $now) {{ $start = $start.AddDays(1) }}; "
