@@ -201,8 +201,8 @@ def _check_logged_in(page) -> bool:
 
 def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: int):
     """Fill form and click Generate, then wait for generation to complete."""
-    log.info("Navigating to Generate page...")
-    page.goto("https://aimusicfactory.ai/#Generate", wait_until="domcontentloaded", timeout=60_000)
+    log.info("Navigating to Create Music page...")
+    page.goto("https://aimusicfactory.ai/create-music", wait_until="domcontentloaded", timeout=60_000)
     page.wait_for_timeout(5000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_before_gen_{batch_num}.png"))
 
