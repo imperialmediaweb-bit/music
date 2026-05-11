@@ -1317,11 +1317,16 @@ def cmd_autostart(args):
             ps1_lines.append(venv_line)
         ps1_lines.extend([
             '',
-            f'& "{python}" main.py {cli_args}',
+            f'$logTimestamp = Get-Date -Format "yyyyMMdd_HHmmss"',
+            f'$logFile = "output\\scheduler_slot_{i}_$logTimestamp.log"',
+            f'New-Item -ItemType Directory -Force -Path "output" | Out-Null',
+            f'"=== Slot {i} started $(Get-Date) ===" | Out-File -FilePath $logFile -Encoding UTF8',
+            f'& "{python}" main.py {cli_args} *>> $logFile',
+            f'"=== Slot {i} exited with code $LASTEXITCODE at $(Get-Date) ===" | Out-File -FilePath $logFile -Append -Encoding UTF8',
             '',
             'if ($LASTEXITCODE -ne 0) {',
             '    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"',
-            f'    Add-Content -Path "output\\scheduler_errors.log" -Value "$timestamp — Slot {i} exited with code $LASTEXITCODE"',
+            f'    Add-Content -Path "output\\scheduler_errors.log" -Value "$timestamp - Slot {i} exited with code $LASTEXITCODE (see $logFile)"',
             '}',
         ])
         ps1_path.write_text("\n".join(ps1_lines), encoding="utf-8")
