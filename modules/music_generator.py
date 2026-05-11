@@ -263,7 +263,33 @@ def _submit_generation(page, concept: MusicConcept, safe_name: str, batch_num: i
     }""")
 
     clicked = False
-    for selector in [
+
+    # PRIORITY: exact-text match for "Generate" button. The `:has-text()`
+    # pseudo also matches "Generate full lyrics" which sits earlier in DOM
+    # and is visible — clicking it just generates lyrics instead of submitting.
+    try:
+        clicked = page.evaluate(
+            """() => {
+                const buttons = document.querySelectorAll('button');
+                for (const btn of buttons) {
+                    const txt = (btn.textContent || '').trim();
+                    if (txt !== 'Generate') continue;
+                    const rect = btn.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        btn.scrollIntoView({block: 'center'});
+                        btn.click();
+                        return true;
+                    }
+                }
+                return false;
+            }"""
+        )
+        if clicked:
+            log.info("Clicked Generate button (exact text match)")
+    except Exception as e:
+        log.warning(f"Exact-text Generate click failed: {e}")
+
+    for selector in [] if clicked else [
         'button:has-text("Generate")', 'button:has-text("Create")',
         'button:has-text("Make")', '[type="submit"]',
         'a:has-text("Generate")', '[role="button"]:has-text("Generate")',
