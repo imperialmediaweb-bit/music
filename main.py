@@ -1335,7 +1335,7 @@ def cmd_autostart(args):
             f"-Execute '{ps_exe}' "
             f"-Argument '{ps_argument}'; "
             f"$trigger = New-ScheduledTaskTrigger -Daily -At '{time_str}'; "
-            f"$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable; "
+            f"$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -WakeToRun; "
             f"Register-ScheduledTask -TaskName '{task_name}' -Action $action -Trigger $trigger -Settings $settings -Force"
         )
 
@@ -1355,8 +1355,14 @@ def cmd_autostart(args):
     log.info("")
     log.info("Windows Task Scheduler tasks installed — NO CMD window, NO VBS needed.")
     log.info("Pipeline runs automatically at scheduled times, even if PowerShell is closed.")
+    log.info("Tasks WAKE the PC from sleep (-WakeToRun) and run missed slots on next wake (-StartWhenAvailable).")
     log.info("")
-    log.info("To verify: run 'schtasks /Query /TN LUTH_Music_Pipeline_1' in PowerShell")
+    log.info("⚠ For wake-from-sleep to work, Windows wake timers must be enabled:")
+    log.info("   Settings → System → Power & battery → Power mode → Best performance")
+    log.info("   OR: powercfg /SETACVALUEINDEX SCHEME_CURRENT SUB_SLEEP RTCWAKE 1")
+    log.info("       powercfg /SETDCVALUEINDEX SCHEME_CURRENT SUB_SLEEP RTCWAKE 1   (on battery)")
+    log.info("")
+    log.info("To verify: run 'schtasks /Query /TN LUTH_Music_Pipeline_1 /V /FO LIST' in PowerShell")
     log.info("To remove: python main.py autostart --remove")
 
 
