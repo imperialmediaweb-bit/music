@@ -565,7 +565,39 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
     cards_to_use = name_matches
     log.info(f"Found {len(cards_to_use)} card(s) matching '{track_name}'")
 
-    # ── Click each card -> navigate to detail -> download MP3 ──
+    # ── NEW UI: download inline via "..." menu on each row ──
+    # The new aimusicfactory My Music page no longer uses a card-grid → detail-page
+    # flow. Instead each row has a "..." button (aria-label="Song actions",
+    # data-tour="desktop-song-action-menu") that opens a Radix menu with
+    # Download → MP3 / WAV / etc. — file downloads without navigation.
+    rows = _find_song_rows(page, track_name)
+    matching_rows = [r for r in rows if r.get("nameMatch")]
+    if matching_rows:
+        log.info(f"Found {len(matching_rows)} matching row(s) via '...' menu approach")
+        all_mp3s = []
+        for i, row in enumerate(matching_rows):
+            card_num = i + 1
+            song_id = str(int(time.time()) + i)
+            log.info(f"\n--- Row {card_num}/{len(matching_rows)}: button index {row['buttonIndex']} ---")
+            try:
+                downloaded = _download_via_actions_menu(
+                    page, row["buttonIndex"], safe_name, card_num, song_id,
+                    download_dir=download_dir,
+                )
+                all_mp3s.extend(downloaded)
+            except Exception as e:
+                log.warning(f"Row {card_num} download failed: {e}")
+                page.screenshot(path=str(OUTPUT_DIR / f"debug_row_fail_{card_num}.png"))
+                # Close any open menu before retrying next row
+                try:
+                    page.keyboard.press("Escape")
+                    page.wait_for_timeout(500)
+                except Exception:
+                    pass
+        return all_mp3s
+
+    # ── LEGACY FALLBACK: old detail-page flow ──
+    log.warning("No rows found via '...' menu approach — falling back to legacy card-click flow")
     all_mp3s = []
     for i, card_info in enumerate(cards_to_use):
         card_num = i + 1
@@ -617,6 +649,121 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
             page.screenshot(path=str(OUTPUT_DIR / f"debug_card_fail_{card_num}.png"))
 
     return all_mp3s
+
+
+def _find_song_rows(page, track_name: str) -> list[dict]:
+    """Find My Music rows whose ancestor contains the given track name.
+
+    Each row has a "..." action button (data-tour="desktop-song-action-menu").
+    Returns one dict per such button on the page:
+        {"buttonIndex": int, "name": str, "nameMatch": bool}
+    The buttonIndex maps to the Nth button[data-tour="desktop-song-action-menu"]
+    on the page — used later to click via JS.
+    """
+    return page.evaluate(
+        """(trackName) => {
+            const buttons = document.querySelectorAll('button[data-tour="desktop-song-action-menu"]');
+            const results = [];
+            const lowerName = (trackName || '').toLowerCase();
+            buttons.forEach((btn, idx) => {
+                let foundName = '';
+                let nameMatch = false;
+                let row = btn;
+                for (let i = 0; i < 14; i++) {
+                    row = row.parentElement;
+                    if (!row) break;
+                    const text = (row.textContent || '').trim();
+                    if (lowerName && text.toLowerCase().includes(lowerName)) {
+                        nameMatch = true;
+                        foundName = trackName;
+                        break;
+                    }
+                }
+                results.push({ buttonIndex: idx, name: foundName, nameMatch: nameMatch });
+            });
+            return results;
+        }""",
+        track_name,
+    )
+
+
+def _download_via_actions_menu(page, button_index: int, safe_name: str,
+                               card_num: int, song_id: str,
+                               download_dir: Path) -> list:
+    """Open the song-actions ('...') menu and download MP3 via Download > MP3.
+
+    Flow (new UI):
+      1. Click button[data-tour="desktop-song-action-menu"] at button_index
+      2. Wait for menu, click "Download" item
+      3. Wait for submenu, click "MP3" item — Playwright captures the download
+    """
+    # 1. Click the "..." button
+    clicked = page.evaluate(
+        """(idx) => {
+            const buttons = document.querySelectorAll('button[data-tour="desktop-song-action-menu"]');
+            if (idx >= buttons.length) return false;
+            buttons[idx].scrollIntoView({block: 'center'});
+            buttons[idx].click();
+            return true;
+        }""",
+        button_index,
+    )
+    if not clicked:
+        raise RuntimeError(f"actions button index {button_index} not found")
+    page.wait_for_timeout(1000)
+    page.screenshot(path=str(OUTPUT_DIR / f"debug_menu_open_{card_num}.png"))
+
+    # 2. Click "Download" item in the open menu
+    download_clicked = page.evaluate(
+        """() => {
+            // Try clickable elements with EXACT text "Download" (excluding parents)
+            const candidates = document.querySelectorAll('button, [role="menuitem"], div[role="menuitem"], li, a');
+            for (const el of candidates) {
+                const ownText = Array.from(el.childNodes)
+                    .filter(n => n.nodeType === 3)
+                    .map(n => n.textContent.trim())
+                    .join(' ').trim();
+                const fullText = (el.textContent || '').trim();
+                if (ownText === 'Download' || fullText === 'Download') {
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width > 0 && rect.height > 0) {
+                        el.click();
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }"""
+    )
+    if not download_clicked:
+        raise RuntimeError("Download menu item not found")
+    page.wait_for_timeout(800)
+    page.screenshot(path=str(OUTPUT_DIR / f"debug_submenu_open_{card_num}.png"))
+
+    # 3. Click "MP3" submenu item while capturing the download
+    output_path = download_dir / f"{safe_name}_{song_id}_{card_num}.mp3"
+    with page.expect_download(timeout=60_000) as dl_info:
+        mp3_clicked = page.evaluate(
+            """() => {
+                const buttons = document.querySelectorAll('button, [role="menuitem"], div[role="menuitem"], li, a');
+                for (const el of buttons) {
+                    if ((el.textContent || '').trim() === 'MP3') {
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            el.click();
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }"""
+        )
+        if not mp3_clicked:
+            raise RuntimeError("MP3 submenu item not found")
+    download = dl_info.value
+    download.save_as(str(output_path))
+    log.info(f"Card {card_num}: downloaded {output_path.name}")
+    return [output_path]
 
 
 def _find_grid_cards(page, track_name: str) -> list[dict]:
