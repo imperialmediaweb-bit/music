@@ -710,20 +710,30 @@ def _find_song_rows(page, track_name: str) -> list[dict]:
             const results = [];
             const lowerName = (trackName || '').toLowerCase();
             buttons.forEach((btn, idx) => {
-                let foundName = '';
-                let nameMatch = false;
+                // Walk up to the largest ancestor that still contains ONLY this
+                // action button — that's this song's row. Going further would
+                // grab the whole list and every row would match every name.
                 let row = btn;
                 for (let i = 0; i < 14; i++) {
-                    row = row.parentElement;
-                    if (!row) break;
-                    const text = (row.textContent || '').trim();
-                    if (lowerName && text.toLowerCase().includes(lowerName)) {
-                        nameMatch = true;
-                        foundName = trackName;
-                        break;
-                    }
+                    const next = row.parentElement;
+                    if (!next) break;
+                    const peers = next.querySelectorAll('button[data-tour="desktop-song-action-menu"]');
+                    if (peers.length > 1) break;
+                    row = next;
                 }
-                results.push({ buttonIndex: idx, name: foundName, nameMatch: nameMatch });
+                const text = (row.textContent || '').trim();
+                let nameMatch = false;
+                let foundName = '';
+                if (lowerName && text.toLowerCase().includes(lowerName)) {
+                    nameMatch = true;
+                    foundName = trackName;
+                }
+                results.push({
+                    buttonIndex: idx,
+                    name: foundName,
+                    nameMatch: nameMatch,
+                    rowText: text.slice(0, 80),
+                });
             });
             return results;
         }""",
