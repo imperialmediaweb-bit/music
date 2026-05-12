@@ -939,7 +939,25 @@ GENRE_PROFILES: dict[str, dict] = {
             "- TRACKNAME 🔥 INSANE Tribal Drums × Deep Bass #{mix_number} | {genre_hashtag}\n"
             "- TRACKNAME 🔥 Once You Hear This, You Can't Unhear It #{mix_number} | {genre_hashtag}\n"
             "- TRACKNAME 🔥 Afro House Mix • Deep Bass / Tribal Energy #{mix_number} | {genre_hashtag}\n"
-            "- TRACKNAME 🔥 The Most ADDICTIVE Afro House Remix of 2026 #{mix_number} | {genre_hashtag}"
+            "- TRACKNAME 🔥 The Most ADDICTIVE Afro House Remix of 2026 #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Best Afro House Mix For Long Drives & Gym #{mix_number} 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Hidden Gem Afro House Track Nobody Talks About #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Real Afro House Lovers ONLY • Mix #{mix_number} 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Africa's Best Kept Secret • Afro House Mix #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 From The Heart Of Africa • Afro House Mix #{mix_number} 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Premium Afro House Selection • Mix #{mix_number} 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Soulful Afro House Vibes For Late Nights #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Smooth Afro House For Sunset Sessions #{mix_number} 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 This Track Made Me Fall In Love With Afro House #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Pure Tribal Energy • Afro House Mix #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Afro House Mix For Workouts & Festival Vibes #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 The Mix That Changed My Playlist Forever #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Sunrise Drive • Afro House Mix #{mix_number} 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Spiritual Afro House Journey • Mix #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Afro House That Hits DIFFERENT • Mix #{mix_number} 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Drop The Bass • Tribal Afro House Mix #{mix_number} | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 If You Love Afro House, You NEED This #{mix_number} 2026 | {genre_hashtag}\n"
+            "- TRACKNAME 🔥 Late Night Tribal Drive • Afro House Mix #{mix_number} | {genre_hashtag}"
         ),
         "thumbnail_core": (
             "An authentic African tribal mask or face portrait (Yoruba, Dogon, Fang, Punu, Dan, "
@@ -1316,11 +1334,24 @@ def _build_system_prompt(genre: str, music_style: str) -> str:
     # Pass a mix_number into title_formulas so compilation-style formats
     # (e.g. Dark House "Deep House Mix • ... #8") get a fresh sequential
     # number each run. Formulas that don't reference {mix_number} ignore it.
-    title_formulas = profile["title_formulas"].format(
+    mix_num = _next_mix_number(genre)
+    all_formulas_str = profile["title_formulas"].format(
         genre=genre,
         genre_hashtag=genre_hashtag,
-        mix_number=_next_mix_number(genre),
+        mix_number=mix_num,
     )
+    # Rotate through formulas deterministically by mix_number — otherwise the
+    # AI biases toward the same "WARNING: ... DANGEROUSLY Addictive" template
+    # and every upload ends up with the same title.
+    _formula_lines = [
+        ln.lstrip("- ").strip()
+        for ln in all_formulas_str.split("\n")
+        if ln.strip().startswith("-")
+    ]
+    if _formula_lines:
+        title_formulas = _formula_lines[mix_num % len(_formula_lines)]
+    else:
+        title_formulas = all_formulas_str
     thumbnail_core = profile["thumbnail_core"]
     related_genres = profile["related_genres"]
     use_cases = profile["use_cases"]
@@ -1355,7 +1386,7 @@ Return ONLY valid JSON with these exact fields:
   "music_prompt": "detailed prompt for AI music generation - describe instruments, rhythm, bass, mood, style. Must match the {genre} genre specifically.",
   "lyrics": "Song lyrics in English, formatted with standard section tags like [Verse 1], [Chorus], [Verse 2], [Bridge], [Outro]. Keep it tight: 1-2 short verses + catchy chorus + optional bridge, roughly 150-350 words total. Theme and vocal style MUST fit the {genre} aesthetic (e.g. Dark House = soft breathy female vocals, love/night/neon/emotional themes). If the genre is traditionally instrumental (e.g. Afro House), return an empty string and the track will be instrumental.",
   "hashtags": ["10-15 hashtags RELEVANT TO {genre} — mix genre-specific and general music hashtags. Do NOT include hashtags from unrelated genres."],
-  "youtube_title": "Create a UNIQUE, ULTRA-ATTRACTIVE YouTube title designed to MAXIMIZE click-through rate (CTR) and YouTube recommendations. RANDOMLY pick ONE of these proven VIRAL formats tailored to {genre} (NEVER repeat a format from a previous track):\\n\\n{title_formulas}\\n\\nSEO KEYWORD RULES:\\n1. ALWAYS include the genre name '{genre}' in the title (critical for search ranking)\\n2. Include at least ONE power word appropriate to {genre}: {power_words}\\n3. Use EXTREME curiosity gaps and emotional triggers to MAXIMIZE clicks\\n4. Front-load the most important keywords (first 50 chars matter most for search)\\n5. Make titles feel URGENT and UNMISSABLE — the viewer should feel they NEED to click\\n6. Use 2026 when mentioning year\\n7. Do NOT use motifs from unrelated genres (e.g. no 'tribal' for Dark House, no 'sacred African energy' for Phonk, etc.)\\n\\nRules: track name UPPERCASE, fire emoji after name, end with {genre_hashtag}, max 100 chars. Do NOT include duration. EVERY title MUST be COMPLETELY different.",
+  "youtube_title": "Use EXACTLY this title formula, replacing TRACKNAME with the actual UPPERCASE track name:\\n\\n{title_formulas}\\n\\nSEO KEYWORD RULES:\\n1. Keep the genre name '{genre}' from the formula intact (critical for search ranking)\\n2. Do NOT add power words beyond what's already in the formula\\n3. Do NOT rewrite or paraphrase the formula — only substitute TRACKNAME\\n4. If a year is in the formula keep it as 2026\\n5. Output MUST stay under 100 chars total\\n6. Do NOT include duration\\n\\nRules: track name UPPERCASE, fire emoji after name, end with {genre_hashtag}.",
   "youtube_description": "Write a LONG (25+ lines) YouTube description FULLY OPTIMIZED for YouTube SEO and algorithm recommendations.\\n\\nSTRUCTURE (follow this order):\\n\\n1. FIRST 2 LINES (most important — shown in search results before 'Show more'):\\n   - Include the EXACT track name and the genre '{genre}' in the first sentence\\n   - Use high-search keywords specific to {genre} and related genres: {related_genres}\\n   - Make it compelling enough to click 'Show more'\\n\\n2. KEYWORD-RICH BODY (5-8 lines):\\n   - Describe the track's sound, instruments, energy, and atmosphere in a way that fits {genre}\\n   - Naturally weave in SEARCH KEYWORDS relevant to {genre}: {related_genres}\\n   - Each sentence should contain at least one searchable keyword\\n\\n3. USE CASES with keywords (3-4 lines):\\n   - 'Perfect for: [keyword-rich list relevant to {genre}]' — e.g. {use_cases}\\n   - This helps YouTube match your video to DIFFERENT search queries\\n\\n4. CALL TO ACTION (2-3 lines):\\n   - Ask viewers to LIKE, SUBSCRIBE, and turn on NOTIFICATIONS\\n   - Ask them to COMMENT their favorite part\\n   - Ask them to SHARE with friends who love {genre}\\n\\n5. KEYWORD CLOUD (5-8 lines):\\n   - List related search terms that people actually search on YouTube for {genre}:\\n     '{genre} mix 2026', 'best {genre} tracks', 'new {genre} music', plus terms from: {related_genres}\\n   - Format as a clean list, one per line\\n\\n6. CONTACT: imperialmediaweb@gmail.com\\n\\nIMPORTANT RULES:\\n- Do NOT include hashtags (#) in the description (they get added separately)\\n- Do NOT reference aesthetics from unrelated genres (no African/tribal talk unless the genre IS Afro House, no neon/rain talk unless the genre IS Dark House, etc.)\\n- EVERY sentence should be keyword-rich but still read naturally\\n- VARY the structure, wording, and keywords each time — no two descriptions should be similar\\n- Use line breaks and spacing for readability",
   "youtube_tags": ["Generate 25-30 YouTube tags OPTIMIZED for search discovery, ALL relevant to {genre}.\\n\\nINCLUDE THESE TAG CATEGORIES:\\n\\n1. EXACT MATCH genre tags (highest priority):\\n   '{genre}', '{genre} music', '{genre} mix', '{genre} 2026', 'new {genre}', 'best {genre}'\\n\\n2. RELATED genre tags (only those that genuinely fit {genre}): {related_genres}\\n\\n3. MOOD/VIBE tags that fit {genre} specifically\\n\\n4. USE CASE tags: {use_cases}\\n\\n5. TRENDING/DISCOVERY tags: 'new music 2026', 'music mix 2026', 'best music 2026', 'trending music', 'viral music'\\n\\n6. TRACK-SPECIFIC tags: include the track name as a tag\\n\\nRULES: Each tag max 100 chars, total under 500 chars. Mix short (1-2 word) and long-tail (3-4 word) tags. NO hashtag symbols. Do NOT include tags for unrelated genres."],
   "tiktok_caption": "Write a VIRAL TikTok caption optimized for TikTok's For You Page (FYP). MAX 150 chars.\\n\\nFORMULA: [Viral hook specific to {genre}] + [3-5 strategic hashtags]\\n\\nGENRE-SPECIFIC HOOKS (pick one, vary each time): {tiktok_hooks}\\n\\nHASHTAG STRATEGY:\\n- ALWAYS include: #fyp #foryou\\n- Genre: #{genre_lower} plus related hashtags for {genre} only (do NOT tag unrelated genres)\\n- Trending: #newmusic #viralmusic #musicdiscovery\\n\\nPick 3-5 hashtags that fit within the 150 char limit. Always include #fyp.",
