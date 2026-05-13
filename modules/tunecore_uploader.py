@@ -2438,10 +2438,16 @@ def _do_upload(
                                 continue
 
                         _smart_fill(page, "languageCode", "English", "Language")
+                        primary_set = None
                         for g in ["Afro house", "Afro House", "Electronic", "Dance"]:
                             if _smart_fill(page, "primaryGenreId", g, "Primary genre"):
+                                primary_set = g.lower()
                                 break
-                        for g in ["Afro house", "Afro House", "Electronic", "Dance"]:
+                        # Secondary genre MUST differ from primary — TC flags
+                        # releases that have identical primary+secondary metadata.
+                        for g in ["Electronic", "Dance", "Deep House", "House", "Afro house"]:
+                            if primary_set and g.lower() == primary_set:
+                                continue
                             if _smart_fill(page, "secondaryGenreId", g, "Secondary genre"):
                                 break
 
