@@ -282,32 +282,54 @@ def _safe_filename(name: str) -> str:
 
 
 def _dall_e_generate(client: OpenAI, prompt: str, size: str) -> Image.Image:
-    """Call DALL-E 3 with retry and return a PIL Image."""
+    """Call the OpenAI image API with retry and return a PIL Image.
+
+    OpenAI retired `dall-e-3` (responds with 'model does not exist'). The
+    current model is `gpt-image-1`, which returns base64-encoded image bytes
+    in `response.data[0].b64_json` instead of a URL.
+    """
+    import base64
+
+    # gpt-image-1 supports: 1024x1024, 1024x1536, 1536x1024, auto
+    size_map = {
+        "1792x1024": "1536x1024",
+        "1024x1792": "1024x1536",
+        "1024x1024": "1024x1024",
+    }
+    api_size = size_map.get(size, "1024x1024")
+
     last_err = None
     for attempt in range(1, 5):
         try:
             response = client.images.generate(
-                model="dall-e-3",
+                model="gpt-image-1",
                 prompt=prompt,
-                size=size,
-                quality="standard",
+                size=api_size,
                 n=1,
             )
-            image_url = response.data[0].url
-            log.info("DALL-E image generated, downloading...")
-            img_response = requests.get(image_url, timeout=60)
-            img_response.raise_for_status()
-            return Image.open(BytesIO(img_response.content))
+            data = response.data[0]
+            # Prefer base64 (gpt-image-1 default); fall back to URL if present.
+            b64 = getattr(data, "b64_json", None)
+            if b64:
+                log.info("gpt-image-1 image generated, decoding base64...")
+                return Image.open(BytesIO(base64.b64decode(b64)))
+            url = getattr(data, "url", None)
+            if url:
+                log.info("gpt-image-1 image generated, downloading...")
+                img_response = requests.get(url, timeout=60)
+                img_response.raise_for_status()
+                return Image.open(BytesIO(img_response.content))
+            raise RuntimeError("gpt-image-1 returned neither b64_json nor url")
         except Exception as e:
             last_err = e
             if attempt < 4:
                 wait = 2 ** attempt
-                log.warning(f"DALL-E API error (attempt {attempt}/4): {e}")
+                log.warning(f"OpenAI image API error (attempt {attempt}/4): {e}")
                 log.info(f"Retrying in {wait}s...")
                 time.sleep(wait)
             else:
                 raise RuntimeError(
-                    f"DALL-E API failed after 4 attempts: {last_err}\n"
+                    f"OpenAI image API failed after 4 attempts: {last_err}\n"
                     "Check your OPENAI_API_KEY in .env and internet connection."
                 ) from last_err
 
