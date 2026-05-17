@@ -853,7 +853,7 @@ def process_single_track(mp3_path: Path, concept=None,
 
     # Step 5c: Create and upload 1 YouTube Short (published right after main video)
     try:
-        shorts_count = 5
+        shorts_count = 2
         log.info("=" * 60)
         log.info(f"STEP 5c: Creating {shorts_count} YouTube Shorts...")
         short_videos = create_multiple_shorts(audio_path, thumbnail_path, concept, count=shorts_count)
