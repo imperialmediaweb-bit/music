@@ -167,7 +167,8 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
     # Step 4-7: Process (duration, thumbnail, video, upload)
     result = process_single_track(merged_path, concept=concept,
                                   extra_playlists=extra_playlists,
-                                  profile_data=profile)
+                                  profile_data=profile,
+                                  segment_files=mp3_files)
     return result
 
 

@@ -570,9 +570,152 @@ def flush_pending_uploads() -> list[dict]:
     return results
 
 
+def _build_tracklist(segment_files: list) -> str:
+    """Build a YouTube-comment-ready tracklist with cumulative timestamps.
+
+    Reads each segment MP3's duration via mutagen and produces:
+        🎵 TRACKLIST 🎵
+        0:00 — Intro
+        2:13 — Rising Energy
+        ...
+    Returns an empty string on any error so the caller can fall back to a
+    plain engagement comment.
+    """
+    try:
+        from mutagen.mp3 import MP3
+    except Exception:
+        log.info("mutagen not available — skipping tracklist generation")
+        return ""
+
+    segment_labels = [
+        "Intro", "Rising Energy", "First Drop", "Deep Groove",
+        "Building Up", "Peak Moment", "Breakdown", "Second Drop",
+        "Tribal Heat", "Sunset Vibes", "Late Night", "Outro",
+    ]
+
+    lines = ["🎵 TRACKLIST 🎵"]
+    cumul = 0
+    for i, seg in enumerate(segment_files):
+        try:
+            mp3 = MP3(str(seg))
+            dur = int(mp3.info.length)
+        except Exception as e:
+            log.warning(f"Could not read duration of {seg}: {e}")
+            return ""
+        m, s = divmod(cumul, 60)
+        label = segment_labels[i] if i < len(segment_labels) else f"Section {i + 1}"
+        lines.append(f"{m}:{s:02d} — {label}")
+        cumul += dur
+
+    lines.append("")
+    lines.append("💬 Which part hit hardest? Drop the timestamp below!")
+    return "\n".join(lines)
+
+
+def post_community_announcement(video_url: str, track_name: str,
+                                concept_description: str = "") -> bool:
+    """Post a Community-tab announcement on YouTube linking to the new video.
+
+    Uses Playwright + saved YouTube cookies. Returns True on success.
+    YouTube Data API has no insert endpoint for community posts so this
+    must go through Studio's web UI.
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+        from modules.youtube_uploader import get_browser_context, YOUTUBE_COOKIE_FILE
+    except Exception as e:
+        log.warning(f"Cannot post community update — Playwright/uploader missing: {e}")
+        return False
+
+    if not YOUTUBE_COOKIE_FILE.exists():
+        log.info("Skipping community post — YouTube cookie file not found")
+        return False
+
+    desc = (concept_description or "").strip().replace("\n", " ")[:180]
+    post_text = (
+        f"🔥 New mix is LIVE 🔥\n\n"
+        f"{track_name}\n"
+        f"{desc}\n\n"
+        f"👉 Watch the full mix: {video_url}\n"
+        f"🔔 Subscribe + bell so you don't miss the next one"
+    )
+
+    log.info(f"Posting Community tab announcement for {track_name}...")
+    with sync_playwright() as p:
+        try:
+            browser, context = get_browser_context(p, YOUTUBE_COOKIE_FILE)
+            page = context.new_page()
+            page.goto("https://www.youtube.com/", wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(4000)
+            # Open the channel "Create" → community-post composer.
+            page.goto("https://studio.youtube.com/channel/UC/community/post", wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(6000)
+
+            if "accounts.google.com" in page.url:
+                log.warning("Community post: not logged in (cookies expired)")
+                browser.close()
+                return False
+
+            # Find composer textarea / contenteditable and fill it.
+            filled = False
+            for sel in [
+                "div[contenteditable='true']",
+                "ytcp-social-suggestions-textbox div[contenteditable]",
+                "textarea[aria-label*='post' i]",
+                "textarea",
+            ]:
+                try:
+                    el = page.locator(sel).first
+                    if el.is_visible(timeout=2000):
+                        el.click()
+                        el.fill(post_text)
+                        filled = True
+                        log.info(f"Community composer filled via selector: {sel}")
+                        break
+                except Exception:
+                    continue
+
+            if not filled:
+                page.screenshot(path=str(OUTPUT_DIR / "debug_community_no_composer.png"))
+                log.warning("Could not find community-post composer")
+                browser.close()
+                return False
+
+            page.wait_for_timeout(2000)
+
+            # Click the Post button.
+            for sel in [
+                "button:has-text('Post')", "tp-yt-paper-button:has-text('Post')",
+                "ytcp-button:has-text('Post')", "button[aria-label*='Post' i]",
+            ]:
+                try:
+                    btn = page.locator(sel).first
+                    if btn.is_visible(timeout=2000):
+                        btn.click()
+                        log.info(f"Clicked community Post button via selector: {sel}")
+                        page.wait_for_timeout(5000)
+                        browser.close()
+                        return True
+                except Exception:
+                    continue
+
+            page.screenshot(path=str(OUTPUT_DIR / "debug_community_no_post_btn.png"))
+            log.warning("Could not find Post button in community composer")
+            browser.close()
+            return False
+        except Exception as e:
+            log.warning(f"Community post failed: {e}")
+            try:
+                browser.close()
+            except Exception:
+                pass
+            return False
+
+
 def process_single_track(mp3_path: Path, concept=None,
                          extra_playlists: list[str] | None = None,
-                         profile_data: dict | None = None) -> dict:
+                         profile_data: dict | None = None,
+                         segment_files: list[Path] | None = None) -> dict:
     """Process one compiled MP3 file: concept → thumbnail → video → upload.
 
     Args:
@@ -580,6 +723,9 @@ def process_single_track(mp3_path: Path, concept=None,
         concept: Optional pre-generated MusicConcept. If None, generates one.
         extra_playlists: Additional YouTube playlist names (from profile).
         profile_data: Playlist profile dict for enriching YouTube metadata.
+        segment_files: Optional list of source MP3s that were merged into
+            mp3_path. Used to compute per-segment timestamps for the
+            tracklist comment.
     """
     ensure_path()
     result = {
@@ -749,6 +895,12 @@ def process_single_track(mp3_path: Path, concept=None,
         if video_comments:
             video_id = youtube_url.split("/")[-1]
             comment_text = random.choice(video_comments)
+            # Prepend a tracklist with timestamps when we have segment info —
+            # this drives watch time (viewers click timestamps) and is a major
+            # YouTube algorithm signal.
+            tracklist = _build_tracklist(segment_files) if segment_files else ""
+            if tracklist:
+                comment_text = f"{tracklist}\n\n{comment_text}"
             # Retry up to 3 times with backoff in case the video is still
             # processing — post_comment swallows errors so we re-check.
             for attempt in range(1, 4):
@@ -758,6 +910,16 @@ def process_single_track(mp3_path: Path, concept=None,
                 if attempt < 3:
                     log.info(f"Long-video comment attempt {attempt} failed; waiting 90s...")
                     _t.sleep(90)
+
+    # Step 5d: Post Community-tab announcement linking to the long video
+    if youtube_url and concept is not None:
+        try:
+            post_community_announcement(
+                youtube_url, concept.track_name,
+                getattr(concept, "description", "") or "",
+            )
+        except Exception as e:
+            log.warning(f"Community post failed: {e}")
 
     # Step 6: Upload to TikTok
     if SKIP_TIKTOK:
