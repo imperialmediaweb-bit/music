@@ -141,7 +141,7 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
         log.info(f"Skipping TikTok (--only {only})")
 
     # Upload to TuneCore (always runs with youtube/tiktok too)
-    if only in (None, "tunecore", "youtube", "tiktok"):
+    if only in (None, "tunecore", "youtube", "tiktok") and not SKIP_TUNECORE:
         # Files may use underscores instead of spaces (audio_merger convention)
         name_variants = [track_name, track_name.replace(" ", "_")]
         wav_file = None
@@ -199,6 +199,8 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
             except Exception as e:
                 log.error(f"TuneCore upload failed: {e}")
                 result["errors"].append(f"tunecore: {e}")
+    elif SKIP_TUNECORE:
+        log.info("Skipping TuneCore (SKIP_TUNECORE=true)")
     else:
         log.info(f"Skipping TuneCore (--only {only})")
 
