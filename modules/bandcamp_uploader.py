@@ -195,36 +195,73 @@ def _is_logged_out(page) -> bool:
 
 
 def _click_add_button(page) -> bool:
-    """Click the '+ Add' nav link on the artist dashboard."""
+    """Click the '+ Add' nav link on the artist dashboard.
+
+    The dashboard header on the new Bandcamp UI uses a custom div/span as
+    the '+ Add' trigger (not <a> or <button>), so role-based lookups miss it.
+    Strategy: scan ANY visible clickable element near the top of the page
+    whose trimmed text equals 'Add' / '+ Add'.
+    """
     # Prefer role-based lookup so Playwright dispatches real events
     for pattern in [r"^\s*\+\s*Add\s*$", r"^\s*Add\s*$"]:
-        try:
-            loc = page.get_by_role("link", name=re.compile(pattern, re.I))
-            if loc.count() > 0:
-                loc.first.click(timeout=5_000)
-                return True
-        except Exception:
-            pass
-        try:
-            loc = page.get_by_role("button", name=re.compile(pattern, re.I))
-            if loc.count() > 0:
-                loc.first.click(timeout=5_000)
-                return True
-        except Exception:
-            pass
+        for role in ("link", "button", "menuitem"):
+            try:
+                loc = page.get_by_role(role, name=re.compile(pattern, re.I))
+                if loc.count() > 0:
+                    loc.first.click(timeout=5_000)
+                    log.info(f"Clicked '+ Add' via role={role}")
+                    return True
+            except Exception:
+                continue
 
-    # Fallback: JS scan for an anchor/button whose text is "+ Add" or "Add"
+    # Fallback 1: get_by_text — Playwright filters to visible by default.
+    for text in ("+ Add", "Add"):
+        try:
+            loc = page.get_by_text(text, exact=True).first
+            if loc.is_visible(timeout=1500):
+                loc.click(timeout=5_000)
+                log.info(f"Clicked '+ Add' via get_by_text('{text}')")
+                return True
+        except Exception:
+            continue
+
+    # Fallback 2: JS scan across ANY tag whose trimmed text is "+ Add" / "Add"
+    # and that's near the top of the viewport (= header).
     clicked = page.evaluate("""() => {
-        const els = [...document.querySelectorAll('a, button')];
-        const add = els.find(e => {
-            if (e.offsetParent === null) return false;
-            const t = (e.textContent || '').trim();
-            return t === '+ Add' || t === 'Add' || t === '+ add' || t.toLowerCase() === 'add';
-        });
-        if (add) { add.click(); return true; }
-        return false;
+        const want = ['+ Add', 'Add', '+ add', '+add'];
+        const els = [...document.querySelectorAll('*')];
+        for (const el of els) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) continue;
+            if (rect.top > 200) continue;  // header area only
+            // Only consider elements whose OWN text (not nested) matches.
+            const ownText = Array.from(el.childNodes)
+                .filter(n => n.nodeType === 3)
+                .map(n => n.textContent.trim()).join(' ').trim();
+            if (want.includes(ownText)) {
+                el.scrollIntoView({block: 'center'});
+                el.click();
+                return el.tagName + (el.className ? '.' + el.className.toString().split(' ')[0] : '');
+            }
+        }
+        // Last resort: parent-text equality (catches the <div>+icon+text wrapper)
+        for (const el of els) {
+            const rect = el.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) continue;
+            if (rect.top > 200) continue;
+            const txt = (el.textContent || '').trim();
+            if (want.includes(txt) && el.children.length <= 3) {
+                el.scrollIntoView({block: 'center'});
+                el.click();
+                return el.tagName + ' (fallback)';
+            }
+        }
+        return null;
     }""")
-    return bool(clicked)
+    if clicked:
+        log.info(f"Clicked '+ Add' via JS scan: {clicked}")
+        return True
+    return False
 
 
 def _pick_track_option(page) -> None:
