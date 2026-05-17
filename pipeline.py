@@ -701,15 +701,9 @@ def process_single_track(mp3_path: Path, concept=None,
         log.error(f"YouTube upload failed: {e}")
         result["errors"].append(f"youtube: {e}")
 
-    # Step 5b: Post engagement comment on long video
-    youtube_url = result.get("youtube_url")
-    if youtube_url and profile_data:
-        import random
-        video_comments = profile_data.get("video_comments", [])
-        if video_comments:
-            video_id = youtube_url.split("/")[-1]
-            comment_text = random.choice(video_comments)
-            post_comment(video_id, comment_text)
+    # Step 5b: Post engagement comment on long video — DEFERRED below.
+    # YouTube needs several minutes to finish transcoding the long upload
+    # before comments are accepted; posting immediately fails silently.
 
     # Step 5c: Create and upload 1 YouTube Short (published right after main video)
     try:
@@ -734,13 +728,36 @@ def process_single_track(mp3_path: Path, concept=None,
                 log.info(f"YouTube Short URL: {short_url}")
 
                 if profile_data:
+                    import random as _r
                     short_comments = profile_data.get("short_comments", [])
                     if short_comments:
                         short_vid_id = short_url.split("/")[-1]
-                        post_comment(short_vid_id, random.choice(short_comments))
+                        post_comment(short_vid_id, _r.choice(short_comments))
     except Exception as e:
         log.error(f"YouTube Shorts failed: {e}")
         result["errors"].append(f"youtube_shorts: {e}")
+
+    # Step 5b (deferred): Now post engagement comment on the LONG video.
+    # By this point the long video has had several minutes to finish
+    # processing (Short creation + upload took 2-4 min), so YouTube will
+    # accept the comment instead of silently rejecting it.
+    youtube_url = result.get("youtube_url")
+    if youtube_url and profile_data:
+        import random
+        import time as _t
+        video_comments = profile_data.get("video_comments", [])
+        if video_comments:
+            video_id = youtube_url.split("/")[-1]
+            comment_text = random.choice(video_comments)
+            # Retry up to 3 times with backoff in case the video is still
+            # processing — post_comment swallows errors so we re-check.
+            for attempt in range(1, 4):
+                cid = post_comment(video_id, comment_text)
+                if cid:
+                    break
+                if attempt < 3:
+                    log.info(f"Long-video comment attempt {attempt} failed; waiting 90s...")
+                    _t.sleep(90)
 
     # Step 6: Upload to TikTok
     if SKIP_TIKTOK:
