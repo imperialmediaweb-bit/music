@@ -432,6 +432,185 @@ def _complete_self_certification(video_id: str) -> bool:
             browser.close()
 
 
+def _apply_end_screen(video_id: str) -> bool:
+    """Apply a Subscribe + Best-for-viewer end-screen template via YouTube Studio.
+
+    The YouTube Data API does not support end-screen elements, so this drives
+    the Studio web UI with Playwright. Tries the new editor first, then the
+    legacy end-screen page. Best-effort — returns False on UI mismatch and
+    logs a screenshot so we can adjust selectors when Studio changes.
+    """
+    editor_urls = [
+        f"https://studio.youtube.com/video/{video_id}/edit/endscreen",
+        f"https://studio.youtube.com/video/{video_id}/endscreen",
+        f"https://studio.youtube.com/video/{video_id}/end-screen",
+    ]
+    debug_dir = OUTPUT_DIR
+
+    log.info(f"Opening YouTube Studio end-screen editor for {video_id}...")
+
+    with sync_playwright() as p:
+        browser, context = get_browser_context(p, YOUTUBE_COOKIE_FILE)
+        page = context.new_page()
+        try:
+            loaded = False
+            for url in editor_urls:
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=45_000)
+                    page.wait_for_timeout(6000)
+                    if "accounts.google.com" not in page.url and "endscreen" in page.url.lower().replace("-", ""):
+                        loaded = True
+                        log.info(f"End-screen editor loaded at {page.url}")
+                        break
+                except Exception as e:
+                    log.info(f"Endscreen URL '{url}' failed: {e}")
+                    continue
+
+            if not loaded:
+                log.warning("Could not open end-screen editor")
+                try:
+                    page.screenshot(path=str(debug_dir / "debug_yt_endscreen_no_load.png"))
+                except Exception:
+                    pass
+                return False
+
+            if "accounts.google.com" in page.url:
+                log.warning("End-screen: not logged into Studio (cookies expired)")
+                return False
+
+            page.screenshot(path=str(debug_dir / "debug_yt_endscreen_01_loaded.png"))
+
+            # Strategy 1: "Apply template" — pick the template that adds
+            # Subscribe + Best-for-viewer. The Studio UI shows several
+            # template thumbnails; pick the one with 2 elements.
+            template_clicked = False
+            for sel in [
+                "button:has-text('Apply template')",
+                "ytcp-button:has-text('Apply template')",
+                "tp-yt-paper-button:has-text('Apply template')",
+                "button[aria-label*='template' i]",
+            ]:
+                try:
+                    el = page.locator(sel).first
+                    if el.is_visible(timeout=2000):
+                        el.click()
+                        log.info(f"Clicked Apply template via: {sel}")
+                        template_clicked = True
+                        page.wait_for_timeout(2500)
+                        break
+                except Exception:
+                    continue
+
+            if template_clicked:
+                # Pick the first template that mentions "subscribe" and "video"
+                # or just the 2nd thumbnail (which is usually 1 video + subscribe).
+                for sel in [
+                    "div[role='option']:has-text('1 video, 1 subscribe')",
+                    "div[role='option']:has-text('Video + subscribe')",
+                    "[role='option']:nth-of-type(2)",
+                    "ytcp-end-screen-template-picker [role='option']:nth-of-type(2)",
+                ]:
+                    try:
+                        el = page.locator(sel).first
+                        if el.is_visible(timeout=2000):
+                            el.click()
+                            log.info(f"Selected end-screen template via: {sel}")
+                            page.wait_for_timeout(2000)
+                            break
+                    except Exception:
+                        continue
+
+            # Strategy 2: add elements manually if no template flow.
+            if not template_clicked:
+                log.info("No 'Apply template' button found — adding elements manually")
+                for label in ["Subscribe", "Video"]:
+                    add_clicked = False
+                    for sel in [
+                        f"button:has-text('Add element')",
+                        f"ytcp-button:has-text('Add element')",
+                    ]:
+                        try:
+                            el = page.locator(sel).first
+                            if el.is_visible(timeout=2000):
+                                el.click()
+                                page.wait_for_timeout(1500)
+                                add_clicked = True
+                                break
+                        except Exception:
+                            continue
+                    if not add_clicked:
+                        log.warning("'Add element' button not visible")
+                        break
+                    for sel in [
+                        f"[role='menuitem']:has-text('{label}')",
+                        f"div:has-text('{label}'):not(:has(*))",
+                    ]:
+                        try:
+                            el = page.locator(sel).first
+                            if el.is_visible(timeout=2000):
+                                el.click()
+                                log.info(f"Added end-screen element: {label}")
+                                page.wait_for_timeout(2000)
+                                break
+                        except Exception:
+                            continue
+                    # For the Video element, pick "Best for viewer"
+                    if label == "Video":
+                        for sel in [
+                            "div:has-text('Best for viewer')",
+                            "[role='option']:has-text('Best for viewer')",
+                        ]:
+                            try:
+                                el = page.locator(sel).first
+                                if el.is_visible(timeout=2000):
+                                    el.click()
+                                    page.wait_for_timeout(1500)
+                                    break
+                            except Exception:
+                                continue
+
+            page.screenshot(path=str(debug_dir / "debug_yt_endscreen_02_elements.png"))
+
+            # Click Save
+            saved = False
+            for sel in [
+                "button:has-text('Save')",
+                "ytcp-button:has-text('Save')",
+                "tp-yt-paper-button:has-text('Save')",
+                "button[aria-label*='Save' i]",
+            ]:
+                try:
+                    el = page.locator(sel).first
+                    if el.is_visible(timeout=3000):
+                        el.click()
+                        log.info(f"Clicked Save via: {sel}")
+                        saved = True
+                        page.wait_for_timeout(4000)
+                        break
+                except Exception:
+                    continue
+
+            page.screenshot(path=str(debug_dir / "debug_yt_endscreen_03_saved.png"))
+
+            if saved:
+                log.info("End-screen elements saved")
+                return True
+            log.warning("End-screen Save button not clicked — elements may not persist")
+            return False
+        except Exception as e:
+            log.warning(f"End-screen application failed: {e}")
+            try:
+                page.screenshot(path=str(debug_dir / "debug_yt_endscreen_error.png"))
+            except Exception:
+                pass
+            return False
+        finally:
+            try:
+                browser.close()
+            except Exception:
+                pass
+
+
 LOCALIZATION_TEMPLATES = {
     "es": {
         "title_prefix": "",
@@ -757,6 +936,12 @@ def upload_to_youtube(
             log.info(f"Added to '{pl_name}' playlist")
         except Exception as e:
             log.warning(f"Extra playlist '{pl_name}' add failed: {e}")
+
+    # Apply end-screen (Subscribe + Best for viewer) — boosts session time
+    try:
+        _apply_end_screen(video_id)
+    except Exception as e:
+        log.warning(f"End-screen apply failed: {e}")
 
     # Complete self-certification for monetization
     try:
