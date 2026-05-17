@@ -853,32 +853,46 @@ def process_single_track(mp3_path: Path, concept=None,
 
     # Step 5c: Create and upload 1 YouTube Short (published right after main video)
     try:
+        shorts_count = 5
         log.info("=" * 60)
-        log.info("STEP 5c: Creating 1 YouTube Short...")
-        short_videos = create_multiple_shorts(audio_path, thumbnail_path, concept, count=1)
+        log.info(f"STEP 5c: Creating {shorts_count} YouTube Shorts...")
+        short_videos = create_multiple_shorts(audio_path, thumbnail_path, concept, count=shorts_count)
         from modules.youtube_uploader import upload_short_to_youtube
 
         result["short_urls"] = []
-        if short_videos:
-            short_video = short_videos[0]
-            short_title = f"{concept.track_name} 🔥 #afrohouse #shorts"[:100]
+        # Slight title variation per short — avoids YouTube flagging
+        # duplicate uploads from same channel within minutes.
+        short_title_variants = [
+            f"{concept.track_name} 🔥 #afrohouse #shorts",
+            f"{concept.track_name} 💥 Afro House Drop #shorts",
+            f"{concept.track_name} 🥁 Tribal Bass #afrohouse #shorts",
+            f"POV: {concept.track_name} 🔥 #afrohouse #shorts",
+            f"{concept.track_name} • Peak Moment 🌙 #shorts #afrohouse",
+        ]
+        full_url = result.get("youtube_url", "check channel")
+        for i, short_video in enumerate(short_videos):
+            short_title = short_title_variants[i % len(short_title_variants)][:100]
             short_desc = (
-                f"Full track ➡️ {result.get('youtube_url', 'check channel')}\n\n"
+                f"Full track ➡️ {full_url}\n\n"
                 f"{concept.description}\n\n"
                 f"#shorts #afrohouse #deephouse #{concept.genre.lower().replace(' ', '')}"
             )
+            try:
+                short_url = upload_short_to_youtube(short_video, short_title, short_desc, concept)
+            except Exception as up_err:
+                log.warning(f"Short {i + 1}/{len(short_videos)} upload failed: {up_err}")
+                continue
+            if not short_url:
+                continue
+            result["short_urls"].append(short_url)
+            log.info(f"YouTube Short {i + 1}/{len(short_videos)} URL: {short_url}")
 
-            short_url = upload_short_to_youtube(short_video, short_title, short_desc, concept)
-            if short_url:
-                result["short_urls"].append(short_url)
-                log.info(f"YouTube Short URL: {short_url}")
-
-                if profile_data:
-                    import random as _r
-                    short_comments = profile_data.get("short_comments", [])
-                    if short_comments:
-                        short_vid_id = short_url.split("/")[-1]
-                        post_comment(short_vid_id, _r.choice(short_comments))
+            if profile_data:
+                import random as _r
+                short_comments = profile_data.get("short_comments", [])
+                if short_comments:
+                    short_vid_id = short_url.split("/")[-1]
+                    post_comment(short_vid_id, _r.choice(short_comments))
     except Exception as e:
         log.error(f"YouTube Shorts failed: {e}")
         result["errors"].append(f"youtube_shorts: {e}")
