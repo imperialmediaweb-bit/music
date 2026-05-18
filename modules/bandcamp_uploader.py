@@ -343,89 +343,126 @@ def _set_track_name(page, title: str) -> None:
     log.warning("Track name field not found — continuing anyway")
 
 
-def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
-    log.info(f"Uploading cover art: {cover_path.name}")
-    # Look for the image file input among all file inputs
+def _set_files_on_any_input(page, file_path: Path, accept_keywords: list) -> bool:
+    """Set the file on the first hidden <input type=file> that accepts it.
+
+    Bandcamp's new UI hides the actual <input type=file> behind a styled
+    div/link ('add audio', 'Upload Track Art'). The element is in the DOM
+    but `is_visible()` returns False. set_input_files works on hidden
+    inputs as long as we don't filter by visibility.
+    """
     inputs = page.query_selector_all('input[type="file"]')
     for inp in inputs:
         accept = (inp.get_attribute("accept") or "").lower()
         name = (inp.get_attribute("name") or "").lower()
         ident = (inp.get_attribute("id") or "").lower()
-        if ("image" in accept or "jpg" in accept or "png" in accept
-                or "art" in name or "art" in ident or "cover" in name or "cover" in ident):
+        blob = " ".join((accept, name, ident))
+        if any(k in blob for k in accept_keywords):
             try:
-                inp.set_input_files(str(cover_path))
-                page.wait_for_timeout(2_000)
-                log.info("Cover art uploaded")
-                page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
-                return
+                inp.set_input_files(str(file_path))
+                return True
             except Exception as e:
-                log.warning(f"Artwork set_input_files failed: {e}")
+                log.warning(f"set_input_files on '{ident or name or accept}' failed: {e}")
+                continue
+    return False
 
-    # Fallback: click an artwork placeholder then use the file chooser
-    artwork_el = page.query_selector(
-        'div[class*="art" i][role="button"], div[class*="cover" i], '
-        'button:has-text("art"), button:has-text("cover")'
+
+def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
+    log.info(f"Uploading cover art: {cover_path.name}")
+    accept_keys = ["image", "jpg", "png", "jpeg", "art", "cover", "thumb"]
+
+    # Try direct file input first (works even if hidden).
+    if _set_files_on_any_input(page, cover_path, accept_keys):
+        page.wait_for_timeout(2_500)
+        log.info("Cover art uploaded (direct input)")
+        page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
+        return
+
+    # Fallback: click the 'Upload Track Art' clickable area and use the
+    # file chooser dialog. New Bandcamp UI exposes this as a div with text.
+    clickable = page.evaluate(
+        """() => {
+            const txt = ['upload track art', 'add cover', 'add art', 'cover art'];
+            const els = [...document.querySelectorAll('*')];
+            for (const el of els) {
+                const t = (el.textContent || '').trim().toLowerCase();
+                if (!txt.some(x => t === x || t.startsWith(x))) continue;
+                const r = el.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) continue;
+                if (el.children.length > 4) continue;
+                el.scrollIntoView({block: 'center'});
+                window.__bcArtTarget = el;
+                return true;
+            }
+            return false;
+        }"""
     )
-    if artwork_el:
+    if clickable:
         try:
-            with page.expect_file_chooser(timeout=5_000) as fc_info:
-                artwork_el.click(force=True)
+            with page.expect_file_chooser(timeout=8_000) as fc_info:
+                page.evaluate("() => window.__bcArtTarget && window.__bcArtTarget.click()")
             fc_info.value.set_files(str(cover_path))
-            page.wait_for_timeout(2_000)
+            page.wait_for_timeout(2_500)
             log.info("Cover art uploaded (via file chooser)")
+            page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
             return
         except Exception as e:
             log.warning(f"Artwork file-chooser fallback failed: {e}")
-    log.warning("Could not upload cover art — continuing with default placeholder")
+
+    log.warning("Could not upload cover art — Bandcamp will demand it before publish")
 
 
 def _upload_audio(page, audio_path: Path, debug_dir: Path) -> None:
     log.info(f"Uploading audio: {audio_path.name}")
-    inputs = page.query_selector_all('input[type="file"]')
-    for inp in inputs:
-        accept = (inp.get_attribute("accept") or "").lower()
-        name = (inp.get_attribute("name") or "").lower()
-        ident = (inp.get_attribute("id") or "").lower()
-        if ("audio" in accept or "mp3" in accept or "wav" in accept
-                or "audio" in name or "track" in name or "audio" in ident or "track" in ident):
-            try:
-                inp.set_input_files(str(audio_path))
-                page.wait_for_timeout(3_000)
-                log.info("Audio file accepted")
-                page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
-                return
-            except Exception as e:
-                log.warning(f"Audio set_input_files failed: {e}")
+    accept_keys = ["audio", "mp3", "wav", "aif", "aiff", "flac", "track"]
 
-    # Fallback: any file input that's not the artwork one (artwork already used above)
-    for inp in inputs:
+    # Try direct file input first (hidden inputs work).
+    if _set_files_on_any_input(page, audio_path, accept_keys):
+        page.wait_for_timeout(3_000)
+        log.info("Audio file accepted (direct input)")
+        page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
+        return
+
+    # Fallback: click the 'add audio' / 'add a track' clickable text. The
+    # new Bandcamp upload UI exposes this as a link-styled element.
+    clickable = page.evaluate(
+        """() => {
+            const want = ['add audio', 'add a track', 'add track', 'upload audio', 'choose file'];
+            const els = [...document.querySelectorAll('*')];
+            for (const el of els) {
+                const t = (el.textContent || '').trim().toLowerCase();
+                if (!want.some(x => t === x || t.startsWith(x))) continue;
+                const r = el.getBoundingClientRect();
+                if (r.width <= 0 || r.height <= 0) continue;
+                if (el.children.length > 4) continue;
+                el.scrollIntoView({block: 'center'});
+                window.__bcAudioTarget = el;
+                return true;
+            }
+            return false;
+        }"""
+    )
+    if clickable:
+        try:
+            with page.expect_file_chooser(timeout=8_000) as fc_info:
+                page.evaluate("() => window.__bcAudioTarget && window.__bcAudioTarget.click()")
+            fc_info.value.set_files(str(audio_path))
+            page.wait_for_timeout(3_000)
+            log.info("Audio file accepted (via file chooser)")
+            page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
+            return
+        except Exception as e:
+            log.warning(f"Audio file-chooser fallback failed: {e}")
+
+    # Last resort: try EVERY file input ignoring filters.
+    for inp in page.query_selector_all('input[type="file"]'):
         try:
             inp.set_input_files(str(audio_path))
             page.wait_for_timeout(3_000)
-            log.info("Audio file accepted (generic file input)")
+            log.info("Audio file accepted (generic input)")
             return
         except Exception:
             continue
-
-    # Last fallback: file chooser on a button that mentions upload/audio/track
-    for selector in [
-        'button:has-text("upload")',
-        'button:has-text("add a track")',
-        'button:has-text("add track")',
-        'a:has-text("upload")',
-    ]:
-        btn = page.query_selector(selector)
-        if btn and btn.is_visible():
-            try:
-                with page.expect_file_chooser(timeout=5_000) as fc_info:
-                    btn.click(force=True)
-                fc_info.value.set_files(str(audio_path))
-                page.wait_for_timeout(3_000)
-                log.info(f"Audio selected via file chooser ({selector})")
-                return
-            except Exception:
-                continue
 
     raise RuntimeError("Could not find audio file input on Bandcamp album form")
 
