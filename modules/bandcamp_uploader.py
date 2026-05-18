@@ -400,6 +400,15 @@ def _dismiss_upload_modal(page) -> None:
 def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
     log.info(f"Uploading cover art: {cover_path.name}")
 
+    # Primary: mimic the manual flow — click 'Upload Track Art', capture
+    # file-chooser, set image. Same approach as audio.
+    if _click_text_with_file_chooser(
+        page, ["Upload Track Art", "Upload track art", "upload track art",
+               "Add cover art", "cover art"],
+        cover_path, debug_dir, "artwork",
+    ):
+        return
+
     # Strategy 1: input by accept attribute restricted to images ONLY.
     # The audio input may also be in DOM but it has accept=audio/*; this
     # filter keeps us off it.
@@ -482,11 +491,47 @@ def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
     log.warning("Could not upload cover art (refused to blind-set to avoid misfire)")
 
 
+def _click_text_with_file_chooser(page, link_texts: list, file_path: Path,
+                                   debug_dir: Path, debug_name: str) -> bool:
+    """Click the visible link/text matching one of link_texts and use the
+    resulting OS file-chooser dialog to upload file_path.
+
+    Bandcamp renders 'add audio' / 'Upload Track Art' as styled links that
+    trigger a hidden <input type=file> on click. The cleanest cross-version
+    approach is to mimic the manual user flow: click the link, wait for the
+    file chooser, set the file.
+    """
+    for text in link_texts:
+        try:
+            loc = page.get_by_text(text, exact=False).first
+            if not loc.is_visible(timeout=1500):
+                continue
+            with page.expect_file_chooser(timeout=12_000) as fc_info:
+                loc.click(timeout=5_000)
+            fc_info.value.set_files(str(file_path))
+            page.wait_for_timeout(3_000)
+            log.info(f"{debug_name}: uploaded via click on '{text}'")
+            page.screenshot(path=str(debug_dir / f"debug_bandcamp_{debug_name}.png"))
+            return True
+        except Exception as e:
+            log.info(f"Click '{text}' for {debug_name} failed: {e}")
+            continue
+    return False
+
+
 def _upload_audio(page, audio_path: Path, debug_dir: Path) -> None:
     log.info(f"Uploading audio: {audio_path.name}")
 
-    # Strategy 1: input by accept attribute restricted to AUDIO formats only.
-    # This must NOT match the video input (accept="video/*") or art input.
+    # Primary: mimic the manual flow — click the 'add audio' link, capture
+    # the file-chooser dialog, set the WAV. This is exactly what the user
+    # does manually and avoids any input-disambiguation guesswork.
+    if _click_text_with_file_chooser(
+        page, ["add audio", "Add audio", "add a track", "upload audio"],
+        audio_path, debug_dir, "audio",
+    ):
+        return
+
+    # Fallback: input by accept attribute restricted to AUDIO formats only.
     inputs = page.query_selector_all('input[type="file"]')
     for inp in inputs:
         accept = (inp.get_attribute("accept") or "").lower()
@@ -509,54 +554,7 @@ def _upload_audio(page, audio_path: Path, debug_dir: Path) -> None:
             except Exception as e:
                 log.warning(f"Audio input set failed: {e}")
 
-    # Strategy 2: input nested under the AUDIO / 'add audio' label.
-    near = _find_input_near_text(page, [
-        "add audio", "audio", "lossless .wav",
-        "lossless .wav, .aif or .flac",
-    ])
-    if near:
-        try:
-            near.set_input_files(str(audio_path))
-            page.wait_for_timeout(3_000)
-            log.info("Audio file accepted (input near 'AUDIO' label)")
-            page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
-            return
-        except Exception as e:
-            log.warning(f"Audio nearby-input set failed: {e}")
-
-    # Strategy 3: file chooser via clicking 'add audio' link.
-    clickable = page.evaluate(
-        """() => {
-            const want = ['add audio', 'add a track', 'add track', 'upload audio'];
-            const els = [...document.querySelectorAll('*')];
-            for (const el of els) {
-                const t = (el.textContent || '').trim().toLowerCase();
-                if (!want.some(x => t === x || t.startsWith(x))) continue;
-                const r = el.getBoundingClientRect();
-                if (r.width <= 0 || r.height <= 0) continue;
-                if (el.children.length > 4) continue;
-                el.scrollIntoView({block: 'center'});
-                window.__bcAudioTarget = el;
-                return true;
-            }
-            return false;
-        }"""
-    )
-    if clickable:
-        try:
-            with page.expect_file_chooser(timeout=8_000) as fc_info:
-                page.evaluate("() => window.__bcAudioTarget && window.__bcAudioTarget.click()")
-            fc_info.value.set_files(str(audio_path))
-            page.wait_for_timeout(3_000)
-            log.info("Audio file accepted (via file chooser)")
-            page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
-            return
-        except Exception as e:
-            log.warning(f"Audio file-chooser fallback failed: {e}")
-
-    # Dump for debugging — REFUSE to blind-set audio onto random inputs;
-    # that was the bug that uploaded WAV to the video field and broke the
-    # whole form with 'Upload in Progress... your video to finish uploading'.
+    # Dump for debugging — REFUSE to blind-set audio onto random inputs.
     log.warning(f"Audio upload: dumping {len(inputs)} file input(s):")
     for i, inp in enumerate(inputs):
         try:
