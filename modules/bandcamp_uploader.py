@@ -133,14 +133,20 @@ def _do_upload(
 
             # ── Audio file ──
             _upload_audio(page, audio_path, debug_dir)
-            page.wait_for_timeout(1500)
             _dismiss_upload_modal(page)
+            # Bandcamp uploads + transcodes the audio after the file is
+            # selected. Wait for the "add audio" placeholder to disappear
+            # (= upload accepted) before doing anything else, otherwise
+            # subsequent clicks land on a half-loaded form.
+            _wait_for_audio_pickup(page, audio_path.name)
+            _dismiss_upload_modal(page)
+            page.wait_for_timeout(3000)
 
             # ── Track art ──
             if cover_path and cover_path.exists():
                 _upload_artwork(page, cover_path, debug_dir)
-                page.wait_for_timeout(1500)
                 _dismiss_upload_modal(page)
+                page.wait_for_timeout(2500)
             else:
                 log.warning("No cover art provided — Bandcamp will use a default placeholder")
 
@@ -376,6 +382,41 @@ def _find_input_near_text(page, target_texts: list) -> object | None:
     except Exception as e:
         log.warning(f"_find_input_near_text({target_texts}) failed: {e}")
     return None
+
+
+def _wait_for_audio_pickup(page, filename: str, max_wait_sec: int = 90) -> None:
+    """After clicking 'add audio' and setting the file, wait until Bandcamp
+    has picked up the upload — the 'add audio' anchor disappears OR a
+    progress indicator / filename starts showing. Without this the page
+    can show the 'Upload in Progress' modal while we move on, breaking
+    subsequent clicks.
+    """
+    log.info("Waiting for Bandcamp to accept the audio upload...")
+    for _ in range(max_wait_sec):
+        try:
+            state = page.evaluate(
+                """(needle) => {
+                    const text = (document.body.innerText || '').toLowerCase();
+                    if (text.includes('upload in progress')) return 'modal';
+                    const addAudio = document.querySelector('a.add-audio');
+                    const addAudioVisible = addAudio && addAudio.offsetParent !== null;
+                    if (text.includes('uploading') || text.includes('% complete')
+                        || text.includes('processing')) return 'progress';
+                    if (!addAudioVisible) return 'accepted';
+                    if (needle && text.includes(needle.toLowerCase())) return 'filename';
+                    return 'waiting';
+                }""",
+                filename,
+            )
+        except Exception:
+            state = 'waiting'
+        if state in ('accepted', 'progress', 'filename'):
+            log.info(f"Audio pickup state: {state}")
+            return
+        if state == 'modal':
+            _dismiss_upload_modal(page)
+        page.wait_for_timeout(1000)
+    log.warning("Timed out waiting for audio pickup confirmation")
 
 
 def _dismiss_upload_modal(page) -> None:
