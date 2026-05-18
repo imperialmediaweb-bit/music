@@ -521,7 +521,9 @@ def _set_tags(page, concept: MusicConcept) -> None:
             continue
         seen.add(key)
         tags.append(clean)
-        if len(tags) >= 8:
+        # Bandcamp keeps showing 'Too many tags' on this account no matter
+        # how few we send — limit to the single primary genre.
+        if len(tags) >= 1:
             break
 
     if not tags:
