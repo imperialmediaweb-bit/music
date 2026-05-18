@@ -503,12 +503,31 @@ def _set_description(page, concept: MusicConcept) -> None:
 
 
 def _set_tags(page, concept: MusicConcept) -> None:
-    tags = [t.lstrip("#") for t in (concept.hashtags or []) if t][:10]
+    # Bandcamp limit is 10 tags. We keep 8 to leave room for Bandcamp's own
+    # auto-suggested ones (House / Electronic / etc.). Dedupe case-insensitive
+    # and drop overly generic words so we don't waste slots.
+    raw = []
     if concept.genre:
-        tags = [concept.genre] + tags
+        raw.append(concept.genre)
+    raw.extend(t.lstrip("#") for t in (concept.hashtags or []) if t)
+
+    blacklist = {"music", "song", "songs", "track", "tracks", "mix"}
+    seen = set()
+    tags: list[str] = []
+    for t in raw:
+        clean = t.strip()
+        key = clean.lower().replace(" ", "")
+        if not clean or key in seen or key in blacklist:
+            continue
+        seen.add(key)
+        tags.append(clean)
+        if len(tags) >= 8:
+            break
+
     if not tags:
         return
     tag_string = ", ".join(tags)
+    log.info(f"Tags ({len(tags)}): {tag_string}")
     for selector in [
         'input[placeholder*="comma-separated" i]',
         'input[placeholder*="list of tags" i]',
@@ -522,8 +541,11 @@ def _set_tags(page, concept: MusicConcept) -> None:
         if el and el.is_visible():
             try:
                 el.click()
+                # Clear field first in case Bandcamp pre-populated it
+                page.keyboard.press("Control+A")
+                page.keyboard.press("Delete")
                 page.keyboard.type(tag_string, delay=10)
-                log.info(f"Tags set: {tag_string[:60]}")
+                log.info(f"Tags set: {tag_string[:80]}")
                 return
             except Exception as e:
                 log.warning(f"Tags {selector} failed: {e}")
