@@ -369,7 +369,7 @@ def _set_files_on_any_input(page, file_path: Path, accept_keywords: list) -> boo
 
 def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
     log.info(f"Uploading cover art: {cover_path.name}")
-    accept_keys = ["image", "jpg", "png", "jpeg", "art", "cover", "thumb"]
+    accept_keys = ["image", "jpg", "png", "jpeg", "gif", "art", "cover", "thumb"]
 
     # Try direct file input first (works even if hidden).
     if _set_files_on_any_input(page, cover_path, accept_keys):
@@ -378,8 +378,42 @@ def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
         page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
         return
 
-    # Fallback: click the 'Upload Track Art' clickable area and use the
-    # file chooser dialog. New Bandcamp UI exposes this as a div with text.
+    # Strategy 2: find the file input that lives INSIDE the same container
+    # as the "Upload Track Art" placeholder. Bandcamp puts the styled
+    # placeholder and the actual <input type=file> in the same wrapper div.
+    try:
+        target_input_handle = page.evaluate_handle(
+            """() => {
+                const want = ['upload track art', 'add cover', 'add art', 'cover art',
+                              'please add cover art for this track'];
+                const els = [...document.querySelectorAll('*')];
+                for (const el of els) {
+                    const t = (el.textContent || '').trim().toLowerCase();
+                    if (!want.some(x => t === x || t.startsWith(x) || t.includes(x))) continue;
+                    // Walk up to find an ancestor that contains a file input
+                    let node = el;
+                    for (let i = 0; i < 6 && node; i++) {
+                        const inp = node.querySelector('input[type="file"]');
+                        if (inp) return inp;
+                        node = node.parentElement;
+                    }
+                }
+                return null;
+            }"""
+        )
+        if target_input_handle:
+            try:
+                target_input_handle.as_element().set_input_files(str(cover_path))
+                page.wait_for_timeout(2_500)
+                log.info("Cover art uploaded (input near 'Upload Track Art')")
+                page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
+                return
+            except Exception as e:
+                log.warning(f"Nearby-input set_input_files failed: {e}")
+    except Exception as e:
+        log.warning(f"Could not locate input near artwork placeholder: {e}")
+
+    # Strategy 3: click the placeholder with file_chooser
     clickable = page.evaluate(
         """() => {
             const txt = ['upload track art', 'add cover', 'add art', 'cover art'];
@@ -408,6 +442,29 @@ def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
             return
         except Exception as e:
             log.warning(f"Artwork file-chooser fallback failed: {e}")
+
+    # Strategy 4: dump all file inputs for debugging, then try EVERY one of them.
+    inputs = page.query_selector_all('input[type="file"]')
+    log.warning(f"Artwork upload: dumping {len(inputs)} file input(s) on the page:")
+    for i, inp in enumerate(inputs):
+        try:
+            log.warning(
+                f"  input[{i}] accept='{inp.get_attribute('accept')}' "
+                f"name='{inp.get_attribute('name')}' id='{inp.get_attribute('id')}' "
+                f"visible={inp.is_visible()}"
+            )
+        except Exception:
+            pass
+    # Try them all blindly — the artwork one is whichever Bandcamp still has empty.
+    for inp in inputs:
+        try:
+            inp.set_input_files(str(cover_path))
+            page.wait_for_timeout(2_500)
+            log.info("Cover art uploaded (blind input attempt)")
+            page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
+            return
+        except Exception:
+            continue
 
     log.warning("Could not upload cover art — Bandcamp will demand it before publish")
 
