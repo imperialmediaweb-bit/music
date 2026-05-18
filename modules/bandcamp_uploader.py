@@ -133,10 +133,14 @@ def _do_upload(
 
             # ── Audio file ──
             _upload_audio(page, audio_path, debug_dir)
+            page.wait_for_timeout(1500)
+            _dismiss_upload_modal(page)
 
             # ── Track art ──
             if cover_path and cover_path.exists():
                 _upload_artwork(page, cover_path, debug_dir)
+                page.wait_for_timeout(1500)
+                _dismiss_upload_modal(page)
             else:
                 log.warning("No cover art provided — Bandcamp will use a default placeholder")
 
@@ -343,54 +347,19 @@ def _set_track_name(page, title: str) -> None:
     log.warning("Track name field not found — continuing anyway")
 
 
-def _set_files_on_any_input(page, file_path: Path, accept_keywords: list) -> bool:
-    """Set the file on the first hidden <input type=file> that accepts it.
-
-    Bandcamp's new UI hides the actual <input type=file> behind a styled
-    div/link ('add audio', 'Upload Track Art'). The element is in the DOM
-    but `is_visible()` returns False. set_input_files works on hidden
-    inputs as long as we don't filter by visibility.
+def _find_input_near_text(page, target_texts: list) -> object | None:
+    """Return the <input type=file> element nested under an ancestor whose
+    own text matches one of `target_texts` (lowercased). Used to disambiguate
+    Bandcamp's audio / cover / video inputs, which otherwise all look alike.
     """
-    inputs = page.query_selector_all('input[type="file"]')
-    for inp in inputs:
-        accept = (inp.get_attribute("accept") or "").lower()
-        name = (inp.get_attribute("name") or "").lower()
-        ident = (inp.get_attribute("id") or "").lower()
-        blob = " ".join((accept, name, ident))
-        if any(k in blob for k in accept_keywords):
-            try:
-                inp.set_input_files(str(file_path))
-                return True
-            except Exception as e:
-                log.warning(f"set_input_files on '{ident or name or accept}' failed: {e}")
-                continue
-    return False
-
-
-def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
-    log.info(f"Uploading cover art: {cover_path.name}")
-    accept_keys = ["image", "jpg", "png", "jpeg", "gif", "art", "cover", "thumb"]
-
-    # Try direct file input first (works even if hidden).
-    if _set_files_on_any_input(page, cover_path, accept_keys):
-        page.wait_for_timeout(2_500)
-        log.info("Cover art uploaded (direct input)")
-        page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
-        return
-
-    # Strategy 2: find the file input that lives INSIDE the same container
-    # as the "Upload Track Art" placeholder. Bandcamp puts the styled
-    # placeholder and the actual <input type=file> in the same wrapper div.
     try:
-        target_input_handle = page.evaluate_handle(
-            """() => {
-                const want = ['upload track art', 'add cover', 'add art', 'cover art',
-                              'please add cover art for this track'];
+        handle = page.evaluate_handle(
+            """(targets) => {
+                const wants = targets.map(t => t.toLowerCase());
                 const els = [...document.querySelectorAll('*')];
                 for (const el of els) {
                     const t = (el.textContent || '').trim().toLowerCase();
-                    if (!want.some(x => t === x || t.startsWith(x) || t.includes(x))) continue;
-                    // Walk up to find an ancestor that contains a file input
+                    if (!wants.some(x => t === x || t.startsWith(x) || t.includes(x))) continue;
                     let node = el;
                     for (let i = 0; i < 6 && node; i++) {
                         const inp = node.querySelector('input[type="file"]');
@@ -399,24 +368,80 @@ def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
                     }
                 }
                 return null;
+            }""",
+            target_texts,
+        )
+        if handle:
+            return handle.as_element()
+    except Exception as e:
+        log.warning(f"_find_input_near_text({target_texts}) failed: {e}")
+    return None
+
+
+def _dismiss_upload_modal(page) -> None:
+    """Click OK on Bandcamp's 'Upload in Progress' modal if it shows."""
+    try:
+        page.evaluate(
+            """() => {
+                const btns = [...document.querySelectorAll('button')];
+                for (const b of btns) {
+                    const t = (b.textContent || '').trim().toLowerCase();
+                    if (t === 'ok' || t === 'okay' || t === 'continue') {
+                        const r = b.getBoundingClientRect();
+                        if (r.width > 0 && r.height > 0) { b.click(); return; }
+                    }
+                }
             }"""
         )
-        if target_input_handle:
+    except Exception:
+        pass
+
+
+def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
+    log.info(f"Uploading cover art: {cover_path.name}")
+
+    # Strategy 1: input by accept attribute restricted to images ONLY.
+    # The audio input may also be in DOM but it has accept=audio/*; this
+    # filter keeps us off it.
+    inputs = page.query_selector_all('input[type="file"]')
+    for inp in inputs:
+        accept = (inp.get_attribute("accept") or "").lower()
+        name = (inp.get_attribute("name") or "").lower()
+        ident = (inp.get_attribute("id") or "").lower()
+        # Must explicitly look like an IMAGE input — refuse anything that
+        # looks like audio or video to avoid the wrong-input bug.
+        is_image = ("image/" in accept or accept in (".jpg", ".jpeg", ".png", ".gif")
+                    or any(k in name + " " + ident for k in ("art", "cover", "image", "thumb")))
+        is_other = "audio" in (accept + name + ident) or "video" in (accept + name + ident)
+        if is_image and not is_other:
             try:
-                target_input_handle.as_element().set_input_files(str(cover_path))
+                inp.set_input_files(str(cover_path))
                 page.wait_for_timeout(2_500)
-                log.info("Cover art uploaded (input near 'Upload Track Art')")
+                log.info("Cover art uploaded (image-typed input)")
                 page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
                 return
             except Exception as e:
-                log.warning(f"Nearby-input set_input_files failed: {e}")
-    except Exception as e:
-        log.warning(f"Could not locate input near artwork placeholder: {e}")
+                log.warning(f"Image input set failed: {e}")
 
-    # Strategy 3: click the placeholder with file_chooser
+    # Strategy 2: input nested under the 'Upload Track Art' / 'cover art' label.
+    near = _find_input_near_text(page, [
+        "upload track art", "track art", "cover art",
+        "please add cover art for this track",
+    ])
+    if near:
+        try:
+            near.set_input_files(str(cover_path))
+            page.wait_for_timeout(2_500)
+            log.info("Cover art uploaded (input near 'Upload Track Art')")
+            page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
+            return
+        except Exception as e:
+            log.warning(f"Artwork nearby-input set failed: {e}")
+
+    # Strategy 3: click the placeholder + file chooser.
     clickable = page.evaluate(
         """() => {
-            const txt = ['upload track art', 'add cover', 'add art', 'cover art'];
+            const txt = ['upload track art', 'add cover', 'cover art'];
             const els = [...document.querySelectorAll('*')];
             for (const el of els) {
                 const t = (el.textContent || '').trim().toLowerCase();
@@ -443,48 +468,66 @@ def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
         except Exception as e:
             log.warning(f"Artwork file-chooser fallback failed: {e}")
 
-    # Strategy 4: dump all file inputs for debugging, then try EVERY one of them.
-    inputs = page.query_selector_all('input[type="file"]')
-    log.warning(f"Artwork upload: dumping {len(inputs)} file input(s) on the page:")
+    # Dump for debugging — do NOT blind-set since that misfires onto the
+    # audio or video input on the same page.
+    log.warning(f"Artwork upload: dumping {len(inputs)} file input(s):")
     for i, inp in enumerate(inputs):
         try:
             log.warning(
                 f"  input[{i}] accept='{inp.get_attribute('accept')}' "
-                f"name='{inp.get_attribute('name')}' id='{inp.get_attribute('id')}' "
-                f"visible={inp.is_visible()}"
+                f"name='{inp.get_attribute('name')}' id='{inp.get_attribute('id')}'"
             )
         except Exception:
             pass
-    # Try them all blindly — the artwork one is whichever Bandcamp still has empty.
-    for inp in inputs:
-        try:
-            inp.set_input_files(str(cover_path))
-            page.wait_for_timeout(2_500)
-            log.info("Cover art uploaded (blind input attempt)")
-            page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
-            return
-        except Exception:
-            continue
-
-    log.warning("Could not upload cover art — Bandcamp will demand it before publish")
+    log.warning("Could not upload cover art (refused to blind-set to avoid misfire)")
 
 
 def _upload_audio(page, audio_path: Path, debug_dir: Path) -> None:
     log.info(f"Uploading audio: {audio_path.name}")
-    accept_keys = ["audio", "mp3", "wav", "aif", "aiff", "flac", "track"]
 
-    # Try direct file input first (hidden inputs work).
-    if _set_files_on_any_input(page, audio_path, accept_keys):
-        page.wait_for_timeout(3_000)
-        log.info("Audio file accepted (direct input)")
-        page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
-        return
+    # Strategy 1: input by accept attribute restricted to AUDIO formats only.
+    # This must NOT match the video input (accept="video/*") or art input.
+    inputs = page.query_selector_all('input[type="file"]')
+    for inp in inputs:
+        accept = (inp.get_attribute("accept") or "").lower()
+        name = (inp.get_attribute("name") or "").lower()
+        ident = (inp.get_attribute("id") or "").lower()
+        is_audio = ("audio/" in accept
+                    or any(ext in accept for ext in (".wav", ".mp3", ".aif", ".aiff", ".flac"))
+                    or any(k in name + " " + ident for k in ("audio", "track", "song")))
+        is_other = ("video" in (accept + name + ident)
+                    or "image" in (accept + name + ident)
+                    or "art" in (name + ident)
+                    or "cover" in (name + ident))
+        if is_audio and not is_other:
+            try:
+                inp.set_input_files(str(audio_path))
+                page.wait_for_timeout(3_000)
+                log.info("Audio file accepted (audio-typed input)")
+                page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
+                return
+            except Exception as e:
+                log.warning(f"Audio input set failed: {e}")
 
-    # Fallback: click the 'add audio' / 'add a track' clickable text. The
-    # new Bandcamp upload UI exposes this as a link-styled element.
+    # Strategy 2: input nested under the AUDIO / 'add audio' label.
+    near = _find_input_near_text(page, [
+        "add audio", "audio", "lossless .wav",
+        "lossless .wav, .aif or .flac",
+    ])
+    if near:
+        try:
+            near.set_input_files(str(audio_path))
+            page.wait_for_timeout(3_000)
+            log.info("Audio file accepted (input near 'AUDIO' label)")
+            page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
+            return
+        except Exception as e:
+            log.warning(f"Audio nearby-input set failed: {e}")
+
+    # Strategy 3: file chooser via clicking 'add audio' link.
     clickable = page.evaluate(
         """() => {
-            const want = ['add audio', 'add a track', 'add track', 'upload audio', 'choose file'];
+            const want = ['add audio', 'add a track', 'add track', 'upload audio'];
             const els = [...document.querySelectorAll('*')];
             for (const el of els) {
                 const t = (el.textContent || '').trim().toLowerCase();
@@ -511,17 +554,22 @@ def _upload_audio(page, audio_path: Path, debug_dir: Path) -> None:
         except Exception as e:
             log.warning(f"Audio file-chooser fallback failed: {e}")
 
-    # Last resort: try EVERY file input ignoring filters.
-    for inp in page.query_selector_all('input[type="file"]'):
+    # Dump for debugging — REFUSE to blind-set audio onto random inputs;
+    # that was the bug that uploaded WAV to the video field and broke the
+    # whole form with 'Upload in Progress... your video to finish uploading'.
+    log.warning(f"Audio upload: dumping {len(inputs)} file input(s):")
+    for i, inp in enumerate(inputs):
         try:
-            inp.set_input_files(str(audio_path))
-            page.wait_for_timeout(3_000)
-            log.info("Audio file accepted (generic input)")
-            return
+            log.warning(
+                f"  input[{i}] accept='{inp.get_attribute('accept')}' "
+                f"name='{inp.get_attribute('name')}' id='{inp.get_attribute('id')}'"
+            )
         except Exception:
-            continue
-
-    raise RuntimeError("Could not find audio file input on Bandcamp album form")
+            pass
+    raise RuntimeError(
+        "Could not find a clearly-audio file input on Bandcamp form "
+        "(refused to blind-set to avoid uploading audio to the video slot)"
+    )
 
 
 def _set_price(page, price: str) -> None:
