@@ -400,8 +400,26 @@ def _dismiss_upload_modal(page) -> None:
 def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
     log.info(f"Uploading cover art: {cover_path.name}")
 
-    # Primary: mimic the manual flow — click 'Upload Track Art', capture
-    # file-chooser, set image. Same approach as audio.
+    # Primary: click the literal <a class="upload"> inside .art-upload.
+    # That anchor opens the cover-art file chooser. Restricting the
+    # selector to .art-upload prevents matching unrelated "upload" links
+    # elsewhere on the page (e.g. video upload).
+    for sel in [".art-upload a.upload", ".art-upload-wrapper a.upload", ".image-upload-hint a.upload"]:
+        try:
+            loc = page.locator(sel).first
+            if loc.is_visible(timeout=2_000):
+                with page.expect_file_chooser(timeout=15_000) as fc_info:
+                    loc.click(timeout=5_000)
+                fc_info.value.set_files(str(cover_path))
+                page.wait_for_timeout(3_000)
+                log.info(f"Cover art uploaded (selector: {sel})")
+                page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
+                return
+        except Exception as e:
+            log.info(f"Artwork selector '{sel}' didn't work: {e}")
+            continue
+
+    # Fallback: text-based click.
     if _click_text_with_file_chooser(
         page, ["Upload Track Art", "Upload track art", "upload track art",
                "Add cover art", "cover art"],
@@ -522,9 +540,25 @@ def _click_text_with_file_chooser(page, link_texts: list, file_path: Path,
 def _upload_audio(page, audio_path: Path, debug_dir: Path) -> None:
     log.info(f"Uploading audio: {audio_path.name}")
 
-    # Primary: mimic the manual flow — click the 'add audio' link, capture
-    # the file-chooser dialog, set the WAV. This is exactly what the user
-    # does manually and avoids any input-disambiguation guesswork.
+    # Primary: click the literal <a class="add-audio"> link. Bandcamp's
+    # JS wires this to a hidden audio <input type=file>; clicking it opens
+    # the OS file chooser which Playwright captures via expect_file_chooser.
+    for sel in ["a.add-audio", ".edit-track-audio a.add-audio", ".audio-upload a.add-audio"]:
+        try:
+            loc = page.locator(sel).first
+            if loc.is_visible(timeout=2_000):
+                with page.expect_file_chooser(timeout=15_000) as fc_info:
+                    loc.click(timeout=5_000)
+                fc_info.value.set_files(str(audio_path))
+                page.wait_for_timeout(3_000)
+                log.info(f"Audio file accepted (selector: {sel})")
+                page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
+                return
+        except Exception as e:
+            log.info(f"Audio selector '{sel}' didn't work: {e}")
+            continue
+
+    # Fallback: text-based click for the same anchor (handles class renames).
     if _click_text_with_file_chooser(
         page, ["add audio", "Add audio", "add a track", "upload audio"],
         audio_path, debug_dir, "audio",
