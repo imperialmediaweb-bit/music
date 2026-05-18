@@ -441,26 +441,41 @@ def _dismiss_upload_modal(page) -> None:
 def _upload_artwork(page, cover_path: Path, debug_dir: Path) -> None:
     log.info(f"Uploading cover art: {cover_path.name}")
 
-    # Primary: click the literal <a class="upload"> inside .art-upload.
-    # That anchor opens the cover-art file chooser. Restricting the
-    # selector to .art-upload prevents matching unrelated "upload" links
-    # elsewhere on the page (e.g. video upload).
+    # Primary: file input scoped inside the cover-art area.
+    for sel in [
+        ".art-upload input[type='file']",
+        ".art-upload-wrapper input[type='file']",
+        ".image-upload-hint input[type='file']",
+    ]:
+        try:
+            loc = page.locator(sel).first
+            if loc.count() > 0:
+                loc.set_input_files(str(cover_path))
+                page.wait_for_timeout(3_000)
+                log.info(f"Cover art uploaded (direct set on '{sel}')")
+                page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
+                return
+        except Exception as e:
+            log.info(f"Artwork direct set '{sel}' didn't work: {e}")
+            continue
+
+    # Fallback: click the literal <a class="upload"> inside .art-upload.
     for sel in [".art-upload a.upload", ".art-upload-wrapper a.upload", ".image-upload-hint a.upload"]:
         try:
             loc = page.locator(sel).first
             if loc.is_visible(timeout=2_000):
                 with page.expect_file_chooser(timeout=15_000) as fc_info:
-                    loc.click(timeout=5_000)
+                    loc.click(timeout=5_000, force=True)
                 fc_info.value.set_files(str(cover_path))
                 page.wait_for_timeout(3_000)
-                log.info(f"Cover art uploaded (selector: {sel})")
+                log.info(f"Cover art uploaded (click selector: {sel})")
                 page.screenshot(path=str(debug_dir / "debug_bandcamp_artwork.png"))
                 return
         except Exception as e:
-            log.info(f"Artwork selector '{sel}' didn't work: {e}")
+            log.info(f"Artwork click '{sel}' didn't work: {e}")
             continue
 
-    # Fallback: text-based click.
+    # Last resort: text-based click.
     if _click_text_with_file_chooser(
         page, ["Upload Track Art", "Upload track art", "upload track art",
                "Add cover art", "cover art"],
@@ -581,25 +596,45 @@ def _click_text_with_file_chooser(page, link_texts: list, file_path: Path,
 def _upload_audio(page, audio_path: Path, debug_dir: Path) -> None:
     log.info(f"Uploading audio: {audio_path.name}")
 
-    # Primary: click the literal <a class="add-audio"> link. Bandcamp's
-    # JS wires this to a hidden audio <input type=file>; clicking it opens
-    # the OS file chooser which Playwright captures via expect_file_chooser.
+    # Primary: find the file input SCOPED inside the audio area.
+    # Bandcamp overlays a transparent <input type=file> on top of the
+    # 'add audio' link inside .audio-upload .input-wrapper. We set the
+    # file directly on it without clicking — sidesteps the OS dialog
+    # entirely and is the most reliable approach.
+    for sel in [
+        ".edit-track-audio input[type='file']",
+        ".audio-upload input[type='file']",
+        ".audio-upload .input-wrapper input[type='file']",
+    ]:
+        try:
+            loc = page.locator(sel).first
+            if loc.count() > 0:
+                loc.set_input_files(str(audio_path))
+                page.wait_for_timeout(3_000)
+                log.info(f"Audio file accepted (direct set on '{sel}')")
+                page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
+                return
+        except Exception as e:
+            log.info(f"Audio direct set '{sel}' didn't work: {e}")
+            continue
+
+    # Fallback: click the visible link and capture file_chooser dialog.
     for sel in ["a.add-audio", ".edit-track-audio a.add-audio", ".audio-upload a.add-audio"]:
         try:
             loc = page.locator(sel).first
             if loc.is_visible(timeout=2_000):
                 with page.expect_file_chooser(timeout=15_000) as fc_info:
-                    loc.click(timeout=5_000)
+                    loc.click(timeout=5_000, force=True)
                 fc_info.value.set_files(str(audio_path))
                 page.wait_for_timeout(3_000)
-                log.info(f"Audio file accepted (selector: {sel})")
+                log.info(f"Audio file accepted (click selector: {sel})")
                 page.screenshot(path=str(debug_dir / "debug_bandcamp_audio.png"))
                 return
         except Exception as e:
-            log.info(f"Audio selector '{sel}' didn't work: {e}")
+            log.info(f"Audio click '{sel}' didn't work: {e}")
             continue
 
-    # Fallback: text-based click for the same anchor (handles class renames).
+    # Last resort: text-based click for the same anchor.
     if _click_text_with_file_chooser(
         page, ["add audio", "Add audio", "add a track", "upload audio"],
         audio_path, debug_dir, "audio",
