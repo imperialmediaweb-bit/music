@@ -60,6 +60,10 @@ SKIP_TIKTOK = os.getenv("SKIP_TIKTOK", "false").lower() == "true"
 
 # Skip Bandcamp upload in the pipeline (set to "true" to disable)
 SKIP_BANDCAMP = os.getenv("SKIP_BANDCAMP", "false").lower() == "true"
+
+# Skip YouTube Shorts creation/upload in the pipeline.
+# Default: TRUE — focus on long-form videos only. Override with SKIP_SHORTS=false.
+SKIP_SHORTS = os.getenv("SKIP_SHORTS", "true").lower() == "true"
 # Bandcamp track price in USD (default: $1.50)
 BANDCAMP_TRACK_PRICE = os.getenv("BANDCAMP_TRACK_PRICE", "1.50")
 
