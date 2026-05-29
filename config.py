@@ -64,6 +64,10 @@ SKIP_BANDCAMP = os.getenv("SKIP_BANDCAMP", "false").lower() == "true"
 # Skip YouTube Shorts creation/upload in the pipeline.
 # Default: TRUE — focus on long-form videos only. Override with SKIP_SHORTS=false.
 SKIP_SHORTS = os.getenv("SKIP_SHORTS", "true").lower() == "true"
+
+# Skip reusing archived MP3s in hybrid mode — always generate fresh tracks.
+# Default: TRUE. Override with SKIP_ARCHIVE=false to re-enable hybrid pool reuse.
+SKIP_ARCHIVE = os.getenv("SKIP_ARCHIVE", "true").lower() == "true"
 # Bandcamp track price in USD (default: $1.50)
 BANDCAMP_TRACK_PRICE = os.getenv("BANDCAMP_TRACK_PRICE", "1.50")
 

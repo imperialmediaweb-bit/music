@@ -28,7 +28,7 @@ while _idx < len(sys.argv):
 from config import (
     SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE,
     SUNO_STATE_FILE, UDIO_STATE_FILE, TUNECORE_STATE_FILE, SOUNDCLOUD_STATE_FILE,
-    BANDCAMP_STATE_FILE, MUSIC_PLATFORM, SONGS_PER_CLIP,
+    BANDCAMP_STATE_FILE, MUSIC_PLATFORM, SONGS_PER_CLIP, SKIP_ARCHIVE,
 )
 from utils.logger import log
 
@@ -135,7 +135,10 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
 
     # Hybrid mode: add archived MP3s if pool is large enough
     archive_mp3s_list = []
-    if profile.get("hybrid") and archive_size() >= profile.get("archive_min_pool", 12):
+    if SKIP_ARCHIVE:
+        if profile.get("hybrid"):
+            log.info("Hybrid mode SKIPPED — using fresh tracks only (SKIP_ARCHIVE=true)")
+    elif profile.get("hybrid") and archive_size() >= profile.get("archive_min_pool", 12):
         if target_minutes > 0:
             fresh_minutes = len(mp3_files) * 2
             want = max(0, (target_minutes - fresh_minutes) // 2)
