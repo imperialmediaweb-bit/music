@@ -29,6 +29,7 @@ from config import (
     SCHEDULE_CRON, INPUT_DIR, AIMUSICFACTORY_STATE_FILE, TIKTOK_COOKIE_FILE,
     SUNO_STATE_FILE, UDIO_STATE_FILE, TUNECORE_STATE_FILE, SOUNDCLOUD_STATE_FILE,
     BANDCAMP_STATE_FILE, MUSIC_PLATFORM, SONGS_PER_CLIP, SKIP_ARCHIVE,
+    SKIP_MASTERING,
 )
 from utils.logger import log
 
@@ -167,6 +168,11 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
         merged_path = merge_mp3s(mp3_files, output_name=concept.track_name)
     log.info(f"Merged file: {merged_path}")
 
+    if not SKIP_MASTERING:
+        log.info("STEP 3b: Mastering merged track...")
+        from modules.mastering import master_track
+        merged_path = master_track(merged_path)
+
     # Step 4-7: Process (duration, thumbnail, video, upload)
     result = process_single_track(merged_path, concept=concept,
                                   extra_playlists=extra_playlists,
@@ -223,6 +229,11 @@ def _run_generate_only(gen_count: int = 2, profile_name: str = ""):
     else:
         log.info("[GENERATE] STEP 3: Merging MP3 files...")
         merged_path = merge_mp3s(mp3_files, output_name=concept.track_name)
+
+    if not SKIP_MASTERING:
+        log.info("[GENERATE] STEP 3b: Mastering merged track...")
+        from modules.mastering import master_track
+        merged_path = master_track(merged_path)
 
     log.info("=" * 60)
     log.info("[GENERATE] STEP 4: Creating thumbnail + video...")

@@ -68,6 +68,11 @@ SKIP_SHORTS = os.getenv("SKIP_SHORTS", "true").lower() == "true"
 # Skip reusing archived MP3s in hybrid mode — always generate fresh tracks.
 # Default: TRUE. Override with SKIP_ARCHIVE=false to re-enable hybrid pool reuse.
 SKIP_ARCHIVE = os.getenv("SKIP_ARCHIVE", "true").lower() == "true"
+
+# Skip post-merge mastering chain (EQ + stereo widen + -14 LUFS + 320 kbps).
+# Default: FALSE — mastering ON so tracks sit alongside commercial releases
+# on Spotify/YouTube playlists. Override with SKIP_MASTERING=true to disable.
+SKIP_MASTERING = os.getenv("SKIP_MASTERING", "false").lower() == "true"
 # Bandcamp track price in USD (default: $1.50)
 BANDCAMP_TRACK_PRICE = os.getenv("BANDCAMP_TRACK_PRICE", "1.50")
 
