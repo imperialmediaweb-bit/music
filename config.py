@@ -47,8 +47,8 @@ MUSIC_STYLE_PROMPT = os.getenv("MUSIC_STYLE_PROMPT", "")
 THUMBNAIL_STYLE_PROMPT = os.getenv("THUMBNAIL_STYLE_PROMPT", "")
 
 # Skip TuneCore upload in the pipeline.
-# Default: TRUE — TC rejects AI-generated tracks. Override with SKIP_TUNECORE=false.
-SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "true").lower() == "true"
+# Default: FALSE — re-enabled. Override with SKIP_TUNECORE=true to disable.
+SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "false").lower() == "true"
 TUNECORE_EMAIL = os.getenv("TUNECORE_EMAIL", "")
 TUNECORE_PASSWORD = os.getenv("TUNECORE_PASSWORD", "")
 
