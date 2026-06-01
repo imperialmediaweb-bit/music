@@ -2445,7 +2445,9 @@ def _do_upload(
                                 break
                         # Secondary genre MUST differ from primary — TC flags
                         # releases that have identical primary+secondary metadata.
-                        for g in ["Electronic", "Dance", "Deep House", "House", "Afro house"]:
+                        # Avoid "Electronic" — it triggers a required-subgenre
+                        # error on the release form.
+                        for g in ["House", "Dance", "Deep House", "Afro house"]:
                             if primary_set and g.lower() == primary_set:
                                 continue
                             if _smart_fill(page, "secondaryGenreId", g, "Secondary genre"):
