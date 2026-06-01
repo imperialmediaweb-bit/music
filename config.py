@@ -36,8 +36,9 @@ HEADLESS = os.getenv("HEADLESS", "true").lower() == "true"
 
 # Default music platform: "aimusicfactory", "suno", "udio", or "musicgen"
 MUSIC_PLATFORM = os.getenv("MUSIC_PLATFORM", "aimusicfactory")
-# Default number of songs to generate per clip (2, 4, 6, 8)
-SONGS_PER_CLIP = int(os.getenv("SONGS_PER_CLIP", "2"))
+# Default number of songs to generate per clip (2, 4, 6, 8).
+# 8 songs ≈ 16 min after merge — matches the long-form profile target.
+SONGS_PER_CLIP = int(os.getenv("SONGS_PER_CLIP", "8"))
 
 # Music genre (used for concept generation)
 MUSIC_GENRE = os.getenv("MUSIC_GENRE", "Afro House")
