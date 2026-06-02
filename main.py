@@ -90,14 +90,19 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
     log.info(f"Playlist profile: {profile_name} ({profile['label']})")
 
     # Use profile's fresh_count as default (gen_count=0 means "use profile")
-    # Each generation = 2 MP3s, each MP3 ≈ 2 min
-    if songs:
+    # Each generation = 2 MP3s, each MP3 ≈ 2 min. With SKIP_ARCHIVE the merged
+    # length is driven entirely by fresh MP3s, so target_minutes/4 generations
+    # are needed (≈ 4 min audio per generation). Without SKIP_ARCHIVE the
+    # archive pool roughly doubles the merged length, so target_minutes/8 fits.
+    # target_minutes takes priority over the songs flag.
+    from config import SKIP_ARCHIVE as _SKIP_ARCHIVE
+    minutes_per_gen = 4 if _SKIP_ARCHIVE else 8
+    if target_minutes > 0:
+        gen_count = max(2, target_minutes // minutes_per_gen)
+    elif songs:
         gen_count = max(1, songs // 2)
     elif gen_count <= 0:
-        if target_minutes > 0:
-            gen_count = max(2, target_minutes // 8)
-        else:
-            gen_count = profile.get("fresh_count", 2)
+        gen_count = profile.get("fresh_count", 2)
 
     # Profile feeds into existing generate_concept params (only if not overridden)
     if not music_style and profile.get("suno_prompt_addition"):
