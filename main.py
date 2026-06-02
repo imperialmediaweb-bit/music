@@ -1239,10 +1239,12 @@ def cmd_autostart(args):
     ))
     task_prefix = "LUTH_Music_Pipeline"
 
-    # 2x/day: short at 14:00 + long at 19:00 (profile/duration auto from weekly plan)
+    # 2x/day: short at 14:00 (~20 min) + long at 19:00 (~40 min)
+    # Durations are fresh-only — SKIP_ARCHIVE skips the hybrid pool padding,
+    # so target-minutes drives the number of fresh generations directly.
     SCHEDULE_SLOTS = [
-        (14, 0, 0, ""),   # 14:00 → short track (~20 min)
-        (19, 0, 0, ""),   # 19:00 → long track (~40 min)
+        (14, 0, 0, "--target-minutes 20"),   # 14:00 → short track (~20 min)
+        (19, 0, 0, "--target-minutes 40"),   # 19:00 → long track (~40 min)
     ]
 
     def _cleanup_all():
