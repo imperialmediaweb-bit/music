@@ -3,7 +3,7 @@ import re
 import time
 from dataclasses import dataclass
 from openai import OpenAI
-from config import OPENAI_API_KEY, MUSIC_GENRE, MUSIC_STYLE_PROMPT, THUMBNAIL_STYLE_PROMPT
+from config import OPENAI_API_KEY, MUSIC_GENRE, MUSIC_STYLE_PROMPT, THUMBNAIL_STYLE_PROMPT, WORLD_CUP_THEME
 from utils.logger import log
 
 
@@ -1358,9 +1358,31 @@ def _build_system_prompt(genre: str, music_style: str) -> str:
     use_cases = profile["use_cases"]
     tiktok_hooks = profile["tiktok_hooks"].format(genre=genre)
 
+    world_cup_directive = ""
+    if WORLD_CUP_THEME:
+        world_cup_directive = (
+            "\n\nWORLD CUP OVERLAY (mandatory — keep the core genre, add this layer):\n"
+            "- Music style: layer stadium chants, crowd 'oh oh oh' anthem hooks, festival "
+            "drums, brass-stab build-ups and a victorious drop that feels like a goal "
+            "celebration. Still 100% the underlying genre (do NOT make it pop / EDM).\n"
+            "- Title: ALWAYS weave in a World Cup angle — wording like 'WORLD CUP ANTHEM', "
+            "'STADIUM ENERGY', 'FOOTBALL VIBES', 'AFRO ANTHEM' is welcome alongside the "
+            "existing formula. Keep the TRACKNAME and #{mix_number} pattern intact.\n"
+            "- Description: open with the World Cup vibe and how the track captures stadium "
+            "energy / pre-game hype / celebration drops. Mention football, fans, terraces, "
+            "anthems naturally — no fake claims about official tournament affiliation.\n"
+            "- Hashtags: include #worldcup #worldcup2026 #fifa #footballanthem #stadium "
+            "alongside the genre tags. Keep total count within the 10-15 range.\n"
+            "- TikTok caption: use a football/World Cup hook (e.g. 'POV: stadium 90th min "
+            "and this drops', 'Afro House World Cup anthem 🏆⚽🔥'). Always keep #fyp.\n"
+            "- Thumbnail: keep the bold subject-driven look but add World Cup energy — a "
+            "stadium silhouette, terrace lights, raised flags or a single confetti burst "
+            "behind the main subject. No team logos, no real player faces, no FIFA marks.\n"
+        )
+
     return f"""You are a creative {genre} music producer and YouTube SEO expert.
 Generate a unique {genre} track concept. The track style is:
-{music_style}
+{music_style}{world_cup_directive}
 
 IMPORTANT NAMING RULE:
 - The track_name MUST be 1-2 short, catchy, invented words that fit the {genre} vibe.
