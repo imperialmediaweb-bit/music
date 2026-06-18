@@ -1316,7 +1316,7 @@ def _next_mix_number(genre: str, start: int = 8) -> int:
     return current
 
 
-def _build_system_prompt(genre: str, music_style: str) -> str:
+def _build_system_prompt(genre: str, music_style: str, world_cup: bool | None = None) -> str:
     """Build the system prompt dynamically based on genre and style.
 
     The naming examples, viral title formulas, thumbnail imagery and TikTok hooks
@@ -1359,7 +1359,8 @@ def _build_system_prompt(genre: str, music_style: str) -> str:
     tiktok_hooks = profile["tiktok_hooks"].format(genre=genre)
 
     world_cup_directive = ""
-    if WORLD_CUP_THEME:
+    apply_world_cup = WORLD_CUP_THEME if world_cup is None else world_cup
+    if apply_world_cup:
         world_cup_directive = (
             "\n\nWORLD CUP 2026 OVERLAY (MANDATORY — keep core genre, force this theme):\n"
             "- Music style: layer stadium chants, crowd 'oh oh oh' anthem hooks, festival "
@@ -1522,7 +1523,8 @@ def generate_fusion_concept(track_name: str = "") -> MusicConcept:
 
 
 def generate_concept(track_name: str = "", genre: str = "",
-                     music_style: str = "", thumbnail_style: str = "") -> MusicConcept:
+                     music_style: str = "", thumbnail_style: str = "",
+                     world_cup: bool | None = None) -> MusicConcept:
     """Generate a music track concept via OpenAI.
 
     Args:
@@ -1551,7 +1553,7 @@ def generate_concept(track_name: str = "", genre: str = "",
 
     client = OpenAI(api_key=OPENAI_API_KEY)
 
-    system_prompt = _build_system_prompt(genre, music_style)
+    system_prompt = _build_system_prompt(genre, music_style, world_cup=world_cup)
 
     user_msg = (
         f"Generate a fresh, original {genre} track concept. "

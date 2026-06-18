@@ -58,7 +58,7 @@ def _get_music_generator(platform: str):
 def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = None,
                        genre: str = "", music_style: str = "", thumbnail_style: str = "",
                        fusion: bool = False, profile_name: str = "",
-                       target_minutes: int = 0):
+                       target_minutes: int = 0, world_cup: bool | None = None):
     """Full pipeline: generate music → merge → thumbnail → video → upload.
 
     Args:
@@ -122,7 +122,8 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
     else:
         log.info(f"STEP 1: Generating {genre or 'music'} concept ({profile_name} profile)...")
         concept = generate_concept(genre=genre, music_style=music_style,
-                                   thumbnail_style=thumbnail_style)
+                                   thumbnail_style=thumbnail_style,
+                                   world_cup=world_cup)
     log.info(f"Track name: {concept.track_name}")
 
     # Step 2: Generate music
@@ -1058,6 +1059,7 @@ def cmd_run(args):
     fusion = getattr(args, "fusion", False)
     playlist_profile = getattr(args, "playlist", "") or ""
     target_minutes = getattr(args, "target_minutes", 0) or 0
+    world_cup = getattr(args, "world_cup", None)
     label = f"{count} clip(s) on {platform} ({songs} songs each, {gen_count} gen(s))"
     if target_minutes:
         label += f" [~{target_minutes}min]"
@@ -1065,6 +1067,8 @@ def cmd_run(args):
         label += f" [{playlist_profile}]"
     if fusion:
         label += " [FUSION]"
+    if world_cup:
+        label += " [WORLD CUP]"
     log.info(f"Running full pipeline for {label}...")
 
     total_errors = 0
@@ -1075,7 +1079,8 @@ def cmd_run(args):
         try:
             result = _run_full_pipeline(gen_count=gen_count, platform=platform, songs=songs,
                                         fusion=fusion, profile_name=playlist_profile,
-                                        target_minutes=target_minutes)
+                                        target_minutes=target_minutes,
+                                        world_cup=world_cup)
             if result["errors"]:
                 total_errors += 1
                 log.warning(f"Clip {i} had errors: {result['errors']}")
@@ -1244,12 +1249,15 @@ def cmd_autostart(args):
     ))
     task_prefix = "LUTH_Music_Pipeline"
 
-    # 2x/day: short at 14:00 (~20 min) + long at 19:00 (~40 min)
-    # Durations are fresh-only — SKIP_ARCHIVE skips the hybrid pool padding,
-    # so target-minutes drives the number of fresh generations directly.
+    # 3x/day fresh-only with World Cup theme on the morning slot only.
+    # target-minutes drives the number of generations (4 min audio per gen):
+    #   09:00 →  8 min World Cup 2026 anthem
+    #   14:00 → 16 min standard Afro House
+    #   18:00 → 24 min standard Afro House
     SCHEDULE_SLOTS = [
-        (14, 0, 0, "--target-minutes 20"),   # 14:00 → short track (~20 min)
-        (19, 0, 0, "--target-minutes 40"),   # 19:00 → long track (~40 min)
+        (9, 0, 0, "--target-minutes 8 --world-cup"),   # 09:00 World Cup anthem
+        (14, 0, 0, "--target-minutes 16"),             # 14:00 standard
+        (18, 0, 0, "--target-minutes 24"),             # 18:00 standard
     ]
 
     def _cleanup_all():
@@ -1753,6 +1761,14 @@ def main():
     run_parser.add_argument(
         "--target-minutes", type=int, default=0,
         help="Target track duration in minutes (overrides profile defaults)",
+    )
+    run_parser.add_argument(
+        "--world-cup", dest="world_cup", action="store_true", default=None,
+        help="Force World Cup 2026 theme overlay for this run",
+    )
+    run_parser.add_argument(
+        "--no-world-cup", dest="world_cup", action="store_false",
+        help="Disable World Cup theme even when the env default is on",
     )
     run_parser.set_defaults(func=cmd_run)
 

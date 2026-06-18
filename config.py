@@ -77,8 +77,9 @@ SKIP_MASTERING = os.getenv("SKIP_MASTERING", "false").lower() == "true"
 
 # Inject World Cup themed energy into the Afro House concept prompt
 # (stadium chants, anthem build-ups, flag/crowd imagery on thumbnails,
-# #worldcup hashtags). Default: TRUE during the tournament.
-WORLD_CUP_THEME = os.getenv("WORLD_CUP_THEME", "true").lower() == "true"
+# #worldcup hashtags). Default: FALSE — flipped on per-run with --world-cup
+# (the scheduler enables it only for the 09:00 slot).
+WORLD_CUP_THEME = os.getenv("WORLD_CUP_THEME", "false").lower() == "true"
 # Bandcamp track price in USD (default: $1.50)
 BANDCAMP_TRACK_PRICE = os.getenv("BANDCAMP_TRACK_PRICE", "1.50")
 
