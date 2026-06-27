@@ -91,26 +91,33 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
 
                 # Dismiss the cookie-consent banner — it overlays the Create
                 # button at the bottom of the page and silently swallows the
-                # click otherwise.
-                for cookie_sel in [
-                    'button:has-text("Decline All")',
-                    'button:has-text("Accept All")',
-                    'button:has-text("Reject All")',
-                    'button:has-text("Accept")',
-                    'button[aria-label*="accept" i]',
-                    'button[aria-label*="decline" i]',
-                ]:
-                    try:
-                        cb = page.wait_for_selector(cookie_sel, timeout=2_000)
-                        if cb and cb.is_visible():
-                            cb.click()
-                            log.info(f"Dismissed cookie banner: {cookie_sel}")
-                            time.sleep(1)
-                            break
-                    except PlaywrightTimeout:
-                        continue
-                    except Exception:
-                        continue
+                # click otherwise. The consent buttons are NOT <button> elements
+                # (they're <a>/<div>), so scan every clickable element by text.
+                try:
+                    cookie_js = """
+                    (labels) => {
+                      const els = Array.from(document.querySelectorAll(
+                        'button, a, [role="button"], div, span'));
+                      for (const e of els) {
+                        const t = (e.innerText || e.textContent || '').trim().toLowerCase();
+                        if (!t || t.length > 25) continue;
+                        if (labels.some(l => t === l)) {
+                          const r = e.getBoundingClientRect();
+                          if (r.width > 0 && r.height > 0) { e.click(); return t; }
+                        }
+                      }
+                      return null;
+                    }
+                    """
+                    dismissed = page.evaluate(
+                        cookie_js,
+                        ["decline all", "accept all", "reject all", "accept", "got it", "i agree"],
+                    )
+                    if dismissed:
+                        log.info(f"Dismissed cookie banner: '{dismissed}'")
+                        time.sleep(1)
+                except Exception as e:
+                    log.warning(f"Cookie banner dismissal skipped: {e}")
 
                 # Find and fill the prompt textarea
                 log.info("Filling in music prompt...")
@@ -178,9 +185,11 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                 for sel in create_selectors:
                     try:
                         btn = page.wait_for_selector(sel, timeout=3_000)
-                        if btn and btn.is_visible() and btn.is_enabled():
+                        if btn and btn.is_visible():
                             btn.scroll_into_view_if_needed()
-                            btn.click()
+                            # force=True bypasses the actionability check in case
+                            # another element (banner/tooltip) still overlaps it.
+                            btn.click(timeout=5_000, force=True)
                             create_clicked = True
                             log.info(f"Create button clicked: {sel}")
                             break
@@ -196,7 +205,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                     try:
                         verbs = ["create", "generate", "make", "submit", "go"]
                         click_js = """
-                        ([verbs]) => {
+                        (verbs) => {
                           const btns = Array.from(document.querySelectorAll('button'));
                           for (const b of btns) {
                             const t = (b.innerText || b.textContent || '').trim().toLowerCase();
@@ -213,7 +222,7 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                           return null;
                         }
                         """
-                        clicked_text = page.evaluate(click_js, {"verbs": verbs})
+                        clicked_text = page.evaluate(click_js, verbs)
                         if clicked_text:
                             log.info(f"Create button clicked via text scan: '{clicked_text}'")
                             create_clicked = True
