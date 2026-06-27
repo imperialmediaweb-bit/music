@@ -123,29 +123,97 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
 
                 # Click Create / Generate button
                 log.info("Clicking Create button...")
+                # Scroll to bottom — Udio's Create button often sits below the
+                # advanced controls accordion and isn't in viewport on load.
+                try:
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    time.sleep(1)
+                except Exception:
+                    pass
+
                 create_selectors = [
                     'button:has-text("Create")',
                     'button:has-text("Generate")',
                     'button:has-text("Make")',
+                    'button:has-text("Create Song")',
+                    'button:has-text("Create Songs")',
+                    'button:has-text("Create song")',
+                    'button:has-text("Generate Song")',
+                    'button:has-text("Generate Music")',
+                    'button:has-text("Make Song")',
+                    'button:has-text("Submit")',
                     'button[data-testid="create-button"]',
+                    'button[data-testid="generate-button"]',
                     'button[type="submit"]',
+                    'button[aria-label*="create" i]',
+                    'button[aria-label*="generate" i]',
+                    'button.create-button',
+                    'button.generate-button',
                 ]
 
                 create_clicked = False
                 for sel in create_selectors:
                     try:
-                        btn = page.wait_for_selector(sel, timeout=5_000)
-                        if btn and btn.is_visible():
+                        btn = page.wait_for_selector(sel, timeout=3_000)
+                        if btn and btn.is_visible() and btn.is_enabled():
+                            btn.scroll_into_view_if_needed()
                             btn.click()
                             create_clicked = True
                             log.info(f"Create button clicked: {sel}")
                             break
                     except PlaywrightTimeout:
                         continue
+                    except Exception as e:
+                        log.warning(f"Selector {sel} errored: {e}")
+                        continue
+
+                # Last-resort fallback: scan visible buttons for any obvious
+                # creation verb. Catches Udio UI renames we haven't seen yet.
+                if not create_clicked:
+                    try:
+                        verbs = ["create", "generate", "make", "submit", "go"]
+                        click_js = """
+                        ([verbs]) => {
+                          const btns = Array.from(document.querySelectorAll('button'));
+                          for (const b of btns) {
+                            const t = (b.innerText || b.textContent || '').trim().toLowerCase();
+                            if (!t || t.length > 30) continue;
+                            if (verbs.some(v => t === v || t.startsWith(v + ' '))) {
+                              const r = b.getBoundingClientRect();
+                              if (r.width > 0 && r.height > 0 && !b.disabled) {
+                                b.scrollIntoView({block: 'center'});
+                                b.click();
+                                return t;
+                              }
+                            }
+                          }
+                          return null;
+                        }
+                        """
+                        clicked_text = page.evaluate(click_js, {"verbs": verbs})
+                        if clicked_text:
+                            log.info(f"Create button clicked via text scan: '{clicked_text}'")
+                            create_clicked = True
+                    except Exception as e:
+                        log.warning(f"Text-scan fallback failed: {e}")
 
                 if not create_clicked:
                     log.error("Could not find Create button on Udio")
                     page.screenshot(path=str(OUTPUT_DIR / "debug_udio_create.png"))
+                    # Dump button list for diagnosis
+                    try:
+                        buttons = page.evaluate("""
+                          () => Array.from(document.querySelectorAll('button'))
+                            .filter(b => {
+                              const r = b.getBoundingClientRect();
+                              return r.width > 0 && r.height > 0;
+                            })
+                            .map(b => (b.innerText || b.textContent || '').trim())
+                            .filter(t => t && t.length < 50)
+                        """)
+                        log.error(f"Visible buttons on page: {buttons}")
+                    except Exception:
+                        pass
                     break
 
                 # Wait for generation to complete
