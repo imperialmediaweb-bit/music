@@ -89,6 +89,29 @@ def generate_music_batch(concept: MusicConcept, count: int = 1) -> list[Path]:
                     log.error("Not logged in to Udio! Run 'python main.py udio-login' first.")
                     break
 
+                # Dismiss the cookie-consent banner — it overlays the Create
+                # button at the bottom of the page and silently swallows the
+                # click otherwise.
+                for cookie_sel in [
+                    'button:has-text("Decline All")',
+                    'button:has-text("Accept All")',
+                    'button:has-text("Reject All")',
+                    'button:has-text("Accept")',
+                    'button[aria-label*="accept" i]',
+                    'button[aria-label*="decline" i]',
+                ]:
+                    try:
+                        cb = page.wait_for_selector(cookie_sel, timeout=2_000)
+                        if cb and cb.is_visible():
+                            cb.click()
+                            log.info(f"Dismissed cookie banner: {cookie_sel}")
+                            time.sleep(1)
+                            break
+                    except PlaywrightTimeout:
+                        continue
+                    except Exception:
+                        continue
+
                 # Find and fill the prompt textarea
                 log.info("Filling in music prompt...")
                 prompt_text = concept.music_prompt or concept.description
