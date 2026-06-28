@@ -89,19 +89,25 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
         profile_name, profile = get_todays_profile()
     log.info(f"Playlist profile: {profile_name} ({profile['label']})")
 
-    # Use profile's fresh_count as default (gen_count=0 means "use profile")
-    # Each generation = 2 MP3s, each MP3 ≈ 2 min. With SKIP_ARCHIVE the merged
-    # length is driven entirely by fresh MP3s, so target_minutes/4 generations
-    # are needed (≈ 4 min audio per generation). Without SKIP_ARCHIVE the
-    # archive pool roughly doubles the merged length, so target_minutes/8 fits.
-    # target_minutes takes priority over the songs flag.
+    # Decide how many FRESH generations to run (each = 2 MP3s ≈ 4 min audio).
+    # Priority:
+    #   1. Explicit -g/--gens  → exact fresh generation count. target_minutes
+    #      then only controls how much ARCHIVE is mixed in to top up the length
+    #      (fresh stays fixed). This is the scheduler's setup:
+    #        09:00 -g 1 --target-minutes 20  → 2 fresh + archive to ~20 min
+    #   2. target_minutes alone → derive fresh from it (4 min/gen with archive
+    #      off, 8 min/gen with archive on since the pool roughly doubles length).
+    #   3. --songs flag.
+    #   4. Profile default (fresh_count).
     from config import SKIP_ARCHIVE as _SKIP_ARCHIVE
     minutes_per_gen = 4 if _SKIP_ARCHIVE else 8
-    if target_minutes > 0:
+    if gen_count > 0:
+        pass  # explicit fresh generation count — keep as given
+    elif target_minutes > 0:
         gen_count = max(2, target_minutes // minutes_per_gen)
     elif songs:
         gen_count = max(1, songs // 2)
-    elif gen_count <= 0:
+    else:
         gen_count = profile.get("fresh_count", 2)
 
     # Profile feeds into existing generate_concept params (only if not overridden)
@@ -1293,15 +1299,16 @@ def cmd_autostart(args):
     ))
     task_prefix = "LUTH_Music_Pipeline"
 
-    # 3x/day fresh-only with World Cup theme on the morning slot only.
-    # target-minutes drives the number of generations (4 min audio per gen):
-    #   09:00 →  8 min World Cup 2026 anthem
-    #   14:00 → 16 min standard Afro House
-    #   18:00 → 24 min standard Afro House
+    # 3x/day: fixed number of FRESH generations (-g) topped up from the
+    # archive library to reach the target duration (--target-minutes).
+    # World Cup theme only on the morning slot.
+    #   09:00 → 1 gen (2 fresh) + archive → ~20 min, World Cup 2026 anthem
+    #   14:00 → 2 gen (4 fresh) + archive → ~30 min, standard Afro House
+    #   18:00 → 3 gen (6 fresh) + archive → ~40 min, standard Afro House
     SCHEDULE_SLOTS = [
-        (9, 0, 0, "--target-minutes 8 --world-cup"),   # 09:00 World Cup anthem
-        (14, 0, 0, "--target-minutes 16"),             # 14:00 standard
-        (18, 0, 0, "--target-minutes 24"),             # 18:00 standard
+        (9, 0, 0, "-g 1 --target-minutes 20 --world-cup"),  # 09:00 World Cup anthem
+        (14, 0, 0, "-g 2 --target-minutes 30"),             # 14:00 standard
+        (18, 0, 0, "-g 3 --target-minutes 40"),             # 18:00 standard
     ]
 
     def _cleanup_all():
