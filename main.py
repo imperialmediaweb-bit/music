@@ -185,8 +185,22 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
             archive_mp3s_list = pick_from_archive(want, exclude_files=mp3_files)
         if archive_mp3s_list:
             log.info(f"Hybrid mode: {len(mp3_files)} fresh + {len(archive_mp3s_list)} from archive")
-            mp3_files = mp3_files + archive_mp3s_list
-            random.shuffle(mp3_files)
+            # Smart ordering: the track must ALWAYS open with a fresh song (a
+            # stale archived intro hurts retention) and, when possible, close
+            # with a fresh one too. Archived songs are shuffled into the MIDDLE
+            # together with the remaining fresh ones.
+            fresh = mp3_files[:]
+            random.shuffle(fresh)
+            random.shuffle(archive_mp3s_list)
+            if len(fresh) >= 2:
+                first, last = fresh[0], fresh[-1]
+                middle = fresh[1:-1] + archive_mp3s_list
+                random.shuffle(middle)
+                mp3_files = [first] + middle + [last]
+            else:
+                # Only one fresh song — keep it first, archive after it.
+                mp3_files = fresh + archive_mp3s_list
+            log.info(f"Order: fresh intro → {len(mp3_files) - 2} mixed middle → fresh outro")
     else:
         if profile.get("hybrid"):
             pool = archive_size()

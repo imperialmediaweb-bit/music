@@ -66,9 +66,11 @@ SKIP_BANDCAMP = os.getenv("SKIP_BANDCAMP", "false").lower() == "true"
 # Default: TRUE — focus on long-form videos only. Override with SKIP_SHORTS=false.
 SKIP_SHORTS = os.getenv("SKIP_SHORTS", "true").lower() == "true"
 
-# Skip reusing archived MP3s in hybrid mode — always generate fresh tracks.
-# Default: TRUE. Override with SKIP_ARCHIVE=false to re-enable hybrid pool reuse.
-SKIP_ARCHIVE = os.getenv("SKIP_ARCHIVE", "true").lower() == "true"
+# Skip reusing archived MP3s in hybrid mode. When FALSE, older tracks from
+# the pool are mixed into the MIDDLE of new tracks (never at the very start),
+# so we keep reusing the back catalogue without a stale opening.
+# Default: FALSE — hybrid reuse ON. Override with SKIP_ARCHIVE=true to disable.
+SKIP_ARCHIVE = os.getenv("SKIP_ARCHIVE", "false").lower() == "true"
 
 # Skip post-merge mastering chain (EQ + stereo widen + -14 LUFS + 320 kbps).
 # Default: FALSE — mastering ON so tracks sit alongside commercial releases
