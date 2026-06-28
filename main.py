@@ -129,8 +129,38 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
     # Step 2: Generate music
     log.info("=" * 60)
     log.info(f"STEP 2: Generating music on {platform} ({gen_count} generation(s) = {gen_count * 2} songs)...")
+    expected_songs = gen_count * 2
     mp3_files = generate_music_batch(concept, count=gen_count)
     log.info(f"Generated {len(mp3_files)} MP3 files")
+
+    # Retry missing generations — a flaky generation (timeout / failed click)
+    # leaves us with fewer MP3s than expected, which would produce a track
+    # that's too short (e.g. 4 min instead of 8). Top up until we hit the
+    # target or run out of retries, so the merged duration is reliable.
+    retry = 0
+    while len(mp3_files) < expected_songs and retry < 3:
+        missing = expected_songs - len(mp3_files)
+        retry += 1
+        topup_gens = max(1, (missing + 1) // 2)
+        log.warning(
+            f"Only {len(mp3_files)}/{expected_songs} songs generated — "
+            f"retry {retry}/3 for {topup_gens} more generation(s)..."
+        )
+        try:
+            extra = generate_music_batch(concept, count=topup_gens)
+        except Exception as e:
+            log.warning(f"Top-up generation failed: {e}")
+            extra = []
+        if not extra:
+            continue
+        mp3_files.extend(extra)
+        log.info(f"After retry {retry}: {len(mp3_files)} MP3 files")
+
+    if len(mp3_files) < expected_songs:
+        log.warning(
+            f"Proceeding with {len(mp3_files)}/{expected_songs} songs after retries — "
+            "track may be shorter than the target."
+        )
 
     # Trim quiet intros from individual MP3s before merging
     mp3_files = [trim_quiet_intro(f) for f in mp3_files]
