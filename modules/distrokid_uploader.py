@@ -76,20 +76,25 @@ def _click(page, selectors, label, timeout=4_000):
 
 def distrokid_login():
     """Open a browser for manual DistroKid login and save the session."""
-    log.info("Opening Chrome for DistroKid login...")
+    log.info("Opening Chrome browser for DistroKid login...")
+    log.info("Log in with your account, then come back and press ENTER.")
     DISTROKID_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)
-        context = browser.new_context()
+        browser = p.chromium.launch(
+            headless=False,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        context = browser.new_context(viewport={"width": 1920, "height": 1080})
         page = context.new_page()
-        page.goto(DISTROKID_BASE, wait_until="domcontentloaded", timeout=60_000)
+        page.goto("https://distrokid.com/signin", wait_until="domcontentloaded", timeout=60_000)
         log.info("=" * 60)
         log.info("Browser is open. Please:")
-        log.info("  1. Log into your DistroKid account")
+        log.info("  1. Log into your DistroKid account (email/password or Google)")
         log.info("  2. Wait until you see your dashboard / My Music")
         log.info("  3. Come back here and press ENTER")
         log.info("=" * 60)
-        input(">>> Press ENTER here after you've logged in... ")
+        input("\n>>> Press ENTER here after you've logged in... ")
         context.storage_state(path=str(DISTROKID_STATE_FILE))
         log.info(f"DistroKid session saved to: {DISTROKID_STATE_FILE}")
         browser.close()
