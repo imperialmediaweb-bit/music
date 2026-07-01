@@ -14,8 +14,16 @@ filled defensively (multiple selectors, best-effort) and the whole flow is
 wrapped so a single missing field logs a warning instead of aborting.
 """
 
+import os
 import time
 from pathlib import Path
+
+# DistroKid's anti-bot code runs `debugger;` in a loop and freezes the page
+# (greying it out) whenever a DevTools/Inspector connection is detected. The
+# Playwright Inspector opens exactly such a connection, so make sure it is
+# never launched for this module — otherwise the login/upload page hangs.
+os.environ.pop("PWDEBUG", None)
+os.environ["PLAYWRIGHT_SKIP_BROWSER_GC"] = os.environ.get("PLAYWRIGHT_SKIP_BROWSER_GC", "1")
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from modules.concept_generator import MusicConcept
