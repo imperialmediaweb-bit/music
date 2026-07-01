@@ -61,7 +61,10 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     if not thumbnail.exists():
         log.warning(f"Thumbnail not found: {thumbnail} — continuing without it")
 
-    if not video and only != "tunecore":
+    # Audio-only distributors (TuneCore, DistroKid, Bandcamp, SoundCloud) don't
+    # need a video file — only YouTube/TikTok do.
+    _audio_only = {"tunecore", "distrokid", "bandcamp", "soundcloud"}
+    if not video and only not in _audio_only:
         log.error(f"Video not found in output/ (tried _video.mp4, _tiktok.mp4, .mp4)")
         result["errors"].append(f"missing: {track_name} video in {OUTPUT_DIR}")
         return result
@@ -204,6 +207,62 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
         log.info("Skipping TuneCore (SKIP_TUNECORE=true)")
     else:
         log.info(f"Skipping TuneCore (--only {only})")
+
+    # Upload to DistroKid (active distributor for AI music)
+    if only in (None, "distrokid") and not SKIP_DISTROKID:
+        name_variants = [track_name, track_name.replace(" ", "_")]
+        dk_wav = None
+        for name in name_variants:
+            candidate = OUTPUT_DIR / f"{name}.wav"
+            if candidate.exists():
+                dk_wav = candidate
+                break
+        # Fallback: most recently modified WAV in output/ (= the last track made)
+        if not dk_wav:
+            all_wavs = sorted(OUTPUT_DIR.glob("*.wav"), key=lambda f: f.stat().st_mtime, reverse=True)
+            if all_wavs:
+                dk_wav = all_wavs[0]
+                log.info(f"WAV not found by name — using latest: {dk_wav}")
+
+        dk_cover = None
+        for name in name_variants:
+            for suffix in ["_cover.jpg", "_cover.png"]:
+                candidate = OUTPUT_DIR / f"{name}{suffix}"
+                if candidate.exists():
+                    dk_cover = candidate
+                    break
+            if dk_cover:
+                break
+        if not dk_cover:
+            try:
+                log.info("Generating cover art for DistroKid...")
+                dk_cover = generate_cover_art(
+                    concept.thumbnail_prompt, concept.track_name, DEFAULT_ARTIST
+                )
+            except Exception as e:
+                log.error(f"Cover art generation failed: {e}")
+
+        if dk_wav and dk_cover:
+            try:
+                log.info("=" * 60)
+                log.info("Uploading to DistroKid...")
+                distrokid_url = upload_to_distrokid(dk_wav, Path(dk_cover), concept)
+                result["distrokid_url"] = distrokid_url
+                if distrokid_url:
+                    log.info(f"DistroKid: {distrokid_url}")
+                else:
+                    log.error("DistroKid upload returned None — run: python main.py distrokid-login")
+                    result["errors"].append("distrokid: upload returned None (session expired)")
+            except Exception as e:
+                log.error(f"DistroKid upload failed: {e}")
+                result["errors"].append(f"distrokid: {e}")
+        else:
+            log.warning("No audio/cover for DistroKid — skipping")
+            result["errors"].append("distrokid: no audio/cover found")
+    elif SKIP_DISTROKID:
+        log.info("Skipping DistroKid (SKIP_DISTROKID=true)")
+    else:
+        log.info(f"Skipping DistroKid (--only {only})")
 
     # Upload to Bandcamp (right after TuneCore)
     if only in (None, "bandcamp"):

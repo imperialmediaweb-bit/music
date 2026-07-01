@@ -1775,7 +1775,7 @@ def main():
         help="Track name (e.g. Tikasa) — must match files in output/",
     )
     reupload_parser.add_argument(
-        "--only", choices=["youtube", "tiktok", "tunecore", "soundcloud", "bandcamp"],
+        "--only", choices=["youtube", "tiktok", "tunecore", "distrokid", "soundcloud", "bandcamp"],
         help="Upload to only one platform (default: all)",
     )
     reupload_parser.set_defaults(func=cmd_reupload)
