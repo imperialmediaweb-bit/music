@@ -973,6 +973,12 @@ def cmd_udio_login(args):
         browser.close()
 
 
+def cmd_distrokid_login(args):
+    """Open browser to log into distrokid.com and save session state."""
+    from modules.distrokid_uploader import distrokid_login
+    distrokid_login()
+
+
 def cmd_process(args):
     """Process existing MP3s from input/ folder.
 
@@ -1704,6 +1710,12 @@ def main():
         help="Log into suno.com and save session for automation",
     )
     suno_login_parser.set_defaults(func=cmd_suno_login)
+
+    # distrokid-login - save DistroKid session state
+    subparsers.add_parser(
+        "distrokid-login",
+        help="Open browser to log into DistroKid and save session",
+    ).set_defaults(func=cmd_distrokid_login)
 
     # udio-login - save Udio session state
     udio_login_parser = subparsers.add_parser(

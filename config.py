@@ -28,6 +28,7 @@ UDIO_STATE_FILE = Path(os.getenv("UDIO_STATE_FILE", BASE_DIR / "cookies" / "udio
 TUNECORE_STATE_FILE = Path(os.getenv("TUNECORE_STATE_FILE", BASE_DIR / "cookies" / "tunecore_state.json"))
 SOUNDCLOUD_STATE_FILE = Path(os.getenv("SOUNDCLOUD_STATE_FILE", BASE_DIR / "cookies" / "soundcloud_state.json"))
 BANDCAMP_STATE_FILE = Path(os.getenv("BANDCAMP_STATE_FILE", BASE_DIR / "cookies" / "bandcamp_state.json"))
+DISTROKID_STATE_FILE = Path(os.getenv("DISTROKID_STATE_FILE", BASE_DIR / "cookies" / "distrokid_state.json"))
 # Artist's Bandcamp subdomain (e.g. "groovegenix" → https://groovegenix.bandcamp.com)
 BANDCAMP_ARTIST_SUBDOMAIN = os.getenv("BANDCAMP_ARTIST_SUBDOMAIN", "groovegenix")
 OUTPUT_DIR = Path(os.getenv("OUTPUT_DIR", BASE_DIR / "output"))
@@ -48,8 +49,17 @@ MUSIC_STYLE_PROMPT = os.getenv("MUSIC_STYLE_PROMPT", "")
 THUMBNAIL_STYLE_PROMPT = os.getenv("THUMBNAIL_STYLE_PROMPT", "")
 
 # Skip TuneCore upload in the pipeline.
-# Default: FALSE — re-enabled. Override with SKIP_TUNECORE=true to disable.
-SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "false").lower() == "true"
+# Default: TRUE — disabled (TuneCore rejects AI-generated music under its
+# GenAI framework). Distribute via DistroKid instead. Override with
+# SKIP_TUNECORE=false to re-enable.
+SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "true").lower() == "true"
+
+# Skip DistroKid upload in the pipeline. Default: FALSE — DistroKid is the
+# active distributor (accepts AI music with disclosure). Set SKIP_DISTROKID=true
+# to disable. Requires a saved session (run 'python main.py distrokid-login').
+SKIP_DISTROKID = os.getenv("SKIP_DISTROKID", "false").lower() == "true"
+# DistroKid artist name used on the release form.
+DISTROKID_ARTIST = os.getenv("DISTROKID_ARTIST", "GrooveGenix")
 TUNECORE_EMAIL = os.getenv("TUNECORE_EMAIL", "")
 TUNECORE_PASSWORD = os.getenv("TUNECORE_PASSWORD", "")
 

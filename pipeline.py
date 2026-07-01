@@ -10,9 +10,10 @@ from modules.video_creator import create_video, create_short_video, create_multi
 from modules.youtube_uploader import upload_to_youtube, post_comment
 from modules.tiktok_uploader import upload_to_tiktok
 from modules.tunecore_uploader import upload_to_tunecore
+from modules.distrokid_uploader import upload_to_distrokid
 from modules.soundcloud_uploader import upload_to_soundcloud
 from modules.bandcamp_uploader import upload_to_bandcamp
-from config import SKIP_TUNECORE, SKIP_SOUNDCLOUD, SKIP_TIKTOK, SKIP_BANDCAMP, SKIP_SHORTS
+from config import SKIP_TUNECORE, SKIP_SOUNDCLOUD, SKIP_TIKTOK, SKIP_BANDCAMP, SKIP_SHORTS, SKIP_DISTROKID
 
 # Default artist name (used for cover art overlay and TuneCore metadata)
 DEFAULT_ARTIST = "GrooveGenix"
@@ -1015,6 +1016,30 @@ def process_single_track(mp3_path: Path, concept=None,
             result["errors"].append(f"tunecore: WAV not found at {wav_path}")
         if not cover_path:
             log.warning("Cover art not generated — skipping TuneCore")
+
+    # Step 8b: Upload to DistroKid (the active distributor for AI music)
+    if SKIP_DISTROKID:
+        log.info("=" * 60)
+        log.info("STEP 8b: DistroKid SKIPPED (SKIP_DISTROKID=true)")
+    elif cover_path and wav_path.exists():
+        try:
+            log.info("=" * 60)
+            log.info("STEP 8b: Uploading to DistroKid...")
+            distrokid_url = upload_to_distrokid(wav_path, Path(cover_path), concept)
+            result["distrokid_url"] = distrokid_url
+            if distrokid_url:
+                log.info(f"DistroKid: {distrokid_url}")
+            else:
+                log.error("DistroKid upload returned None — run: python main.py distrokid-login")
+                result["errors"].append("distrokid: upload returned None (session expired)")
+        except Exception as e:
+            log.error(f"DistroKid upload failed: {e}")
+            result["errors"].append(f"distrokid: {e}")
+    else:
+        if not wav_path.exists():
+            log.warning(f"WAV file not found ({wav_path}) — skipping DistroKid")
+        if not cover_path:
+            log.warning("Cover art not generated — skipping DistroKid")
 
     # Step 9: Upload to Bandcamp (right after TuneCore)
     if SKIP_BANDCAMP:
