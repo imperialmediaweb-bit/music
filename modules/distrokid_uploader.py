@@ -34,6 +34,50 @@ from utils.logger import log
 DISTROKID_BASE = "https://distrokid.com"
 UPLOAD_URL = f"{DISTROKID_BASE}/new/"
 
+# A persistent Chrome profile dir. Using launch_persistent_context (instead of
+# a throwaway context) makes the browser look like a real, returning user:
+# cookies, localStorage and history survive between runs, and once you log in
+# here the session stays put — so the pipeline never has to submit the login
+# form (which is exactly where DistroKid's anti-bot freezes automation).
+PROFILE_DIR = DISTROKID_STATE_FILE.parent / "distrokid_profile"
+
+# Stealth patches injected before any page script runs. They strip the most
+# common automation fingerprints DistroKid checks (navigator.webdriver, the
+# missing window.chrome object, empty plugins/languages).
+_STEALTH_JS = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+window.chrome = window.chrome || { runtime: {} };
+Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+"""
+
+# Launch args that remove the "controlled by automation" banner and the
+# webdriver flag at the browser level.
+_STEALTH_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--no-default-browser-check",
+    "--no-first-run",
+    "--disable-infobars",
+]
+
+
+def _launch_persistent(p, headless):
+    """Open the persistent DistroKid Chrome profile with stealth patches."""
+    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    context = p.chromium.launch_persistent_context(
+        user_data_dir=str(PROFILE_DIR),
+        headless=headless,
+        channel="chrome",
+        args=_STEALTH_ARGS,
+        viewport={"width": 1920, "height": 1080},
+        user_agent=(
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        ),
+    )
+    context.add_init_script(_STEALTH_JS)
+    return context
+
 
 def _first_visible(page, selectors, timeout=4_000):
     """Return the first visible element matching any selector, else None."""
@@ -83,18 +127,16 @@ def _click(page, selectors, label, timeout=4_000):
 
 
 def distrokid_login():
-    """Open a browser for manual DistroKid login and save the session."""
-    log.info("Opening Chrome browser for DistroKid login...")
+    """Open the persistent Chrome profile for manual DistroKid login.
+
+    The session lives inside the profile dir itself, so there's nothing to
+    export — logging in once here keeps you logged in for every later upload.
+    """
+    log.info("Opening Chrome (persistent profile) for DistroKid login...")
     log.info("Log in with your account, then come back and press ENTER.")
-    DISTROKID_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=False,
-            channel="chrome",
-            args=["--disable-blink-features=AutomationControlled"],
-        )
-        context = browser.new_context(viewport={"width": 1920, "height": 1080})
-        page = context.new_page()
+        context = _launch_persistent(p, headless=False)
+        page = context.pages[0] if context.pages else context.new_page()
         page.goto("https://distrokid.com/signin", wait_until="domcontentloaded", timeout=60_000)
         log.info("=" * 60)
         log.info("Browser is open. Please:")
@@ -103,9 +145,13 @@ def distrokid_login():
         log.info("  3. Come back here and press ENTER")
         log.info("=" * 60)
         input("\n>>> Press ENTER here after you've logged in... ")
-        context.storage_state(path=str(DISTROKID_STATE_FILE))
-        log.info(f"DistroKid session saved to: {DISTROKID_STATE_FILE}")
-        browser.close()
+        # Persist a storage_state snapshot too, for tooling that expects it.
+        try:
+            context.storage_state(path=str(DISTROKID_STATE_FILE))
+        except Exception:
+            pass
+        log.info(f"DistroKid profile saved to: {PROFILE_DIR}")
+        context.close()
 
 
 def upload_to_distrokid(
@@ -127,9 +173,9 @@ def upload_to_distrokid(
     """
     log.info(f"Uploading to DistroKid: {concept.track_name}")
 
-    if not DISTROKID_STATE_FILE.exists():
+    if not PROFILE_DIR.exists():
         log.error(
-            f"DistroKid session not found: {DISTROKID_STATE_FILE}\n"
+            f"DistroKid profile not found: {PROFILE_DIR}\n"
             "Run: python main.py distrokid-login"
         )
         return None
@@ -143,9 +189,8 @@ def upload_to_distrokid(
     title = concept.track_name
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=HEADLESS)
-        context = browser.new_context(storage_state=str(DISTROKID_STATE_FILE))
-        page = context.new_page()
+        context = _launch_persistent(p, headless=HEADLESS)
+        page = context.pages[0] if context.pages else context.new_page()
         try:
             log.info("Opening DistroKid upload page...")
             page.goto(UPLOAD_URL, wait_until="domcontentloaded", timeout=60_000)
@@ -251,7 +296,7 @@ def upload_to_distrokid(
                 pass
             return None
         finally:
-            browser.close()
+            context.close()
 
 
 def _select_genre(page):
