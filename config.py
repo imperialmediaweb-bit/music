@@ -60,6 +60,12 @@ SKIP_TUNECORE = os.getenv("SKIP_TUNECORE", "true").lower() == "true"
 SKIP_DISTROKID = os.getenv("SKIP_DISTROKID", "false").lower() == "true"
 # DistroKid artist name used on the release form.
 DISTROKID_ARTIST = os.getenv("DISTROKID_ARTIST", "GrooveGenix")
+# Optional: path to your REAL Chrome "User Data" folder. When set, DistroKid
+# automation reuses the browser profile where you're already logged in — no
+# login form is ever submitted, which is what DistroKid's anti-bot blocks.
+# Windows example:
+#   DISTROKID_CHROME_PROFILE=C:\Users\deals\AppData\Local\Google\Chrome\User Data
+DISTROKID_CHROME_PROFILE = os.getenv("DISTROKID_CHROME_PROFILE", "")
 TUNECORE_EMAIL = os.getenv("TUNECORE_EMAIL", "")
 TUNECORE_PASSWORD = os.getenv("TUNECORE_PASSWORD", "")
 

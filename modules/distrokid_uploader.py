@@ -27,7 +27,10 @@ os.environ["PLAYWRIGHT_SKIP_BROWSER_GC"] = os.environ.get("PLAYWRIGHT_SKIP_BROWS
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from modules.concept_generator import MusicConcept
-from config import DISTROKID_STATE_FILE, DISTROKID_ARTIST, HEADLESS, OUTPUT_DIR
+from config import (
+    DISTROKID_STATE_FILE, DISTROKID_ARTIST, DISTROKID_CHROME_PROFILE,
+    HEADLESS, OUTPUT_DIR,
+)
 from utils.logger import log
 
 
@@ -39,7 +42,14 @@ UPLOAD_URL = f"{DISTROKID_BASE}/new/"
 # cookies, localStorage and history survive between runs, and once you log in
 # here the session stays put — so the pipeline never has to submit the login
 # form (which is exactly where DistroKid's anti-bot freezes automation).
-PROFILE_DIR = DISTROKID_STATE_FILE.parent / "distrokid_profile"
+#
+# If DISTROKID_CHROME_PROFILE points at your real Chrome "User Data" folder,
+# that profile is used instead — you're already logged in there, so DistroKid
+# never sees a login attempt at all. (Chrome must be fully closed first.)
+PROFILE_DIR = (
+    Path(DISTROKID_CHROME_PROFILE) if DISTROKID_CHROME_PROFILE
+    else DISTROKID_STATE_FILE.parent / "distrokid_profile"
+)
 
 # Stealth patches injected before any page script runs. They strip the most
 # common automation fingerprints DistroKid checks (navigator.webdriver, the
