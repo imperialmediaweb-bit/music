@@ -43,13 +43,72 @@ UPLOAD_URL = f"{DISTROKID_BASE}/new/"
 # here the session stays put — so the pipeline never has to submit the login
 # form (which is exactly where DistroKid's anti-bot freezes automation).
 #
-# If DISTROKID_CHROME_PROFILE points at your real Chrome "User Data" folder,
-# that profile is used instead — you're already logged in there, so DistroKid
-# never sees a login attempt at all. (Chrome must be fully closed first.)
-PROFILE_DIR = (
-    Path(DISTROKID_CHROME_PROFILE) if DISTROKID_CHROME_PROFILE
-    else DISTROKID_STATE_FILE.parent / "distrokid_profile"
-)
+# Where automation actually launches Chrome from. We never point Chrome at the
+# real "User Data" folder directly: modern Chrome refuses to start with a
+# remote-debugging pipe against the live profile (exits with code 21). Instead,
+# when DISTROKID_CHROME_PROFILE is set we COPY the logged-in profile into this
+# working dir (cookies + login only, no caches) and launch from the copy.
+PROFILE_DIR = DISTROKID_STATE_FILE.parent / "distrokid_profile"
+
+# Cache-like subfolders that are huge and irrelevant to staying logged in —
+# skipped when copying the real profile so the copy stays small and fast.
+_SKIP_PROFILE_DIRS = {
+    "Cache", "Code Cache", "GPUCache", "GraphiteDawnCache", "DawnCache",
+    "DawnGraphiteCache", "DawnWebGPUCache", "Service Worker", "ShaderCache",
+    "GrShaderCache", "component_crx_cache", "extensions_crx_cache",
+    "Crashpad", "BrowserMetrics", "optimization_guide_model_store",
+    "segmentation_platform", "AutofillStates", "PnaclTranslationCache",
+}
+
+
+def _copy_real_profile():
+    """Copy the logged-in real Chrome profile into the working PROFILE_DIR.
+
+    Copies 'Local State' (holds the cookie-encryption key) and the 'Default'
+    profile, skipping cache folders. Locked files (Chrome still running) are
+    skipped with a warning rather than aborting. Returns True on success.
+    """
+    import shutil
+
+    src = Path(DISTROKID_CHROME_PROFILE)
+    if not src.exists():
+        log.error(f"DISTROKID_CHROME_PROFILE not found: {src}")
+        return False
+
+    dst = PROFILE_DIR
+    dst.mkdir(parents=True, exist_ok=True)
+
+    # Local State — needed to decrypt cookies on Windows.
+    try:
+        if (src / "Local State").exists():
+            shutil.copy2(src / "Local State", dst / "Local State")
+    except Exception as e:
+        log.warning(f"Could not copy Local State: {e}")
+
+    # The Default profile (cookies, login data, prefs), minus cache dirs.
+    src_default = src / "Default"
+    dst_default = dst / "Default"
+    if not src_default.exists():
+        log.error(f"No 'Default' profile in {src}")
+        return False
+    dst_default.mkdir(parents=True, exist_ok=True)
+
+    copied, skipped = 0, 0
+    for item in src_default.iterdir():
+        if item.name in _SKIP_PROFILE_DIRS:
+            continue
+        target = dst_default / item.name
+        try:
+            if item.is_dir():
+                shutil.copytree(item, target, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns(*_SKIP_PROFILE_DIRS))
+            else:
+                shutil.copy2(item, target)
+            copied += 1
+        except Exception:
+            skipped += 1  # locked file (Chrome open) — non-fatal
+    log.info(f"Copied real Chrome profile ({copied} items, {skipped} locked/skipped)")
+    return True
 
 # Stealth patches injected before any page script runs. They strip the most
 # common automation fingerprints DistroKid checks (navigator.webdriver, the
@@ -71,8 +130,15 @@ _STEALTH_ARGS = [
 ]
 
 
-def _launch_persistent(p, headless):
-    """Open the persistent DistroKid Chrome profile with stealth patches."""
+def _launch_persistent(p, headless, refresh_profile=False):
+    """Open the working DistroKid Chrome profile with stealth patches.
+
+    When DISTROKID_CHROME_PROFILE is set and the working copy is missing (or
+    refresh_profile=True), the real logged-in profile is copied in first.
+    """
+    if DISTROKID_CHROME_PROFILE:
+        if refresh_profile or not (PROFILE_DIR / "Default").exists():
+            _copy_real_profile()
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
     context = p.chromium.launch_persistent_context(
         user_data_dir=str(PROFILE_DIR),
@@ -183,10 +249,11 @@ def upload_to_distrokid(
     """
     log.info(f"Uploading to DistroKid: {concept.track_name}")
 
-    if not PROFILE_DIR.exists():
+    if not DISTROKID_CHROME_PROFILE and not (PROFILE_DIR / "Default").exists():
         log.error(
-            f"DistroKid profile not found: {PROFILE_DIR}\n"
-            "Run: python main.py distrokid-login"
+            "DistroKid profile not set up.\n"
+            "Either run 'python main.py distrokid-login' or set "
+            "DISTROKID_CHROME_PROFILE in .env to your real Chrome 'User Data' folder."
         )
         return None
     if not wav_path.exists():
@@ -199,7 +266,8 @@ def upload_to_distrokid(
     title = concept.track_name
 
     with sync_playwright() as p:
-        context = _launch_persistent(p, headless=HEADLESS)
+        # Refresh the profile copy each upload so the latest login cookies win.
+        context = _launch_persistent(p, headless=HEADLESS, refresh_profile=True)
         page = context.pages[0] if context.pages else context.new_page()
         try:
             log.info("Opening DistroKid upload page...")
