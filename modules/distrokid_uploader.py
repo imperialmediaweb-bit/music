@@ -145,6 +145,11 @@ def _launch_persistent(p, headless, refresh_profile=False):
         headless=headless,
         channel="chrome",
         args=_STEALTH_ARGS,
+        # Drop the flags that light up "Chrome is being controlled by automated
+        # test software" and set navigator.webdriver — DistroKid's invisible
+        # reCAPTCHA/Turnstile on the sign-in POST fails automated browsers,
+        # leaving the button stuck on "Please wait...".
+        ignore_default_args=["--enable-automation"],
         viewport={"width": 1920, "height": 1080},
         user_agent=(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
