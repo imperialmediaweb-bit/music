@@ -338,6 +338,12 @@ def upload_to_distrokid(
             # Refresh the profile copy each upload so the latest login cookies win.
             context = _launch_persistent(p, headless=HEADLESS, refresh_profile=True)
         page = context.pages[0] if context.pages else context.new_page()
+        # Raw CDP session — lets us attach large files by path (Chrome reads
+        # them locally, bypassing Playwright's 50 MB CDP transfer limit).
+        try:
+            cdp = context.new_cdp_session(page)
+        except Exception:
+            cdp = None
         try:
             log.info("Opening DistroKid upload page...")
             page.goto(UPLOAD_URL, wait_until="domcontentloaded", timeout=60_000)
@@ -382,7 +388,7 @@ def upload_to_distrokid(
             _set_input(page, "#release-date-dp", release_date, f"release date ({release_date})")
 
             # Album cover art — input#artwork.
-            _upload_file(page, cover_path, ["#artwork", 'input[name="artwork"]'], "cover art")
+            _upload_file(page, cover_path, ["#artwork", 'input[name="artwork"]'], "cover art", cdp)
             time.sleep(3)
 
             # Track title — class .uploadFileTitle (id has a per-track uuid).
@@ -393,7 +399,7 @@ def upload_to_distrokid(
             _upload_file(page, wav_path,
                          ['input[name="file"].trackupload',
                           'input[name="file"]',
-                          'input.trackupload_1'], "audio file")
+                          'input.trackupload_1'], "audio file", cdp)
 
             # Songwriter real name (first + last are separate inputs).
             sw_parts = DISTROKID_SONGWRITER.split()
@@ -435,13 +441,22 @@ def upload_to_distrokid(
                 """)
             except Exception:
                 pass
-            # Save the AI modal.
+            # Save the AI modal — scan visible buttons for an exact "Save".
             time.sleep(1)
-            _click(page, [
-                'button:has-text("Save")',
-                '[role="dialog"] button:has-text("Save")',
-                'button.ai-credits-save',
-            ], "AI modal Save")
+            try:
+                clicked = page.evaluate("""
+                  () => {
+                    const btns = Array.from(document.querySelectorAll('button, input[type=button], a'));
+                    for (const b of btns) {
+                      const t = (b.innerText || b.value || '').trim().toLowerCase();
+                      if (t === 'save' && b.offsetParent !== null) { b.click(); return true; }
+                    }
+                    return false;
+                  }
+                """)
+                log.info(f"DistroKid: AI modal Save {'clicked' if clicked else 'not found'}")
+            except Exception as e:
+                log.warning(f"DistroKid: AI modal Save failed: {e}")
             time.sleep(2)
 
             # Wait for the audio upload to finish (filename appears when done).
@@ -506,20 +521,38 @@ def _select_genre(page):
     log.warning("DistroKid: primary genre not set (will use default)")
 
 
-def _upload_file(page, file_path, selectors, label):
-    """Set an <input type=file> to the given path (waits for it to exist)."""
+def _upload_file(page, file_path, selectors, label, cdp=None):
+    """Attach a file to an <input type=file>.
+
+    When a raw CDP session is provided (we're driving a LOCAL Chrome over
+    connect_over_cdp), use DOM.setFileInputFiles by PATH so Chrome reads the
+    file off disk directly — this bypasses Playwright's 50 MB CDP transfer
+    limit that blocks large WAV masters. Falls back to set_input_files.
+    """
     for sel in selectors:
         try:
-            # Wait for the input to be attached (state=attached also matches
-            # hidden inputs, which DistroKid's file inputs are).
             el = page.wait_for_selector(sel, state="attached", timeout=8_000)
-            if el:
-                el.set_input_files(str(file_path))
-                # DistroKid starts the S3 upload from the input's change handler,
-                # so make sure it fires.
-                el.evaluate("(e) => e.dispatchEvent(new Event('change',{bubbles:true}))")
-                log.info(f"DistroKid: uploaded {label} ({file_path.name})")
-                return True
+            if not el:
+                continue
+
+            if cdp is not None:
+                try:
+                    root = cdp.send("DOM.getDocument", {"depth": 0})
+                    found = cdp.send("DOM.querySelector",
+                                     {"nodeId": root["root"]["nodeId"], "selector": sel})
+                    if found.get("nodeId"):
+                        cdp.send("DOM.setFileInputFiles",
+                                 {"files": [str(file_path)], "nodeId": found["nodeId"]})
+                        el.evaluate("(e) => e.dispatchEvent(new Event('change',{bubbles:true}))")
+                        log.info(f"DistroKid: uploaded {label} via CDP ({file_path.name})")
+                        return True
+                except Exception as e:
+                    log.warning(f"DistroKid: CDP upload for {label} failed ({e}); trying direct")
+
+            el.set_input_files(str(file_path))
+            el.evaluate("(e) => e.dispatchEvent(new Event('change',{bubbles:true}))")
+            log.info(f"DistroKid: uploaded {label} ({file_path.name})")
+            return True
         except PlaywrightTimeout:
             continue
         except Exception as e:
