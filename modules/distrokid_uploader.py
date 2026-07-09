@@ -382,9 +382,12 @@ def upload_to_distrokid(
             # Track title — class .uploadFileTitle (id has a per-track uuid).
             _set_input(page, "input.uploadFileTitle", title, "track title")
 
-            # Audio file — class .trackupload (uploads to S3 asynchronously).
+            # Audio file — the track upload input is name="file" (a second
+            # .trackupload is the Dolby Atmos input, so target name="file").
             _upload_file(page, wav_path,
-                         ["input.trackupload", 'input[name="file"]'], "audio file")
+                         ['input[name="file"].trackupload',
+                          'input[name="file"]',
+                          'input.trackupload_1'], "audio file")
 
             # Songwriter real name (first + last are separate inputs).
             sw_parts = DISTROKID_SONGWRITER.split()
@@ -397,12 +400,37 @@ def upload_to_distrokid(
             if not getattr(concept, "lyrics", ""):
                 _check(page, 'input.distroInstrumental[value="1"]', "instrumental = yes")
 
-            # AI disclosure (honest): AI gate = yes, music composed by AI,
-            # all audio performed by AI.
+            # AI disclosure (honest): AI gate = yes opens a modal asking which
+            # parts are AI. Tick Music + All-of-audio, confirm the artist is a
+            # human/group (GrooveGenix is a brand, not an AI persona claim),
+            # then Save to close the modal.
             _check(page, 'input.distroAiGate[value="1"]', "AI gate = yes")
-            time.sleep(1)
+            time.sleep(2)
             _check(page, 'input.distroAiMusic[value="1"]', "AI: music")
             _check(page, 'input.distroAiRecordingScope[value="full"]', "AI: all audio")
+            time.sleep(1)
+            # "Human artist or group" radio (default) — ensure it's selected.
+            try:
+                page.evaluate("""
+                  () => {
+                    const rs = Array.from(document.querySelectorAll('input[type="radio"]'));
+                    for (const r of rs) {
+                      const t = (r.closest('label')?.innerText || '').toLowerCase();
+                      if (t.includes('human artist')) { r.click(); return true; }
+                    }
+                    return false;
+                  }
+                """)
+            except Exception:
+                pass
+            # Save the AI modal.
+            time.sleep(1)
+            _click(page, [
+                'button:has-text("Save")',
+                '[role="dialog"] button:has-text("Save")',
+                'button.ai-credits-save',
+            ], "AI modal Save")
+            time.sleep(2)
 
             # Wait for the audio upload to finish (filename appears when done).
             log.info("Waiting for audio upload to finish...")
@@ -467,15 +495,20 @@ def _select_genre(page):
 
 
 def _upload_file(page, file_path, selectors, label):
-    """Set an <input type=file> to the given path."""
+    """Set an <input type=file> to the given path (waits for it to exist)."""
     for sel in selectors:
         try:
-            el = page.query_selector(sel)
+            # Wait for the input to be attached (state=attached also matches
+            # hidden inputs, which DistroKid's file inputs are).
+            el = page.wait_for_selector(sel, state="attached", timeout=8_000)
             if el:
                 el.set_input_files(str(file_path))
                 log.info(f"DistroKid: uploaded {label} ({file_path.name})")
                 return True
-        except Exception:
+        except PlaywrightTimeout:
+            continue
+        except Exception as e:
+            log.warning(f"DistroKid: upload attempt for {label} via {sel} failed: {e}")
             continue
     log.warning(f"DistroKid: could not upload {label}")
     return False
