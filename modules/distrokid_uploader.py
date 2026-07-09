@@ -328,8 +328,20 @@ def upload_to_distrokid(
             page.goto(UPLOAD_URL, wait_until="domcontentloaded", timeout=60_000)
             time.sleep(4)
 
-            if "signin" in page.url.lower() or "login" in page.url.lower():
-                log.error("DistroKid session expired — run 'python main.py distrokid-login'")
+            # Logged-in check: the upload form's artist field only exists when
+            # authenticated. URL matching is unreliable, so probe the form.
+            logged_in = False
+            try:
+                logged_in = page.query_selector("#artistName") is not None
+            except Exception:
+                logged_in = False
+            if not logged_in:
+                log.error(
+                    f"DistroKid not logged in (no upload form). URL={page.url}\n"
+                    "Run 'python main.py distrokid-login' and log into the "
+                    "browser that opens, OR unset DISTROKID_CHROME_PROFILE in "
+                    ".env (a copied profile can't decrypt cookies on Chrome 127+)."
+                )
                 page.screenshot(path=str(OUTPUT_DIR / "distrokid_session_expired.png"))
                 return None
 
