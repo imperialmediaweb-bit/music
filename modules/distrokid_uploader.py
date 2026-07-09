@@ -29,7 +29,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 from modules.concept_generator import MusicConcept
 from config import (
     DISTROKID_STATE_FILE, DISTROKID_ARTIST, DISTROKID_CHROME_PROFILE,
-    HEADLESS, OUTPUT_DIR,
+    DISTROKID_SONGWRITER, HEADLESS, OUTPUT_DIR,
 )
 from utils.logger import log
 
@@ -186,6 +186,60 @@ def _fill(page, selectors, value, label, timeout=4_000):
         return False
 
 
+def _set_input(page, selector, value, label):
+    """Fill a single input by CSS selector and fire input/change/blur events."""
+    try:
+        el = page.wait_for_selector(selector, timeout=6_000)
+        if not el:
+            log.warning(f"DistroKid: could not find '{label}' ({selector})")
+            return False
+        el.scroll_into_view_if_needed()
+        el.click()
+        el.fill(str(value))
+        el.evaluate(
+            "(e) => { e.dispatchEvent(new Event('input',{bubbles:true}));"
+            " e.dispatchEvent(new Event('change',{bubbles:true}));"
+            " e.dispatchEvent(new Event('blur',{bubbles:true})); }"
+        )
+        log.info(f"DistroKid: set '{label}'")
+        return True
+    except Exception as e:
+        log.warning(f"DistroKid: failed to set '{label}': {e}")
+        return False
+
+
+def _select_value(page, selector, value, label):
+    """Select an <option> by value and fire the change handler."""
+    try:
+        page.select_option(selector, value, timeout=6_000)
+        page.eval_on_selector(
+            selector,
+            "(e) => e.dispatchEvent(new Event('change',{bubbles:true}))",
+        )
+        log.info(f"DistroKid: selected '{label}'")
+        return True
+    except Exception as e:
+        log.warning(f"DistroKid: failed to select '{label}': {e}")
+        return False
+
+
+def _check(page, selector, label):
+    """Tick a radio/checkbox by CSS selector and fire click/change."""
+    try:
+        el = page.wait_for_selector(selector, timeout=5_000)
+        if not el:
+            log.warning(f"DistroKid: could not find '{label}' ({selector})")
+            return False
+        el.scroll_into_view_if_needed()
+        el.check()
+        el.evaluate("(e) => e.dispatchEvent(new Event('change',{bubbles:true}))")
+        log.info(f"DistroKid: checked '{label}'")
+        return True
+    except Exception as e:
+        log.warning(f"DistroKid: failed to check '{label}': {e}")
+        return False
+
+
 def _click(page, selectors, label, timeout=4_000):
     """Click the first matching element; log the outcome. Returns True on success."""
     el = _first_visible(page, selectors, timeout=timeout)
@@ -279,83 +333,71 @@ def upload_to_distrokid(
                 page.screenshot(path=str(OUTPUT_DIR / "distrokid_session_expired.png"))
                 return None
 
-            # Number of songs: 1 (single)
-            _fill(page, [
-                'input[name="howManySongs"]',
-                'input#howManySongs',
-                'select[name="howManySongs"]',
-            ], "1", "number of songs")
+            # ── Real DistroKid form selectors (from the live upload page) ──
 
-            # Artist / band name
-            _fill(page, [
-                'input[name="artistName"]',
-                'input[id*="artist" i]',
-                'input[placeholder*="artist" i]',
-            ], artist, "artist name")
+            # Number of songs = 1 (single). select#howManySongsOnThisAlbum
+            _select_value(page, "#howManySongsOnThisAlbum", "1", "number of songs")
 
-            # Record label (optional) — leave DistroKid default
+            # Artist / band name — input#artistName (name=bandname).
+            _set_input(page, "#artistName", artist, "artist name")
 
-            # Language / Primary genre — best effort via visible dropdowns
-            _select_genre(page)
+            # Language = English (value 10).
+            _select_value(page, "#language", "10", "language")
 
-            # Track title
-            _fill(page, [
-                'input[name="title1"]',
-                'input[id*="songtitle" i]',
-                'input[placeholder*="song title" i]',
-                'input[placeholder*="track title" i]',
-            ], title, "track title")
+            # Genre: DistroKid has no "Afro House" — use Dance primary +
+            # Afrobeat secondary (no subgenre step required).
+            _select_value(page, "#genrePrimary", "8", "primary genre (Dance)")
+            _select_value(page, "#genreSecondary", "58", "secondary genre (Afrobeat)")
 
-            # Songwriter real name (DistroKid requires a real legal name field)
-            _fill(page, [
-                'input[name="songwriterRealName1"]',
-                'input[id*="songwriter" i]',
-                'input[placeholder*="songwriter" i]',
-            ], artist, "songwriter name")
+            # Album cover art — input#artwork.
+            _upload_file(page, cover_path, ["#artwork", 'input[name="artwork"]'], "cover art")
+            time.sleep(3)
 
-            # Instrumental? Afro House is typically instrumental — say yes when
-            # the concept carries no lyrics.
-            is_instrumental = not getattr(concept, "lyrics", "")
-            if is_instrumental:
-                _click(page, [
-                    'input[name="instrumental1"][value="yes"]',
-                    'label:has-text("Yes, this song is an instrumental")',
-                    'input[type="radio"][value="instrumental"]',
-                ], "instrumental = yes")
+            # Track title — class .uploadFileTitle (id has a per-track uuid).
+            _set_input(page, "input.uploadFileTitle", title, "track title")
 
-            # AI disclosure — check any AI-usage box honestly if present
-            _click(page, [
-                'input[id*="ai" i][type="checkbox"]',
-                'label:has-text("AI") input[type="checkbox"]',
-            ], "AI disclosure")
+            # Audio file — class .trackupload (uploads to S3 asynchronously).
+            _upload_file(page, wav_path,
+                         ["input.trackupload", 'input[name="file"]'], "audio file")
 
-            # Upload audio file
-            _upload_file(page, wav_path, [
-                'input[type="file"][name*="audio" i]',
-                'input[type="file"][accept*="audio" i]',
-                'input[type="file"]',
-            ], "audio file")
+            # Songwriter real name (first + last are separate inputs).
+            sw_parts = DISTROKID_SONGWRITER.split()
+            sw_first = sw_parts[0] if sw_parts else "Imperial"
+            sw_last = sw_parts[-1] if len(sw_parts) > 1 else "Media"
+            _set_input(page, "input.songwriter_real_name_first", sw_first, "songwriter first name")
+            _set_input(page, "input.songwriter_real_name_last", sw_last, "songwriter last name")
 
-            # Upload cover art
-            _upload_file(page, cover_path, [
-                'input[type="file"][name*="cover" i]',
-                'input[type="file"][accept*="image" i]',
-            ], "cover art")
+            # Instrumental = yes when the track has no lyrics.
+            if not getattr(concept, "lyrics", ""):
+                _check(page, 'input.distroInstrumental[value="1"]', "instrumental = yes")
 
-            # Give uploads time to process
-            log.info("Waiting for uploads to process...")
-            time.sleep(30)
+            # AI disclosure (honest): AI gate = yes, music composed by AI,
+            # all audio performed by AI.
+            _check(page, 'input.distroAiGate[value="1"]', "AI gate = yes")
+            time.sleep(1)
+            _check(page, 'input.distroAiMusic[value="1"]', "AI: music")
+            _check(page, 'input.distroAiRecordingScope[value="full"]', "AI: all audio")
 
-            # Accept mandatory disclosure checkboxes at the bottom
+            # Wait for the audio upload to finish (filename appears when done).
+            log.info("Waiting for audio upload to finish...")
+            for _ in range(24):  # up to ~2 min
+                time.sleep(5)
+                try:
+                    done = page.evaluate(
+                        "() => { const e = document.querySelector('[id^=\"showFilename_\"]');"
+                        " return e && e.textContent.trim().length > 0; }"
+                    )
+                    if done:
+                        log.info("Audio upload complete")
+                        break
+                except Exception:
+                    continue
+
+            # Mandatory checkboxes (class .areyousure) — tick every visible one.
             _accept_disclosures(page)
 
-            # Continue / submit
-            submitted = _click(page, [
-                'button:has-text("Continue")',
-                'a:has-text("Continue")',
-                'button:has-text("Submit")',
-                'button[type="submit"]',
-            ], "Continue/Submit")
+            # Submit — input#doneButton ("Continue").
+            submitted = _click(page, ["#doneButton", 'input#doneButton'], "Continue/Submit")
 
             if not submitted:
                 log.warning("DistroKid: could not find final Continue button")
@@ -407,18 +449,23 @@ def _upload_file(page, file_path, selectors, label):
 
 
 def _accept_disclosures(page):
-    """Tick every visible unchecked mandatory-disclosure checkbox at the bottom."""
+    """Tick only the mandatory .areyousure checkboxes.
+
+    IMPORTANT: restricted to class 'areyousure' — ticking every checkbox would
+    also enable the paid Extras (Social Media Pack, Store Maximizer, etc.) and
+    charge the card.
+    """
     try:
-        checkboxes = page.query_selector_all('input[type="checkbox"]')
+        checkboxes = page.query_selector_all('input.areyousure')
         ticked = 0
         for cb in checkboxes:
             try:
                 if cb.is_visible() and not cb.is_checked():
+                    cb.scroll_into_view_if_needed()
                     cb.check()
                     ticked += 1
             except Exception:
                 continue
-        if ticked:
-            log.info(f"DistroKid: accepted {ticked} disclosure checkbox(es)")
+        log.info(f"DistroKid: accepted {ticked} mandatory checkbox(es)")
     except Exception as e:
         log.warning(f"DistroKid: disclosure step skipped: {e}")

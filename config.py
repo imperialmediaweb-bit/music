@@ -66,6 +66,9 @@ DISTROKID_ARTIST = os.getenv("DISTROKID_ARTIST", "GrooveGenix")
 # Windows example:
 #   DISTROKID_CHROME_PROFILE=C:\Users\deals\AppData\Local\Google\Chrome\User Data
 DISTROKID_CHROME_PROFILE = os.getenv("DISTROKID_CHROME_PROFILE", "")
+# Songwriter legal name DistroKid requires (real name, not stage name).
+# Provide as "First Last"; a single word is used as the first name.
+DISTROKID_SONGWRITER = os.getenv("DISTROKID_SONGWRITER", "Imperial Media")
 TUNECORE_EMAIL = os.getenv("TUNECORE_EMAIL", "")
 TUNECORE_PASSWORD = os.getenv("TUNECORE_PASSWORD", "")
 
