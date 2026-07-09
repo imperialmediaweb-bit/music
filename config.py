@@ -69,6 +69,13 @@ DISTROKID_CHROME_PROFILE = os.getenv("DISTROKID_CHROME_PROFILE", "")
 # Songwriter legal name DistroKid requires (real name, not stage name).
 # Provide as "First Last"; a single word is used as the first name.
 DISTROKID_SONGWRITER = os.getenv("DISTROKID_SONGWRITER", "Imperial Media")
+# Connect to an already-running Chrome via its DevTools endpoint instead of
+# launching one. DistroKid's sign-in uses invisible reCAPTCHA/Turnstile that
+# blocks automated logins, so log in MANUALLY in a real Chrome started with
+#   chrome.exe --remote-debugging-port=9222 --user-data-dir="C:\dk-profile"
+# then set DISTROKID_CDP_URL=http://localhost:9222 and the pipeline drives
+# that already-authenticated session (captcha already passed by you).
+DISTROKID_CDP_URL = os.getenv("DISTROKID_CDP_URL", "")
 TUNECORE_EMAIL = os.getenv("TUNECORE_EMAIL", "")
 TUNECORE_PASSWORD = os.getenv("TUNECORE_PASSWORD", "")
 

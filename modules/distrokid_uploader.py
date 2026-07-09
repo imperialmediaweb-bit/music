@@ -29,7 +29,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 from modules.concept_generator import MusicConcept
 from config import (
     DISTROKID_STATE_FILE, DISTROKID_ARTIST, DISTROKID_CHROME_PROFILE,
-    DISTROKID_SONGWRITER, HEADLESS, OUTPUT_DIR,
+    DISTROKID_SONGWRITER, DISTROKID_CDP_URL, HEADLESS, OUTPUT_DIR,
 )
 from utils.logger import log
 
@@ -308,11 +308,13 @@ def upload_to_distrokid(
     """
     log.info(f"Uploading to DistroKid: {concept.track_name}")
 
-    if not DISTROKID_CHROME_PROFILE and not (PROFILE_DIR / "Default").exists():
+    if (not DISTROKID_CDP_URL and not DISTROKID_CHROME_PROFILE
+            and not (PROFILE_DIR / "Default").exists()):
         log.error(
             "DistroKid profile not set up.\n"
-            "Either run 'python main.py distrokid-login' or set "
-            "DISTROKID_CHROME_PROFILE in .env to your real Chrome 'User Data' folder."
+            "Recommended: start Chrome with --remote-debugging-port=9222, log "
+            "in manually, and set DISTROKID_CDP_URL=http://localhost:9222.\n"
+            "Or run 'python main.py distrokid-login'."
         )
         return None
     if not wav_path.exists():
@@ -325,8 +327,15 @@ def upload_to_distrokid(
     title = concept.track_name
 
     with sync_playwright() as p:
-        # Refresh the profile copy each upload so the latest login cookies win.
-        context = _launch_persistent(p, headless=HEADLESS, refresh_profile=True)
+        cdp_browser = None
+        if DISTROKID_CDP_URL:
+            # Attach to the Chrome you started and logged into manually.
+            log.info(f"Connecting to your Chrome at {DISTROKID_CDP_URL} ...")
+            cdp_browser = p.chromium.connect_over_cdp(DISTROKID_CDP_URL)
+            context = cdp_browser.contexts[0] if cdp_browser.contexts else cdp_browser.new_context()
+        else:
+            # Refresh the profile copy each upload so the latest login cookies win.
+            context = _launch_persistent(p, headless=HEADLESS, refresh_profile=True)
         page = context.pages[0] if context.pages else context.new_page()
         try:
             log.info("Opening DistroKid upload page...")
@@ -433,7 +442,14 @@ def upload_to_distrokid(
                 pass
             return None
         finally:
-            context.close()
+            if cdp_browser is not None:
+                # Don't kill the user's manually-started Chrome — just detach.
+                try:
+                    cdp_browser.close()
+                except Exception:
+                    pass
+            else:
+                context.close()
 
 
 def _select_genre(page):
