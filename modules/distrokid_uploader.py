@@ -16,6 +16,7 @@ wrapped so a single missing field logs a warning instead of aborting.
 
 import os
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # DistroKid's anti-bot code runs `debugger;` in a loop and freezes the page
@@ -375,6 +376,11 @@ def upload_to_distrokid(
             _select_value(page, "#genrePrimary", "8", "primary genre (Dance)")
             _select_value(page, "#genreSecondary", "58", "secondary genre (Afrobeat)")
 
+            # Release date — DistroKid rejects an empty date. Set ~14 days out
+            # (also improves playlist-placement chances).
+            release_date = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
+            _set_input(page, "#release-date-dp", release_date, f"release date ({release_date})")
+
             # Album cover art — input#artwork.
             _upload_file(page, cover_path, ["#artwork", 'input[name="artwork"]'], "cover art")
             time.sleep(3)
@@ -395,6 +401,12 @@ def upload_to_distrokid(
             sw_last = sw_parts[-1] if len(sw_parts) > 1 else "Media"
             _set_input(page, "input.songwriter_real_name_first", sw_first, "songwriter first name")
             _set_input(page, "input.songwriter_real_name_last", sw_last, "songwriter last name")
+
+            # Artist-profile sections (Apple / Spotify / YouTube / Meta) appear
+            # after the artist-name search. DistroKid requires an option picked
+            # in each visible one — choose the safe default (group / first).
+            time.sleep(2)
+            _select_artist_ids(page)
 
             # Instrumental = yes when the track has no lyrics.
             if not getattr(concept, "lyrics", ""):
@@ -503,6 +515,9 @@ def _upload_file(page, file_path, selectors, label):
             el = page.wait_for_selector(sel, state="attached", timeout=8_000)
             if el:
                 el.set_input_files(str(file_path))
+                # DistroKid starts the S3 upload from the input's change handler,
+                # so make sure it fires.
+                el.evaluate("(e) => e.dispatchEvent(new Event('change',{bubbles:true}))")
                 log.info(f"DistroKid: uploaded {label} ({file_path.name})")
                 return True
         except PlaywrightTimeout:
@@ -512,6 +527,39 @@ def _upload_file(page, file_path, selectors, label):
             continue
     log.warning(f"DistroKid: could not upload {label}")
     return False
+
+
+def _select_artist_ids(page):
+    """Pick a safe option in each visible 'artist already in X?' section.
+
+    Prefers the default 'group with my existing releases' radio, else a
+    'new / first release' radio, else the first visible radio. Skips a section
+    that already has a selection.
+    """
+    try:
+        picked = page.evaluate("""
+          () => {
+            const containers = ['#appleArtistIdContainer','#spotifyArtistIdContainer',
+              '#googleArtistIdContainer','#instagramProfileArtistIdContainer',
+              '#facebookProfileArtistIdContainer'];
+            let n = 0;
+            for (const csel of containers) {
+              const c = document.querySelector(csel);
+              if (!c || c.offsetParent === null) continue;      // not visible
+              const radios = Array.from(c.querySelectorAll('input[type=radio]'))
+                .filter(r => r.offsetParent !== null);
+              if (!radios.length || radios.some(r => r.checked)) continue;
+              const pick = radios.find(r => (r.className||'').includes('defaultRadio'))
+                        || radios.find(r => r.value === 'new')
+                        || radios[0];
+              if (pick) { pick.click(); n++; }
+            }
+            return n;
+          }
+        """)
+        log.info(f"DistroKid: selected artist-profile option in {picked} section(s)")
+    except Exception as e:
+        log.warning(f"DistroKid: artist-id selection skipped: {e}")
 
 
 def _accept_disclosures(page):

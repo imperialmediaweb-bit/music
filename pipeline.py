@@ -34,6 +34,24 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
     from config import OUTPUT_DIR
     from modules.concept_generator import generate_concept
 
+    # "latest" is a sentinel meaning "the most recently created track". Resolve
+    # it to the real track name from the newest audio file so the release isn't
+    # literally titled "latest" (and the cover doesn't say "LATEST").
+    if track_name.strip().lower() == "latest":
+        audio = sorted(
+            list(OUTPUT_DIR.glob("*.wav")) + list(OUTPUT_DIR.glob("*.mp3")),
+            key=lambda f: f.stat().st_mtime, reverse=True,
+        )
+        if audio:
+            real = audio[0].stem
+            for suffix in ("_master", "_video", "_short", "_tiktok"):
+                if real.endswith(suffix):
+                    real = real[: -len(suffix)]
+            log.info(f"Resolved 'latest' → real track name: {real}")
+            track_name = real
+        else:
+            log.warning("No audio files found to resolve 'latest'")
+
     result = {
         "concept": track_name,
         "duration": None,
