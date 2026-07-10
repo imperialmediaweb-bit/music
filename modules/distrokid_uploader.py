@@ -568,16 +568,46 @@ def _upload_file(page, file_path, selectors, label, cdp=None):
 def _fill_apple_credits(page, name):
     """Fill Apple's required performer + producer credit for track 1.
 
-    Afro House is instrumental/electronic, so credit a Synthesizer performer
-    and a Producer, both under the artist name. The role <select>s are wrapped
-    by a searchable-select widget, so set the native value and also update the
-    widget's visible text via change events.
+    The credit fields live in a collapsed accordion and the role <select>s are
+    hidden behind a searchable-select widget, so Playwright's visibility-gated
+    actions time out. Do it all in JS: open the accordion, set the native
+    <select> value + name input, and dispatch change so DistroKid's validation
+    (which reads the native elements) passes.
     """
     try:
-        _select_value(page, "#track-1-performer-1-role", "Synthesizer", "performer role")
-        _set_input(page, "#track-1-performer-1-name", name, "performer name")
-        _select_value(page, "#track-1-producer-1-role", "Producer", "producer role")
-        _set_input(page, "#track-1-producer-1-name", name, "producer name")
+        ok = page.evaluate(
+            """
+            (name) => {
+              const acc = document.querySelector('#requirements-credits');
+              if (acc && !acc.classList.contains('open')) {
+                const title = acc.querySelector('.requirements-item-title');
+                if (title) title.click();
+              }
+              const setSel = (id, val) => {
+                const s = document.querySelector(id);
+                if (!s) return false;
+                s.value = val;
+                s.dispatchEvent(new Event('change', {bubbles:true}));
+                return s.value === val;
+              };
+              const setInp = (id, val) => {
+                const i = document.querySelector(id);
+                if (!i) return false;
+                i.value = val;
+                ['input','change','blur'].forEach(e =>
+                  i.dispatchEvent(new Event(e, {bubbles:true})));
+                return true;
+              };
+              const a = setSel('#track-1-performer-1-role', 'Synthesizer');
+              const b = setInp('#track-1-performer-1-name', name);
+              const c = setSel('#track-1-producer-1-role', 'Producer');
+              const d = setInp('#track-1-producer-1-name', name);
+              return {performerRole:a, performerName:b, producerRole:c, producerName:d};
+            }
+            """,
+            name,
+        )
+        log.info(f"DistroKid: Apple credits set -> {ok}")
     except Exception as e:
         log.warning(f"DistroKid: Apple credits step skipped: {e}")
 
