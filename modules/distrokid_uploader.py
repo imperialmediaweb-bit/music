@@ -474,6 +474,9 @@ def upload_to_distrokid(
                 except Exception:
                     continue
 
+            # Apple requires ≥1 performer + ≥1 producer credit per track.
+            _fill_apple_credits(page, artist)
+
             # Mandatory checkboxes (class .areyousure) — tick every visible one.
             _accept_disclosures(page)
 
@@ -560,6 +563,23 @@ def _upload_file(page, file_path, selectors, label, cdp=None):
             continue
     log.warning(f"DistroKid: could not upload {label}")
     return False
+
+
+def _fill_apple_credits(page, name):
+    """Fill Apple's required performer + producer credit for track 1.
+
+    Afro House is instrumental/electronic, so credit a Synthesizer performer
+    and a Producer, both under the artist name. The role <select>s are wrapped
+    by a searchable-select widget, so set the native value and also update the
+    widget's visible text via change events.
+    """
+    try:
+        _select_value(page, "#track-1-performer-1-role", "Synthesizer", "performer role")
+        _set_input(page, "#track-1-performer-1-name", name, "performer name")
+        _select_value(page, "#track-1-producer-1-role", "Producer", "producer role")
+        _set_input(page, "#track-1-producer-1-name", name, "producer name")
+    except Exception as e:
+        log.warning(f"DistroKid: Apple credits step skipped: {e}")
 
 
 def _select_artist_ids(page):
