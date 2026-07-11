@@ -58,7 +58,8 @@ def _get_music_generator(platform: str):
 def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = None,
                        genre: str = "", music_style: str = "", thumbnail_style: str = "",
                        fusion: bool = False, profile_name: str = "",
-                       target_minutes: int = 0, world_cup: bool | None = None):
+                       target_minutes: int = 0, world_cup: bool | None = None,
+                       archive_count: int = -1):
     """Full pipeline: generate music → merge → thumbnail → video → upload.
 
     Args:
@@ -178,40 +179,51 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
 
     # Hybrid mode: add archived MP3s if pool is large enough
     archive_mp3s_list = []
-    if SKIP_ARCHIVE:
+    if archive_count == 0:
+        log.info("Archive mixing OFF for this run (--archive-count 0) — all fresh")
+    elif archive_count > 0:
+        # Explicit override: mix in exactly this many archived songs.
+        if archive_size() > 0:
+            want = archive_count
+            archive_mp3s_list = pick_from_archive(want, exclude_files=mp3_files)
+        else:
+            log.info("Archive empty — nothing to mix in")
+    elif SKIP_ARCHIVE:
         if profile.get("hybrid"):
             log.info("Hybrid mode SKIPPED — using fresh tracks only (SKIP_ARCHIVE=true)")
     elif profile.get("hybrid") and archive_size() >= profile.get("archive_min_pool", 12):
         if target_minutes > 0:
-            fresh_minutes = len(mp3_files) * 2
-            want = max(0, (target_minutes - fresh_minutes) // 2)
+            # ~3 min per merged song on aimusicfactory (2-min estimate
+            # over-filled and pushed tracks past their target length).
+            fresh_minutes = len(mp3_files) * 3
+            want = max(0, (target_minutes - fresh_minutes) // 3)
         else:
             want = profile.get("archive_count", 2)
         if want > 0:
             archive_mp3s_list = pick_from_archive(want, exclude_files=mp3_files)
-        if archive_mp3s_list:
-            log.info(f"Hybrid mode: {len(mp3_files)} fresh + {len(archive_mp3s_list)} from archive")
-            # Smart ordering: the track must ALWAYS open with a fresh song (a
-            # stale archived intro hurts retention) and, when possible, close
-            # with a fresh one too. Archived songs are shuffled into the MIDDLE
-            # together with the remaining fresh ones.
-            fresh = mp3_files[:]
-            random.shuffle(fresh)
-            random.shuffle(archive_mp3s_list)
-            if len(fresh) >= 2:
-                first, last = fresh[0], fresh[-1]
-                middle = fresh[1:-1] + archive_mp3s_list
-                random.shuffle(middle)
-                mp3_files = [first] + middle + [last]
-            else:
-                # Only one fresh song — keep it first, archive after it.
-                mp3_files = fresh + archive_mp3s_list
-            log.info(f"Order: fresh intro → {len(mp3_files) - 2} mixed middle → fresh outro")
     else:
         if profile.get("hybrid"):
             pool = archive_size()
             needed = profile.get("archive_min_pool", 12)
             log.info(f"Hybrid mode waiting — pool {pool}/{needed} MP3s (need more generations)")
+
+    # Smart ordering (applies to every path that added archive songs): the track
+    # must ALWAYS open with a fresh song (a stale archived intro hurts retention)
+    # and, when possible, close with a fresh one too. Archived songs are shuffled
+    # into the MIDDLE together with the remaining fresh ones.
+    if archive_mp3s_list:
+        log.info(f"Hybrid mix: {len(mp3_files)} fresh + {len(archive_mp3s_list)} from archive")
+        fresh = mp3_files[:]
+        random.shuffle(fresh)
+        random.shuffle(archive_mp3s_list)
+        if len(fresh) >= 2:
+            first, last = fresh[0], fresh[-1]
+            middle = fresh[1:-1] + archive_mp3s_list
+            random.shuffle(middle)
+            mp3_files = [first] + middle + [last]
+        else:
+            mp3_files = fresh + archive_mp3s_list
+        log.info(f"Order: fresh intro → {len(mp3_files) - 2} mixed middle → fresh outro")
 
     # Step 3: Merge all MP3s into one track (with crossfade if profile uses it)
     log.info("=" * 60)
@@ -1116,6 +1128,7 @@ def cmd_run(args):
     playlist_profile = getattr(args, "playlist", "") or ""
     target_minutes = getattr(args, "target_minutes", 0) or 0
     world_cup = getattr(args, "world_cup", None)
+    archive_count = getattr(args, "archive_count", -1)
     label = f"{count} clip(s) on {platform} ({songs} songs each, {gen_count} gen(s))"
     if target_minutes:
         label += f" [~{target_minutes}min]"
@@ -1136,7 +1149,7 @@ def cmd_run(args):
             result = _run_full_pipeline(gen_count=gen_count, platform=platform, songs=songs,
                                         fusion=fusion, profile_name=playlist_profile,
                                         target_minutes=target_minutes,
-                                        world_cup=world_cup)
+                                        world_cup=world_cup, archive_count=archive_count)
             if result["errors"]:
                 total_errors += 1
                 log.warning(f"Clip {i} had errors: {result['errors']}")
@@ -1307,14 +1320,13 @@ def cmd_autostart(args):
 
     # 3x/day: fixed number of FRESH generations (-g) topped up from the
     # archive library to reach the target duration (--target-minutes).
-    # World Cup theme only on the morning slot.
-    #   09:00 → 1 gen (2 fresh) + archive → ~20 min, World Cup 2026 anthem
-    #   14:00 → 2 gen (4 fresh) + archive → ~30 min, standard Afro House
-    #   18:00 → 3 gen (6 fresh) + archive → ~40 min, standard Afro House
+    # 2x/day. Explicit fresh generations + explicit archive count keep the
+    # length capped (each merged song is ~3 min on aimusicfactory):
+    #   14:00 → 3 fresh gens (6 songs ≈ 18-20 min), 0 archive, World Cup theme
+    #   18:00 → 4 fresh gens (8 songs ≈ 24 min) + 2 archive ≈ 30 min
     SCHEDULE_SLOTS = [
-        (9, 0, 0, "-g 1 --target-minutes 20 --world-cup"),  # 09:00 World Cup anthem
-        (14, 0, 0, "-g 2 --target-minutes 30"),             # 14:00 standard
-        (18, 0, 0, "-g 3 --target-minutes 40"),             # 18:00 standard
+        (14, 0, 0, "-g 3 --archive-count 0 --world-cup"),  # 14:00 ~20 min World Cup
+        (18, 0, 0, "-g 4 --archive-count 2"),              # 18:00 ~30 min + 2 old
     ]
 
     def _cleanup_all():
@@ -1832,6 +1844,10 @@ def main():
     run_parser.add_argument(
         "--no-world-cup", dest="world_cup", action="store_false",
         help="Disable World Cup theme even when the env default is on",
+    )
+    run_parser.add_argument(
+        "--archive-count", dest="archive_count", type=int, default=-1,
+        help="Exact number of archived songs to mix in (0 = all fresh; -1 = auto)",
     )
     run_parser.set_defaults(func=cmd_run)
 
