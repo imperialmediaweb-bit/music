@@ -1354,6 +1354,37 @@ def _build_system_prompt(genre: str, music_style: str, world_cup: bool | None = 
     else:
         title_formulas = all_formulas_str
     thumbnail_core = profile["thumbnail_core"]
+    # Diversify Afro House thumbnails — always the same African mask + gold/brown
+    # palette reads as "mass-produced" to YouTube and hurts the whole channel.
+    # Rotate the subject AND palette by mix_number so consecutive uploads look
+    # like they belong to different creators.
+    if genre.lower() == "afro house":
+        _common = (
+            " STYLE: ultra-realistic cinematic painted-poster look (NOT photography, "
+            "NOT 3D render). Subject fills 70-80% of the frame, slightly off-center. "
+            "STRONG rim light, EXTREME contrast, subject POPS off a dark background. "
+            "NO text, NO logos, NO watermarks, NO clutter. 4K, ultra sharp. "
+            "Mood: powerful, magnetic, hypnotic."
+        )
+        _afro_variants = [
+            "A carved ceremonial African mask (Dogon / Fang / Punu style), deep GOLD "
+            "and molten copper accents on near-black background." + _common,
+            "A powerful young African warrior in profile with painted markings, "
+            "TEAL and burnt-ORANGE palette, smoky dark backdrop." + _common,
+            "A regal African queen with beaded headdress and glowing eyes, CRIMSON "
+            "and gold palette on charcoal background." + _common,
+            "A silhouetted tribal drummer mid-strike against a huge amber sunset, "
+            "INDIGO sky fading to deep AMBER." + _common,
+            "A close-up of a shaman's face half-lit, EMERALD-green and COPPER rim "
+            "light, obsidian-black background." + _common,
+            "A lone African dancer frozen in motion, dust catching a single PURPLE "
+            "spotlight over a black stage, violet + gold." + _common,
+            "A majestic leopard / lion totem carved in dark wood with turquoise inlay, "
+            "TURQUOISE and bronze on black." + _common,
+            "A vast African savanna at dusk with a lone acacia tree silhouette, "
+            "fiery RED-orange sky melting into deep purple night." + _common,
+        ]
+        thumbnail_core = _afro_variants[mix_num % len(_afro_variants)]
     related_genres = profile["related_genres"]
     use_cases = profile["use_cases"]
     tiktok_hooks = profile["tiktok_hooks"].format(genre=genre)

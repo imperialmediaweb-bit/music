@@ -89,8 +89,9 @@ SKIP_TIKTOK = os.getenv("SKIP_TIKTOK", "false").lower() == "true"
 SKIP_BANDCAMP = os.getenv("SKIP_BANDCAMP", "false").lower() == "true"
 
 # Skip YouTube Shorts creation/upload in the pipeline.
-# Default: TRUE — focus on long-form videos only. Override with SKIP_SHORTS=false.
-SKIP_SHORTS = os.getenv("SKIP_SHORTS", "true").lower() == "true"
+# Default: FALSE — Shorts ARE the channel's discovery engine, posted right
+# after each long video. Override with SKIP_SHORTS=true to disable.
+SKIP_SHORTS = os.getenv("SKIP_SHORTS", "false").lower() == "true"
 
 # Skip reusing archived MP3s in hybrid mode. When FALSE, older tracks from
 # the pool are mixed into the MIDDLE of new tracks (never at the very start),

@@ -1320,12 +1320,13 @@ def cmd_autostart(args):
 
     # 3x/day: fixed number of FRESH generations (-g) topped up from the
     # archive library to reach the target duration (--target-minutes).
-    # 2x/day. Explicit fresh generations + explicit archive count keep the
-    # length capped (each merged song is ~3 min on aimusicfactory):
-    #   14:00 → 3 fresh gens (6 songs ≈ 18-20 min), 0 archive, World Cup theme
-    #   18:00 → 4 fresh gens (8 songs ≈ 24 min) + 2 archive ≈ 30 min
+    # 2x/day, each slot = long video + a Short posted right after it (Shorts
+    # bring discovery traffic). Explicit gens + archive count cap the length
+    # (~3 min per merged song on aimusicfactory):
+    #   13:00 → 3 fresh gens (~20 min), 0 archive, World Cup theme + Short
+    #   18:00 → 4 fresh gens (~30 min) + 2 archive + Short
     SCHEDULE_SLOTS = [
-        (14, 0, 0, "-g 3 --archive-count 0 --world-cup"),  # 14:00 ~20 min World Cup
+        (13, 0, 0, "-g 3 --archive-count 0 --world-cup"),  # 13:00 ~20 min World Cup
         (18, 0, 0, "-g 4 --archive-count 2"),              # 18:00 ~30 min + 2 old
     ]
 
