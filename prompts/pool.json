@@ -1,0 +1,69 @@
+{
+  "_comment": "RECOVERY PIPELINE v3 — Phase 2 audio prompt pool. 16 STRUCTURALLY distinct Afro House prompts (different phrasing, descriptor order, instrumentation and mood — not one template with swapped words). One is chosen per generation, never repeating within the last N (see PROMPT_HISTORY_WINDOW). Keep each entry under ~980 chars (aimusicfactory field limit). Add or edit freely; the selector reads this file at runtime.",
+  "prompts": [
+    {
+      "id": "progressive-carbass",
+      "prompt": "Create a progressive Afro House track infused with heavy car bass and deep, psychedelic tribal energy. Tempo 122 BPM, blending organic percussion (congas, shakers, djembe, bongos) with massive analog low-end. Layer psychedelic textures, evolving atmospheric pads and subtle tribal chants across wide stereo space. Dark synth arps rise toward a cinematic, festival-style drop. Spiritual yet raw. Mood: ritualistic, primal, transcendent."
+    },
+    {
+      "id": "minimal-marimba",
+      "prompt": "Stripped-back, hypnotic Afro House built around a single rolling marimba loop. Very few elements: a dry kick, a tight shaker, one deep sub note that breathes. Long, patient, minimal — the tension lives in the space between hits. 120 BPM. No big drop, no vocals. Late-night warehouse feel, dust in the air. Mood: hypnotic, restrained, meditative."
+    },
+    {
+      "id": "melodic-sunrise",
+      "prompt": "Emotional, melodic Afro House for a sunrise set. Lead with a warm grand-piano motif and a soft, wordless vocal hum. Underneath, gentle organic drums and a rounded bassline keep an unhurried groove at 121 BPM. Strings swell slowly; everything feels like light breaking over a horizon. Uplifting, tender, hopeful. Mood: euphoric, luminous, bittersweet."
+    },
+    {
+      "id": "dark-ritual",
+      "prompt": "A dark ritual Afro House descent. Open with ceremonial low toms and a distant chant, then let an ominous drone creep in. The kick is heavy and slow, 118 BPM; metallic percussion clangs like ritual bells. No melody — just rhythm, tension and shadow, building toward something that never fully arrives. Mood: ominous, tribal, hypnotic, cinematic-horror."
+    },
+    {
+      "id": "organic-earthy",
+      "prompt": "Warm organic house with an earthy, hand-played feel. Field-recording textures — birdsong, running water, wooden clicks — wrap around brushed congas and an upright-bass-style groove at 120 BPM. Acoustic guitar plucks and soft mallet chords drift through. Sounds live, human and sun-warmed, recorded on a porch. Mood: relaxed, natural, soulful."
+    },
+    {
+      "id": "peaktime-festival",
+      "prompt": "High-energy peak-time Afro Tech built for a festival main stage. Driving, relentless 125 BPM groove; punchy tribal drums stacked over a tight, aggressive bassline. Big filtered build-ups, white-noise risers and a euphoric, hands-in-the-air drop with a chopped vocal stab. Loud, wide, powerful. Mood: explosive, ecstatic, unstoppable."
+    },
+    {
+      "id": "downtempo-dusty",
+      "prompt": "Dusty Afro downtempo at 108 BPM. Lo-fi and laid-back: a swung kick, vinyl crackle, muted Rhodes chords and a lazy conga pattern. A mellow, pitched-down vocal phrase floats by once and disappears. Sunset colours, half-closed eyes, slow smoke. Mood: chilled, nostalgic, hazy."
+    },
+    {
+      "id": "live-ensemble-jazz",
+      "prompt": "Afro House that sounds like a live band jamming. A full percussion ensemble — timbales, agogô, cowbell, shakers — locks into a loose, swinging 122 BPM groove while jazzy electric-piano chords improvise over the top. Walking bass, brushed hats, the occasional trumpet swell. Room mics, human timing. Mood: joyful, groovy, alive."
+    },
+    {
+      "id": "spiritual-choir",
+      "prompt": "Spiritual, gospel-tinged Afro House. A wordless mass choir rises and falls over rich organ chords; the drums are deep and rounded, 121 BPM, more felt than heard. Handclaps, a warm sub, and long reverent pads that open like a cathedral. Builds to a goosebump swell, then breathes out. Mood: uplifting, sacred, overwhelming."
+    },
+    {
+      "id": "desert-mystic",
+      "prompt": "Afro House with a desert-mystic flavour. Snaking double-reed melodies and plucked oud-like strings wind over a camel-step groove at 119 BPM. Frame drums, finger cymbals and a dry sub carry the rhythm; a distant female vocal ululates on the wind. Exotic, mysterious, cinematic. Mood: mysterious, ancient, wandering."
+    },
+    {
+      "id": "amapiano-logdrum",
+      "prompt": "South-African-leaning Afro House with amapiano DNA. The signature log-drum bass bounces and slides at 113 BPM; airy shakers, soft piano stabs and a jazzy sax lick float above. Spacious, groovy, patient — lots of swing and negative space. Mood: smooth, playful, sophisticated."
+    },
+    {
+      "id": "cinematic-orchestral",
+      "prompt": "Cinematic Afro House scored like a film. Orchestral string swells and a lone horn theme sit over tribal drums at 120 BPM; timpani rolls punctuate the builds. Epic, widescreen dynamics — quiet, intimate verses opening into vast, emotional peaks. Mood: epic, dramatic, sweeping."
+    },
+    {
+      "id": "rolling-basstech",
+      "prompt": "Dark, rolling Afro Tech for 3 a.m. A relentless 16th-note bassline drives the whole track at 126 BPM; the drums are tight and dry, hats hissing, a single acid blip mutating slowly. Techno-adjacent, hypnotic, tunnel-vision. Almost no melody — pure forward momentum. Mood: dark, driving, hypnotic."
+    },
+    {
+      "id": "vocal-soul-topline",
+      "prompt": "Soulful vocal Afro House with a proper topline. A warm female voice sings a catchy, radio-ready hook over lush chords and a bouncy 122 BPM groove. Bright piano, finger-snaps, a melodic bassline and tasteful vocal chops in the breakdown. Feel-good and memorable. Mood: soulful, catchy, warm."
+    },
+    {
+      "id": "raw-percussion-call",
+      "prompt": "Raw, drum-heavy tribal Afro House. Almost entirely percussion: layered djembe, talking drum and shaker in a call-and-response pattern at 123 BPM, with a gang of voices chanting back and forth. A deep sub anchors it; everything else is skin, wood and breath. Field-recording grit. Mood: primal, communal, energetic."
+    },
+    {
+      "id": "nudisco-fusion",
+      "prompt": "Funky nu-disco fused with Afro House. A wah-guitar riff and a slap-bass groove strut over crisp four-on-the-floor drums at 118 BPM; add claps, a clavinet stab and a glittery string line. Retro, feel-good, dancefloor-friendly with an African percussive twist. Mood: funky, joyful, sunny."
+    }
+  ]
+}

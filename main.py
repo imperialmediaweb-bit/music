@@ -59,7 +59,8 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
                        genre: str = "", music_style: str = "", thumbnail_style: str = "",
                        fusion: bool = False, profile_name: str = "",
                        target_minutes: int = 0, world_cup: bool | None = None,
-                       archive_count: int = -1, force_upload: bool = False):
+                       archive_count: int = -1, force_upload: bool = False,
+                       randomize: bool = False):
     """Full pipeline: generate music → merge → thumbnail → video → upload.
 
     Args:
@@ -94,6 +95,17 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
     from pipeline import process_single_track
 
     platform = platform or MUSIC_PLATFORM
+
+    # Phase 2: randomize this upload's length across the weighted duration
+    # buckets (short/medium/long). Only when no explicit -g was given, so a
+    # manual `run -g N` still wins.
+    if randomize and gen_count == 0:
+        from modules.duration_selector import pick_duration
+        plan = pick_duration()
+        gen_count = plan["gen_count"]
+        target_minutes = plan["target_minutes"]
+        archive_count = plan["archive_count"]
+        world_cup = False  # variety over a repeated theme
 
     # Load playlist profile (explicit or today's from weekly plan)
     if profile_name and profile_name in PLAYLIST_PROFILES:
@@ -1142,6 +1154,7 @@ def cmd_run(args):
     world_cup = getattr(args, "world_cup", None)
     archive_count = getattr(args, "archive_count", -1)
     force_upload = getattr(args, "force", False)
+    randomize = getattr(args, "randomize", False)
     label = f"{count} clip(s) on {platform} ({songs} songs each, {gen_count} gen(s))"
     if target_minutes:
         label += f" [~{target_minutes}min]"
@@ -1163,7 +1176,7 @@ def cmd_run(args):
                                         fusion=fusion, profile_name=playlist_profile,
                                         target_minutes=target_minutes,
                                         world_cup=world_cup, archive_count=archive_count,
-                                        force_upload=force_upload)
+                                        force_upload=force_upload, randomize=randomize)
             if result.get("skipped"):
                 log.warning(f"Clip {i} skipped by upload guard: {result.get('reason')}")
             elif result["errors"]:
@@ -1340,15 +1353,16 @@ def cmd_autostart(args):
     # (`autostart`) stay in lockstep. The per-upload volume guard still applies
     # (each task runs `run`, which checks the weekly cap), so even if both
     # mechanisms were ever active they can't exceed MAX_UPLOADS_PER_WEEK.
-    # Each slot = long video + Short. Duration args are a sane default until
-    # Phase 2 randomizes them (~30 min: 4 fresh gens + 2 archived).
+    # Each slot runs `run --auto`: Phase 2 randomizes the duration bucket
+    # (short/medium/long) and the style prompt per upload, so gen_count and
+    # archive count are decided at runtime, not pinned here.
     from config import UPLOAD_SCHEDULE
     _DOW_PS = {"mon": "Monday", "tue": "Tuesday", "wed": "Wednesday",
                "thu": "Thursday", "fri": "Friday", "sat": "Saturday",
                "sun": "Sunday"}
     # (day_of_week, hour, minute, gen_count, extra_args)
     SCHEDULE_SLOTS = [
-        (dow, hour, minute, 4, "--archive-count 2")
+        (dow, hour, minute, 0, "--auto")
         for (dow, hour, minute) in UPLOAD_SCHEDULE
     ]
 
@@ -1591,6 +1605,9 @@ def cmd_schedule(args):
             log.warning(f"Upload guard BLOCKED this run: {reason}")
             return
         log.info(f"Upload guard OK: {reason}")
+        # Phase 2: scheduled uploads randomize duration + style prompt unless a
+        # kwarg already pins the length (e.g. a custom --cron job with kwargs).
+        kwargs.setdefault("randomize", True)
         _run_full_pipeline(**kwargs)
 
     if args.cron:
@@ -1877,6 +1894,10 @@ def main():
     run_parser.add_argument(
         "--force", dest="force", action="store_true",
         help="Bypass the weekly upload cap / 24h gap guard (manual/test upload)",
+    )
+    run_parser.add_argument(
+        "--auto", dest="randomize", action="store_true",
+        help="Randomize duration bucket + style prompt (used by the scheduler)",
     )
     run_parser.set_defaults(func=cmd_run)
 

@@ -37,3 +37,7 @@ schedule_silent.vbs
 
 # Persistent upload guard state (per-machine runtime record)
 upload_history.json
+
+# Phase 2 persistent selection histories (per-machine runtime state)
+prompt_history.json
+duration_history.json

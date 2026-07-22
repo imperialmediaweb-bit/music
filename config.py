@@ -164,6 +164,36 @@ UPLOAD_HISTORY_FILE = Path(
     os.getenv("UPLOAD_HISTORY_FILE", BASE_DIR / "upload_history.json")
 )
 
+# ─────────────────────────────────────────────────────────────────────────
+# RECOVERY PIPELINE v3 — Phase 2: Audio diversification
+# Break the "one product multiplied" uniformity — vary the generation prompt
+# and the track duration so the catalogue reads as many different releases.
+# ─────────────────────────────────────────────────────────────────────────
+# Pool of structurally distinct style prompts (see the file for the format).
+PROMPT_POOL_FILE = Path(
+    os.getenv("PROMPT_POOL_FILE", BASE_DIR / "prompts" / "pool.json")
+)
+# Persistent list of recently-used prompt ids (non-repetition rule).
+PROMPT_HISTORY_FILE = Path(
+    os.getenv("PROMPT_HISTORY_FILE", BASE_DIR / "prompt_history.json")
+)
+# A prompt may not repeat within this many consecutive picks.
+PROMPT_HISTORY_WINDOW = int(os.getenv("PROMPT_HISTORY_WINDOW", "8"))
+
+# Weighted duration buckets: (label, min_minutes, max_minutes, weight).
+# Weights need not sum to 1 — they are normalised at selection time. The long
+# bucket is favoured because the channel's best performers are extended mixes.
+DURATION_BUCKETS = [
+    ("short",  4,  8,  0.20),
+    ("medium", 15, 25, 0.30),
+    ("long",   30, 45, 0.50),
+]
+
+# Persistent log of chosen duration buckets (for the Phase 6 measurement join).
+DURATION_HISTORY_FILE = Path(
+    os.getenv("DURATION_HISTORY_FILE", BASE_DIR / "duration_history.json")
+)
+
 # Ensure directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 INPUT_DIR.mkdir(parents=True, exist_ok=True)

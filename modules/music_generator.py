@@ -30,6 +30,12 @@ STYLE_OF_MUSIC_PROMPT = (
     "Mood: Ritualistic, primal, powerful, transcendent."
 )
 
+# The style prompt used for the CURRENT upload. Set once per generate_music_batch
+# call from the Phase-2 prompt pool (falls back to STYLE_OF_MUSIC_PROMPT). Kept
+# module-level so every generation in one batch shares one coherent style while
+# consecutive uploads differ.
+_ACTIVE_STYLE_PROMPT = STYLE_OF_MUSIC_PROMPT
+
 GENERATION_COMPLETE_SEC = 240  # 4 min — wait after clicking Generate for songs to appear
 DOWNLOAD_READY_SEC = 300       # 5 min — minimum time from generation before downloads work
 
@@ -92,6 +98,20 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
         List of downloaded MP3 file paths.
     """
     log.info(f"Generating {count} batches on aimusicfactory.ai for: {concept.track_name}")
+
+    # Phase 2: pick a structurally distinct style prompt for THIS upload so the
+    # catalogue stops sounding like one product multiplied. One pick per batch
+    # keeps the merged track coherent; the non-repeat window keeps it different
+    # from recent uploads.
+    global _ACTIVE_STYLE_PROMPT
+    try:
+        from modules.prompt_pool import pick_prompt
+        _picked = pick_prompt()
+        _ACTIVE_STYLE_PROMPT = _picked["prompt"]
+        log.info(f"Music style: '{_picked['id']}' (from prompt pool)")
+    except Exception as e:
+        _ACTIVE_STYLE_PROMPT = STYLE_OF_MUSIC_PROMPT
+        log.warning(f"prompt_pool unavailable ({e}) — using default style prompt")
 
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in concept.track_name)
     safe_name = safe_name.strip().replace(" ", "_")[:50]
@@ -1799,7 +1819,7 @@ def _fill_form_fields(page, concept: MusicConcept, batch_num: int):
     # Style of Music — textarea (maxLength 985 in new UI). Truncate if needed.
     tags_el = _find_visible(page, 'textarea[name="tags"]')
     if tags_el:
-        style_text = STYLE_OF_MUSIC_PROMPT[:980]
+        style_text = (_ACTIVE_STYLE_PROMPT or STYLE_OF_MUSIC_PROMPT)[:980]
         tags_el.click()
         tags_el.fill(style_text)
         style_filled = True
