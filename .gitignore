@@ -34,3 +34,6 @@ Thumbs.db
 # Generated launcher (created by autostart command)
 schedule_silent.vbs
 .scheduler.lock
+
+# Persistent upload guard state (per-machine runtime record)
+upload_history.json

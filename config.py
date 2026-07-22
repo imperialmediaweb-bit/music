@@ -130,6 +130,40 @@ VIDEO_FPS = int(os.getenv("VIDEO_FPS", "24"))
 # Thumbnail text style: "stylized" (glow + gradient) or "classic" (plain outline)
 THUMBNAIL_TEXT_STYLE = os.getenv("THUMBNAIL_TEXT_STYLE", "stylized")
 
+# ─────────────────────────────────────────────────────────────────────────
+# RECOVERY PIPELINE v3 — Phase 1: Scheduling
+# Cut volume from ~60 uploads/month (2/day) to 12/month (3/week) to let the
+# channel's algorithmic distribution recover. Times are in SCHEDULER_TIMEZONE.
+# ─────────────────────────────────────────────────────────────────────────
+# Timezone all schedule times are interpreted in. Romania (Europe/Bucharest)
+# is GMT+3 during summer (EEST), matching the audience heatmap peak.
+SCHEDULER_TIMEZONE = os.getenv("SCHEDULER_TIMEZONE", "Europe/Bucharest")
+
+# The upload schedule: a list of (day_of_week, hour, minute) tuples. day_of_week
+# uses APScheduler short names: mon tue wed thu fri sat sun. Publishing at 17:00
+# leaves the video indexed BEFORE the 18:00–21:00 traffic window opens.
+# Edit this list to change frequency/timing — the scheduler reads it from here,
+# never from hardcoded values.
+UPLOAD_SCHEDULE = [
+    ("tue", 17, 0),
+    ("thu", 17, 0),
+    ("sat", 17, 0),
+]
+
+# Hard cap on uploads per rolling 7-day window, enforced before ANY upload
+# (independent of the scheduler — a manual run without --force is capped too).
+MAX_UPLOADS_PER_WEEK = int(os.getenv("MAX_UPLOADS_PER_WEEK", "3"))
+
+# Minimum hours between two uploads. Doubles as the anti-duplication safety
+# lock: if a process restart re-fires a job, the <24h gap blocks the repeat.
+MIN_HOURS_BETWEEN_UPLOADS = int(os.getenv("MIN_HOURS_BETWEEN_UPLOADS", "24"))
+
+# Persistent record of completed uploads (survives process restarts) so the
+# volume cap and the anti-duplication lock cannot be reset by a crash/restart.
+UPLOAD_HISTORY_FILE = Path(
+    os.getenv("UPLOAD_HISTORY_FILE", BASE_DIR / "upload_history.json")
+)
+
 # Ensure directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 INPUT_DIR.mkdir(parents=True, exist_ok=True)

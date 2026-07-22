@@ -59,7 +59,7 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
                        genre: str = "", music_style: str = "", thumbnail_style: str = "",
                        fusion: bool = False, profile_name: str = "",
                        target_minutes: int = 0, world_cup: bool | None = None,
-                       archive_count: int = -1):
+                       archive_count: int = -1, force_upload: bool = False):
     """Full pipeline: generate music → merge → thumbnail → video → upload.
 
     Args:
@@ -74,7 +74,19 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
             "meditation"). If empty, uses today's profile from WEEKLY_PLAN.
         target_minutes: Target duration in minutes. If set, overrides profile's
             fresh_count/archive_count to hit this duration.
+        force_upload: Bypass the persistent volume guard (manual/testing only).
     """
+    # ── Volume guard (RECOVERY PIPELINE v3, Phase 1) ──
+    # Enforced here too, so the weekly cap / 24h gap holds for EVERY entry
+    # point, not just the scheduler. Manual test runs pass force_upload=True.
+    if not force_upload:
+        from modules.upload_guard import can_upload
+        allowed, reason = can_upload()
+        if not allowed:
+            log.warning(f"Upload guard BLOCKED this run: {reason}")
+            log.warning("Pass --force to override for a manual/test upload.")
+            return {"errors": [], "skipped": True, "reason": reason}
+
     from modules.audio_merger import merge_mp3s, merge_mp3s_crossfade, trim_quiet_intro
     from modules.archive_manager import archive_mp3s, pick_from_archive, archive_size
     from modules.concept_generator import generate_concept, generate_fusion_concept
@@ -1129,6 +1141,7 @@ def cmd_run(args):
     target_minutes = getattr(args, "target_minutes", 0) or 0
     world_cup = getattr(args, "world_cup", None)
     archive_count = getattr(args, "archive_count", -1)
+    force_upload = getattr(args, "force", False)
     label = f"{count} clip(s) on {platform} ({songs} songs each, {gen_count} gen(s))"
     if target_minutes:
         label += f" [~{target_minutes}min]"
@@ -1149,8 +1162,11 @@ def cmd_run(args):
             result = _run_full_pipeline(gen_count=gen_count, platform=platform, songs=songs,
                                         fusion=fusion, profile_name=playlist_profile,
                                         target_minutes=target_minutes,
-                                        world_cup=world_cup, archive_count=archive_count)
-            if result["errors"]:
+                                        world_cup=world_cup, archive_count=archive_count,
+                                        force_upload=force_upload)
+            if result.get("skipped"):
+                log.warning(f"Clip {i} skipped by upload guard: {result.get('reason')}")
+            elif result["errors"]:
                 total_errors += 1
                 log.warning(f"Clip {i} had errors: {result['errors']}")
             else:
@@ -1502,6 +1518,11 @@ def cmd_schedule(args):
     from apscheduler.schedulers.blocking import BlockingScheduler
     from apscheduler.triggers.cron import CronTrigger
     from apscheduler.events import EVENT_JOB_MISSED, EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+    from config import (
+        UPLOAD_SCHEDULE, SCHEDULER_TIMEZONE, MAX_UPLOADS_PER_WEEK,
+        MIN_HOURS_BETWEEN_UPLOADS,
+    )
+    from modules.upload_guard import can_upload
 
     # ── Prevent multiple scheduler instances running at the same time ──
     lock_path = Path(__file__).parent / ".scheduler.lock"
@@ -1534,7 +1555,7 @@ def cmd_schedule(args):
                 _lock_fd.close()
             sys.exit(1)
 
-    TIMEZONE = "Europe/Bucharest"
+    TIMEZONE = SCHEDULER_TIMEZONE
 
     # Log scheduler events (missed jobs, errors, successes)
     def _job_listener(event):
@@ -1548,27 +1569,24 @@ def cmd_schedule(args):
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     scheduler.add_listener(_job_listener, EVENT_JOB_MISSED | EVENT_JOB_ERROR | EVENT_JOB_EXECUTED)
 
-    # 2x/day: short at 14:00 (~20 min) + long at 19:00 (~40 min)
-    # (day_of_week, hour, minute, gen_count, profile_name, target_minutes)
-    WEEKLY_SCHEDULE = [
-        ("mon", 14, 0, 0, "main",       20),
-        ("mon", 19, 0, 0, "gym",        40),
-        ("tue", 14, 0, 0, "focus",      20),
-        ("tue", 19, 0, 0, "main",       40),
-        ("wed", 14, 0, 0, "main",       20),
-        ("wed", 19, 0, 0, "driving",    40),
-        ("thu", 14, 0, 0, "gym",        20),
-        ("thu", 19, 0, 0, "focus",      40),
-        ("fri", 14, 0, 0, "main",       20),
-        ("fri", 19, 0, 0, "main",       40),
-        ("sat", 14, 0, 0, "driving",    20),
-        ("sat", 19, 0, 0, "meditation", 40),
-        ("sun", 14, 0, 0, "meditation", 20),
-        ("sun", 19, 0, 0, "main",       40),
-    ]
-
-    # 1 hour grace — if PC wakes from sleep within 1h, the job still fires
+    # 1 hour grace — if PC wakes from sleep within 1h, the job still fires.
+    # coalesce=True collapses multiple missed firings into ONE, so a machine
+    # that was off for days never runs a burst of catch-up uploads.
     MISFIRE_GRACE = 3600
+
+    def _guarded_pipeline(**kwargs):
+        """Wrap the pipeline with the persistent volume guard.
+
+        Checked here (before generation) AND again inside _run_full_pipeline,
+        so a job that fires after a restart is skipped if the 24h/weekly limits
+        would be violated — no retroactive catch-up uploads.
+        """
+        allowed, reason = can_upload()
+        if not allowed:
+            log.warning(f"Upload guard BLOCKED this run: {reason}")
+            return
+        log.info(f"Upload guard OK: {reason}")
+        _run_full_pipeline(**kwargs)
 
     if args.cron:
         parts = args.cron.split()
@@ -1577,7 +1595,7 @@ def cmd_schedule(args):
             sys.exit(1)
         minute, hour, day, month, day_of_week = parts
         scheduler.add_job(
-            _run_full_pipeline,
+            _guarded_pipeline,
             CronTrigger(
                 minute=minute, hour=hour, day=day,
                 month=month, day_of_week=day_of_week,
@@ -1590,26 +1608,27 @@ def cmd_schedule(args):
         )
         log.info(f"Scheduled with cron: {args.cron}")
     else:
-        clips_per_week = args.clips or len(WEEKLY_SCHEDULE)
-        selected_slots = WEEKLY_SCHEDULE[:clips_per_week]
-        for i, (dow, hour, minute, gen_count, profile, tgt_min) in enumerate(selected_slots):
+        # Read the schedule from config (UPLOAD_SCHEDULE) — never hardcoded.
+        # Each entry is (day_of_week, hour, minute); duration/prompt variety is
+        # handled later (Phase 2), so no per-slot profile is pinned here.
+        for i, (dow, hour, minute) in enumerate(UPLOAD_SCHEDULE, 1):
             scheduler.add_job(
-                _run_full_pipeline,
+                _guarded_pipeline,
                 CronTrigger(day_of_week=dow, hour=hour, minute=minute,
                             timezone=TIMEZONE),
-                kwargs={"gen_count": gen_count, "profile_name": profile,
-                         "target_minutes": tgt_min},
-                id=f"music_pipeline_{i + 1}",
-                name=f"{dow.upper()} {hour}:{minute:02d} — {profile} (~{tgt_min}min)",
+                id=f"music_pipeline_{i}",
+                name=f"{dow.upper()} {hour}:{minute:02d} — upload",
                 misfire_grace_time=MISFIRE_GRACE,
                 coalesce=True,
             )
         schedule_desc = ", ".join(
-            f"{dow.upper()} {h}:{m:02d} ({prof} ~{t}min)"
-            for dow, h, m, g, prof, t in selected_slots
+            f"{dow.upper()} {h}:{m:02d}" for dow, h, m in UPLOAD_SCHEDULE
         )
-        log.info(f"Scheduled {len(selected_slots)} slots/week: {schedule_desc}")
-        log.info(f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s")
+        log.info(f"Scheduled {len(UPLOAD_SCHEDULE)} upload(s)/week: {schedule_desc}")
+        log.info(
+            f"Timezone: {TIMEZONE} | Misfire grace: {MISFIRE_GRACE}s | "
+            f"Cap: {MAX_UPLOADS_PER_WEEK}/week, min {MIN_HOURS_BETWEEN_UPLOADS}h apart"
+        )
 
         # Auto-reply to comments 2x/day (10:00 and 20:00)
         def _auto_reply_job():
@@ -1849,6 +1868,10 @@ def main():
     run_parser.add_argument(
         "--archive-count", dest="archive_count", type=int, default=-1,
         help="Exact number of archived songs to mix in (0 = all fresh; -1 = auto)",
+    )
+    run_parser.add_argument(
+        "--force", dest="force", action="store_true",
+        help="Bypass the weekly upload cap / 24h gap guard (manual/test upload)",
     )
     run_parser.set_defaults(func=cmd_run)
 

@@ -132,6 +132,15 @@ def reupload_track(track_name: str, only: str | None = None) -> dict:
             result["youtube_url"] = youtube_url
             if youtube_url:
                 log.info(f"YouTube URL: {youtube_url}")
+                # Record in the persistent guard so the weekly cap / 24h gap
+                # (RECOVERY PIPELINE v3, Phase 1) survive a process restart.
+                try:
+                    from modules.upload_guard import record_upload
+                    _vid = youtube_url.rstrip("/").split("/")[-1].split("=")[-1]
+                    record_upload(title=getattr(concept, "youtube_title", None),
+                                  video_id=_vid or None)
+                except Exception as e:
+                    log.warning(f"upload_guard: could not record upload: {e}")
             else:
                 log.error("YouTube upload returned None — check client_secrets.json and OAuth token")
                 result["errors"].append("youtube: upload returned None (check client_secrets.json / OAuth)")
