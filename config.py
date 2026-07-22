@@ -194,6 +194,27 @@ DURATION_HISTORY_FILE = Path(
     os.getenv("DURATION_HISTORY_FILE", BASE_DIR / "duration_history.json")
 )
 
+# ─────────────────────────────────────────────────────────────────────────
+# RECOVERY PIPELINE v3 — Phase 3: Visual + title diversification
+# Six distinct thumbnail directions and nine title shapes, each rotated so the
+# channel stops presenting one repeated layout/formula.
+# ─────────────────────────────────────────────────────────────────────────
+THUMBNAIL_DIRECTIONS_FILE = Path(
+    os.getenv("THUMBNAIL_DIRECTIONS_FILE", BASE_DIR / "thumbnails" / "directions.json")
+)
+THUMBNAIL_DIRECTION_HISTORY_FILE = Path(
+    os.getenv("THUMBNAIL_DIRECTION_HISTORY_FILE", BASE_DIR / "direction_history.json")
+)
+TITLE_TEMPLATES_FILE = Path(
+    os.getenv("TITLE_TEMPLATES_FILE", BASE_DIR / "titles" / "templates.json")
+)
+TITLE_HISTORY_FILE = Path(
+    os.getenv("TITLE_HISTORY_FILE", BASE_DIR / "title_history.json")
+)
+# A title template may not repeat within this many consecutive picks. Kept below
+# the template count so the selector never starves.
+TITLE_HISTORY_WINDOW = int(os.getenv("TITLE_HISTORY_WINDOW", "5"))
+
 # Ensure directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 INPUT_DIR.mkdir(parents=True, exist_ok=True)

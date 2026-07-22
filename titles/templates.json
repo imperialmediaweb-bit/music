@@ -1,0 +1,14 @@
+{
+  "_comment": "RECOVERY PIPELINE v3 — Phase 3 title templates. NINE structurally different title shapes replacing the single 'INVENTEDWORD + fire emoji + description #N' formula that fingerprinted the channel as a bot. Placeholders: TRACKNAME (uppercased track name), {genre}, {mix_number}, {genre_hashtag}. Includes no-emoji variants, description-first, a question, and duration-front shapes. One template is chosen per upload, not repeating within the last TITLE_HISTORY_WINDOW picks.",
+  "templates": [
+    "TRACKNAME 🔥 {genre} Mix #{mix_number} 2026 | {genre_hashtag}",
+    "Deep {genre} for Late Nights — TRACKNAME | {genre_hashtag}",
+    "Is This the Best {genre} Track of 2026? TRACKNAME | {genre_hashtag}",
+    "TRACKNAME — Extended {genre} Mix 2026 | {genre_hashtag}",
+    "TRACKNAME · {genre} · 2026",
+    "Hypnotic {genre} Journey — TRACKNAME [2026] | {genre_hashtag}",
+    "TRACKNAME | Sunset {genre} Session 2026 {genre_hashtag}",
+    "Best {genre} 2026 ▸ TRACKNAME | {genre_hashtag}",
+    "TRACKNAME — This Is {genre} 2026 | {genre_hashtag}"
+  ]
+}

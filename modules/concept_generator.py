@@ -1341,50 +1341,52 @@ def _build_system_prompt(genre: str, music_style: str, world_cup: bool | None = 
         genre_hashtag=genre_hashtag,
         mix_number=mix_num,
     )
-    # Rotate through formulas deterministically by mix_number — otherwise the
-    # AI biases toward the same "WARNING: ... DANGEROUSLY Addictive" template
-    # and every upload ends up with the same title.
-    _formula_lines = [
-        ln.lstrip("- ").strip()
-        for ln in all_formulas_str.split("\n")
-        if ln.strip().startswith("-")
-    ]
-    if _formula_lines:
-        title_formulas = _formula_lines[mix_num % len(_formula_lines)]
-    else:
-        title_formulas = all_formulas_str
-    thumbnail_core = profile["thumbnail_core"]
-    # Diversify Afro House thumbnails — always the same African mask + gold/brown
-    # palette reads as "mass-produced" to YouTube and hurts the whole channel.
-    # Rotate the subject AND palette by mix_number so consecutive uploads look
-    # like they belong to different creators.
+    # Phase 3: for Afro House, pick from the diversified title-template pool
+    # (no-emoji, question, description-first, duration-front shapes) with a
+    # non-repetition window. Other genres keep the per-genre formula rotation.
+    title_formulas = None
     if genre.lower() == "afro house":
-        _common = (
-            " STYLE: ultra-realistic cinematic painted-poster look (NOT photography, "
-            "NOT 3D render). Subject fills 70-80% of the frame, slightly off-center. "
-            "STRONG rim light, EXTREME contrast, subject POPS off a dark background. "
-            "NO text, NO logos, NO watermarks, NO clutter. 4K, ultra sharp. "
-            "Mood: powerful, magnetic, hypnotic."
-        )
-        _afro_variants = [
-            "A carved ceremonial African mask (Dogon / Fang / Punu style), deep GOLD "
-            "and molten copper accents on near-black background." + _common,
-            "A powerful young African warrior in profile with painted markings, "
-            "TEAL and burnt-ORANGE palette, smoky dark backdrop." + _common,
-            "A regal African queen with beaded headdress and glowing eyes, CRIMSON "
-            "and gold palette on charcoal background." + _common,
-            "A silhouetted tribal drummer mid-strike against a huge amber sunset, "
-            "INDIGO sky fading to deep AMBER." + _common,
-            "A close-up of a shaman's face half-lit, EMERALD-green and COPPER rim "
-            "light, obsidian-black background." + _common,
-            "A lone African dancer frozen in motion, dust catching a single PURPLE "
-            "spotlight over a black stage, violet + gold." + _common,
-            "A majestic leopard / lion totem carved in dark wood with turquoise inlay, "
-            "TURQUOISE and bronze on black." + _common,
-            "A vast African savanna at dusk with a lone acacia tree silhouette, "
-            "fiery RED-orange sky melting into deep purple night." + _common,
+        try:
+            from modules.visual_selector import pick_title_template
+            title_formulas = pick_title_template().format(
+                genre=genre, genre_hashtag=genre_hashtag, mix_number=mix_num,
+            )
+        except Exception as e:
+            log.warning(f"visual_selector (title) unavailable ({e}) — formula rotation")
+    if title_formulas is None:
+        # Rotate through the per-genre formulas deterministically by mix_number.
+        _formula_lines = [
+            ln.lstrip("- ").strip()
+            for ln in all_formulas_str.split("\n")
+            if ln.strip().startswith("-")
         ]
-        thumbnail_core = _afro_variants[mix_num % len(_afro_variants)]
+        title_formulas = (
+            _formula_lines[mix_num % len(_formula_lines)]
+            if _formula_lines else all_formulas_str
+        )
+    thumbnail_core = profile["thumbnail_core"]
+    # Phase 3: the OLD hardcoded style block forced every thumbnail into the same
+    # warm-mask look regardless of subject. Now the chosen DIRECTION supplies its
+    # own self-contained rules, so consecutive uploads look like different
+    # creators. Fallback (non-Afro genres) keeps the original warm-artifact rules.
+    thumbnail_image_rules = (
+        "1. STYLE: oil painting / hyper-realistic fine art, like a museum masterpiece.\n"
+        "2. PALETTE: warm natural tones — brown, bronze, gold, amber, ochre, copper. NO neon.\n"
+        "3. COMPOSITION: one bold focal point fills 60-70% of frame, CENTERED.\n"
+        "4. LIGHT: warm Caravaggio side light. NO lasers, NO glowing eyes.\n"
+        "5. BACKGROUND: warm dark umber, not pure black.\n"
+        "6. MOOD: sacred, ancestral, spiritual.\n"
+        "FORBIDDEN: neon, sci-fi, cartoon, flat design, CGI."
+    )
+    if genre.lower() == "afro house":
+        try:
+            from modules.visual_selector import pick_direction
+            _dir = pick_direction()
+            thumbnail_core = _dir["subject"]
+            thumbnail_image_rules = _dir["image_rules"]
+            log.info(f"Thumbnail direction: '{_dir['id']}'")
+        except Exception as e:
+            log.warning(f"visual_selector (direction) unavailable ({e}) — default look")
     related_genres = profile["related_genres"]
     use_cases = profile["use_cases"]
     tiktok_hooks = profile["tiktok_hooks"].format(genre=genre)
@@ -1448,11 +1450,11 @@ Return ONLY valid JSON with these exact fields:
   "music_prompt": "detailed prompt for AI music generation - describe instruments, rhythm, bass, mood, style. Must match the {genre} genre specifically.",
   "lyrics": "Song lyrics in English, formatted with standard section tags like [Verse 1], [Chorus], [Verse 2], [Bridge], [Outro]. Keep it tight: 1-2 short verses + catchy chorus + optional bridge, roughly 150-350 words total. Theme and vocal style MUST fit the {genre} aesthetic (e.g. Dark House = soft breathy female vocals, love/night/neon/emotional themes). If the genre is traditionally instrumental (e.g. Afro House), return an empty string and the track will be instrumental.",
   "hashtags": ["10-15 hashtags RELEVANT TO {genre} — mix genre-specific and general music hashtags. Do NOT include hashtags from unrelated genres."],
-  "youtube_title": "Use EXACTLY this title formula, replacing TRACKNAME with the actual UPPERCASE track name:\\n\\n{title_formulas}\\n\\nSEO KEYWORD RULES:\\n1. Keep the genre name '{genre}' from the formula intact (critical for search ranking)\\n2. Do NOT add power words beyond what's already in the formula\\n3. Do NOT rewrite or paraphrase the formula — only substitute TRACKNAME\\n4. If a year is in the formula keep it as 2026\\n5. Output MUST stay under 100 chars total\\n6. Do NOT include duration\\n\\nRules: track name UPPERCASE, fire emoji after name, end with {genre_hashtag}.",
+  "youtube_title": "Use EXACTLY this title formula, replacing TRACKNAME with the actual UPPERCASE track name:\\n\\n{title_formulas}\\n\\nSEO KEYWORD RULES:\\n1. Keep the genre name '{genre}' from the formula intact (critical for search ranking)\\n2. Do NOT add power words beyond what's already in the formula\\n3. Do NOT rewrite or paraphrase the formula — only substitute TRACKNAME\\n4. If a year is in the formula keep it as 2026\\n5. Output MUST stay under 100 chars total\\n6. Do NOT include duration\\n\\nRules: track name UPPERCASE. Follow the formula's OWN punctuation and emoji EXACTLY as written — some formulas intentionally have no emoji. Do not add or remove emoji. Keep {genre_hashtag} only if the formula includes it.",
   "youtube_description": "Write a LONG (25+ lines) YouTube description FULLY OPTIMIZED for YouTube SEO and algorithm recommendations.\\n\\nSTRUCTURE (follow this order):\\n\\n1. FIRST 2 LINES (most important — shown in search results before 'Show more'):\\n   - Include the EXACT track name and the genre '{genre}' in the first sentence\\n   - Use high-search keywords specific to {genre} and related genres: {related_genres}\\n   - Make it compelling enough to click 'Show more'\\n\\n2. KEYWORD-RICH BODY (5-8 lines):\\n   - Describe the track's sound, instruments, energy, and atmosphere in a way that fits {genre}\\n   - Naturally weave in SEARCH KEYWORDS relevant to {genre}: {related_genres}\\n   - Each sentence should contain at least one searchable keyword\\n\\n3. USE CASES with keywords (3-4 lines):\\n   - 'Perfect for: [keyword-rich list relevant to {genre}]' — e.g. {use_cases}\\n   - This helps YouTube match your video to DIFFERENT search queries\\n\\n4. CALL TO ACTION (2-3 lines):\\n   - Ask viewers to LIKE, SUBSCRIBE, and turn on NOTIFICATIONS\\n   - Ask them to COMMENT their favorite part\\n   - Ask them to SHARE with friends who love {genre}\\n\\n5. CONTACT: imperialmediaweb@gmail.com\\n\\nIMPORTANT RULES:\\n- Do NOT include a 'Keyword Cloud' or any standalone list of search terms — that looks like keyword stuffing and is added separately. Keywords must only appear woven naturally into sentences.\\n- Do NOT include hashtags (#) in the description (they get added separately)\\n- Do NOT reference aesthetics from unrelated genres (no African/tribal talk unless the genre IS Afro House, no neon/rain talk unless the genre IS Dark House, etc.)\\n- EVERY sentence should be keyword-rich but still read naturally\\n- VARY the structure, wording, and keywords each time — no two descriptions should be similar\\n- Use line breaks and spacing for readability",
   "youtube_tags": ["Generate 25-30 YouTube tags OPTIMIZED for search discovery, ALL relevant to {genre}.\\n\\nINCLUDE THESE TAG CATEGORIES:\\n\\n1. EXACT MATCH genre tags (highest priority):\\n   '{genre}', '{genre} music', '{genre} mix', '{genre} 2026', 'new {genre}', 'best {genre}'\\n\\n2. RELATED genre tags (only those that genuinely fit {genre}): {related_genres}\\n\\n3. MOOD/VIBE tags that fit {genre} specifically\\n\\n4. USE CASE tags: {use_cases}\\n\\n5. TRENDING/DISCOVERY tags: 'new music 2026', 'music mix 2026', 'best music 2026', 'trending music', 'viral music'\\n\\n6. TRACK-SPECIFIC tags: include the track name as a tag\\n\\nRULES: Each tag max 100 chars, total under 500 chars. Mix short (1-2 word) and long-tail (3-4 word) tags. NO hashtag symbols. Do NOT include tags for unrelated genres."],
   "tiktok_caption": "Write a VIRAL TikTok caption optimized for TikTok's For You Page (FYP). MAX 150 chars.\\n\\nFORMULA: [Viral hook specific to {genre}] + [3-5 strategic hashtags]\\n\\nGENRE-SPECIFIC HOOKS (pick one, vary each time): {tiktok_hooks}\\n\\nHASHTAG STRATEGY:\\n- ALWAYS include: #fyp #foryou\\n- Genre: #{genre_lower} plus related hashtags for {genre} only (do NOT tag unrelated genres)\\n- Trending: #newmusic #viralmusic #musicdiscovery\\n\\nPick 3-5 hashtags that fit within the 150 char limit. Always include #fyp.",
-  "thumbnail_prompt": "Generate a UNIQUE image prompt for a YouTube thumbnail that FITS the {genre} genre specifically.\\n\\nCORE AESTHETIC for {genre}:\\n{thumbnail_core}\\n\\nSTYLE RULES (MANDATORY):\\n1. STYLE: oil painting, hyper-realistic fine art, or photorealistic portrait — like a museum masterpiece\\n2. WARM NATURAL TONES: deep brown, bronze, gold, amber, ochre, burnt sienna, copper — NO neon, NO electric blue, NO sci-fi colors\\n3. ONE bold focal point (mask or face portrait) fills 60-70% of the frame, CENTERED\\n4. DRAMATIC LIGHTING: warm side light like a Renaissance/Caravaggio painting — NO lasers, NO glowing eyes, NO particle effects\\n5. BACKGROUND: warm dark tones (deep brown, dark amber, umber) — NOT pure black\\n6. TEXTURES: real carved wood grain, natural materials (cowrie shells, bone beads, feathers, raffia, brass)\\n7. MOOD: sacred, ancestral, spiritual, warm — like a ritual artifact photographed in a museum\\n\\nFORBIDDEN: neon glow, glowing eyes, sci-fi effects, lasers, modern elements, flat illustration style, cartoon, minimalist design, CGI look\\n\\nCRITICAL: Each thumbnail must be COMPLETELY different from any previous one. No text. 4K ultra detailed."
+  "thumbnail_prompt": "Generate a UNIQUE image prompt for a YouTube thumbnail that FITS the {genre} genre specifically.\\n\\nSUBJECT / FOCUS:\\n{thumbnail_core}\\n\\nSTYLE RULES (MANDATORY — follow this chosen visual direction EXACTLY, do not drift toward any other look):\\n{thumbnail_image_rules}\\n\\nCRITICAL: obey the palette, composition and FORBIDDEN list above precisely. Each thumbnail must be COMPLETELY different from any previous one. No text, no logos, no watermarks. 4K, ultra detailed."
 }}"""
 
 

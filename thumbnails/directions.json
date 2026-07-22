@@ -1,0 +1,35 @@
+{
+  "_comment": "RECOVERY PIPELINE v3 — Phase 3 visual directions. SIX completely distinct thumbnail directions (different palette, composition, typography feel, subject and rendering style — not colour variations of one layout). One is chosen per upload with the rule: never the same direction twice in a row, and no direction more than twice in the last 6 uploads. Each entry's 'image_rules' REPLACES the old hardcoded warm-mask style block, so the chosen direction fully controls the look.",
+  "directions": [
+    {
+      "id": "warm-ritual-mask",
+      "subject": "A single carved ceremonial African mask OR a warm human portrait, filling the frame.",
+      "image_rules": "1. STYLE: oil painting / hyper-realistic fine art, like a museum masterpiece.\n2. PALETTE: warm natural tones — deep brown, bronze, gold, amber, ochre, burnt sienna, copper. NO neon.\n3. COMPOSITION: one bold focal point fills 60-70% of frame, CENTERED.\n4. LIGHT: warm Caravaggio side light. NO lasers, NO glowing eyes.\n5. BACKGROUND: warm dark umber, not pure black.\n6. TEXTURES: carved wood grain, cowrie shells, bone beads, brass.\n7. MOOD: sacred, ancestral, spiritual.\nFORBIDDEN: neon, sci-fi, cartoon, flat design, CGI."
+    },
+    {
+      "id": "neon-club-silhouette",
+      "subject": "A dancer's silhouette or a DJ's raised hands, backlit in a dark nightclub.",
+      "image_rules": "1. STYLE: high-contrast contemporary photography with heavy colour lighting.\n2. PALETTE: vivid NEON — magenta, cyan, electric violet — against deep black. Cold, electric, modern.\n3. COMPOSITION: the subject is a dark SILHOUETTE placed OFF-CENTER, with glowing rim light.\n4. LIGHT: club strobes, laser haze, bokeh crowd lights behind.\n5. BACKGROUND: dark club depth with blurred coloured lights.\n6. MOOD: energetic, nocturnal, hypnotic, alive.\nFORBIDDEN: warm brown tones, oil painting, masks, tribal artifacts, daylight, nature."
+    },
+    {
+      "id": "minimal-type-poster",
+      "subject": "A single small iconic graphic (one drum, a sound wave, a rising sun, a vinyl record) on a flat colour field.",
+      "image_rules": "1. STYLE: minimalist Swiss / Bauhaus flat graphic design. NO realism, NO photography.\n2. PALETTE: ONE flat vivid colour field (choose deep orange, electric blue, or forest green) with a single contrasting accent.\n3. COMPOSITION: huge negative space, one small crisp icon, strong geometric balance.\n4. NO faces, NO masks, NO people.\n5. MOOD: clean, bold, modern, confident.\nFORBIDDEN: photorealism, portraits, masks, heavy gradients, clutter, tribal artifacts, neon glow."
+    },
+    {
+      "id": "cinematic-landscape",
+      "subject": "A wide African landscape — savanna, desert dunes, or a lone acacia tree at sunset. NO people.",
+      "image_rules": "1. STYLE: photorealistic cinematic wide landscape shot, filmic colour grade.\n2. PALETTE: natural golden-hour — warm sky, long shadows, atmospheric haze.\n3. COMPOSITION: expansive horizon, strong depth, lower third kept calm for potential text.\n4. LIGHT: real sun, god rays, natural gradients.\n5. MOOD: vast, serene, epic, contemplative.\nFORBIDDEN: any human face, masks, neon, painterly/illustrated look, close-up portraits."
+    },
+    {
+      "id": "photo-portrait-modern",
+      "subject": "A real photographic close-up portrait of a stylish young person looking into the camera.",
+      "image_rules": "1. STYLE: editorial / documentary PHOTOGRAPHY (a real photo, NOT a painting).\n2. PALETTE: natural skin tones with ONE bold accent colour in wardrobe or background.\n3. COMPOSITION: shallow depth of field, sharp eyes, contemporary fashion, clean background.\n4. LIGHT: soft studio or natural window light.\n5. MOOD: intimate, current, aspirational.\nFORBIDDEN: oil painting, masks, tribal artifacts, neon, CGI, fantasy elements."
+    },
+    {
+      "id": "abstract-geometric-pattern",
+      "subject": "A bold abstract geometric composition inspired by kente / mudcloth textiles — colour blocks and rhythmic shapes, no subject.",
+      "image_rules": "1. STYLE: flat vector geometric art, African-textile meets Bauhaus.\n2. PALETTE: bold complementary colour blocks (e.g. terracotta + teal + mustard) — graphic, not realistic.\n3. COMPOSITION: rhythmic repeating shapes, strong diagonal energy, balanced tension.\n4. NO faces, NO photographs, NO people.\n5. MOOD: vibrant, rhythmic, design-forward.\nFORBIDDEN: portraits, masks, photorealism, neon glow, painterly rendering."
+    }
+  ]
+}
