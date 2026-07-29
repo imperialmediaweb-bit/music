@@ -1,35 +1,35 @@
 {
-  "_comment": "RECOVERY PIPELINE v3 — Phase 3 visual directions. SIX completely distinct thumbnail directions (different palette, composition, typography feel, subject and rendering style — not colour variations of one layout). One is chosen per upload with the rule: never the same direction twice in a row, and no direction more than twice in the last 6 uploads. Each entry's 'image_rules' REPLACES the old hardcoded warm-mask style block, so the chosen direction fully controls the look.",
+  "_comment": "Thumbnail directions — MALZ-quality family. All six share the winning DNA (bright golden subject, near-black background, extreme contrast, instantly readable at small size) but vary the SUBJECT so consecutive uploads don't look copy-pasted. Rotation rule: never the same direction twice in a row, max twice in the last 6 uploads. Every direction hard-bans murky dark-on-dark images (the failure mode: a thumbnail that reads as a black rectangle in the feed).",
   "directions": [
     {
-      "id": "warm-ritual-mask",
-      "subject": "A single carved ceremonial African mask OR a warm human portrait, filling the frame.",
-      "image_rules": "1. STYLE: oil painting / hyper-realistic fine art, like a museum masterpiece.\n2. PALETTE: warm natural tones — deep brown, bronze, gold, amber, ochre, burnt sienna, copper. NO neon.\n3. COMPOSITION: one bold focal point fills 60-70% of frame, CENTERED.\n4. LIGHT: warm Caravaggio side light. NO lasers, NO glowing eyes.\n5. BACKGROUND: warm dark umber, not pure black.\n6. TEXTURES: carved wood grain, cowrie shells, bone beads, brass.\n7. MOOD: sacred, ancestral, spiritual.\nFORBIDDEN: neon, sci-fi, cartoon, flat design, CGI."
+      "id": "golden-mask-hero",
+      "subject": "A magnificent carved African ceremonial mask with polished GOLD inlay, cowrie-shell crown and dark afro hair, facing the viewer, filling 75% of the frame.",
+      "image_rules": "1. STYLE: ultra-detailed photorealistic render, museum-artifact quality.\n2. PALETTE: radiant GOLD + rich dark wood on a near-black background with a faint tribal pattern glowing softly behind.\n3. LIGHT: strong warm key light — the gold GLOWS and pops off the dark background.\n4. COMPOSITION: subject centered, huge, instantly readable as a tiny 200px thumbnail.\n5. MOOD: majestic, premium, iconic — like a luxury album cover.\nFORBIDDEN: murky dark-on-dark, dim lighting, small subject, clutter, neon blue/purple, cartoon."
     },
     {
-      "id": "neon-club-silhouette",
-      "subject": "A dancer's silhouette or a DJ's raised hands, backlit in a dark nightclub.",
-      "image_rules": "1. STYLE: high-contrast contemporary photography with heavy colour lighting.\n2. PALETTE: vivid NEON — magenta, cyan, electric violet — against deep black. Cold, electric, modern.\n3. COMPOSITION: the subject is a dark SILHOUETTE placed OFF-CENTER, with glowing rim light.\n4. LIGHT: club strobes, laser haze, bokeh crowd lights behind.\n5. BACKGROUND: dark club depth with blurred coloured lights.\n6. MOOD: energetic, nocturnal, hypnotic, alive.\nFORBIDDEN: warm brown tones, oil painting, masks, tribal artifacts, daylight, nature."
+      "id": "golden-queen-glow",
+      "subject": "A regal African queen with a gleaming gold beaded headdress and gold face paint accents, luminous skin, eyes closed in trance, filling 70% of the frame.",
+      "image_rules": "1. STYLE: hyper-realistic cinematic portrait, glossy magazine quality.\n2. PALETTE: glowing bronze skin + brilliant GOLD jewelry + one deep CRIMSON accent, near-black background.\n3. LIGHT: dramatic golden rim light on both sides — face is BRIGHT and dimensional.\n4. COMPOSITION: face large and centered, sharp, readable at small size.\n5. MOOD: divine, magnetic, powerful.\nFORBIDDEN: dark murky tones, underexposed face, busy background, neon, flat illustration."
     },
     {
-      "id": "minimal-type-poster",
-      "subject": "A single small iconic graphic (one drum, a sound wave, a rising sun, a vinyl record) on a flat colour field.",
-      "image_rules": "1. STYLE: minimalist Swiss / Bauhaus flat graphic design. NO realism, NO photography.\n2. PALETTE: ONE flat vivid colour field (choose deep orange, electric blue, or forest green) with a single contrasting accent.\n3. COMPOSITION: huge negative space, one small crisp icon, strong geometric balance.\n4. NO faces, NO masks, NO people.\n5. MOOD: clean, bold, modern, confident.\nFORBIDDEN: photorealism, portraits, masks, heavy gradients, clutter, tribal artifacts, neon glow."
+      "id": "fire-drummer-energy",
+      "subject": "A muscular drummer striking a djembe, sparks and embers flying, silhouetted against a MASSIVE wall of golden-orange fire light.",
+      "image_rules": "1. STYLE: cinematic action shot, motion energy frozen mid-strike.\n2. PALETTE: blazing ORANGE-GOLD fire glow dominating the frame, deep black silhouette for contrast.\n3. LIGHT: the background IS the light source — bright, hot, alive with embers.\n4. COMPOSITION: dynamic diagonal, drummer fills 60% of frame.\n5. MOOD: explosive, primal, festival energy.\nFORBIDDEN: dim images, cold colors, small distant subject, clutter, cartoon."
     },
     {
-      "id": "cinematic-landscape",
-      "subject": "A wide African landscape — savanna, desert dunes, or a lone acacia tree at sunset. NO people.",
-      "image_rules": "1. STYLE: photorealistic cinematic wide landscape shot, filmic colour grade.\n2. PALETTE: natural golden-hour — warm sky, long shadows, atmospheric haze.\n3. COMPOSITION: expansive horizon, strong depth, lower third kept calm for potential text.\n4. LIGHT: real sun, god rays, natural gradients.\n5. MOOD: vast, serene, epic, contemplative.\nFORBIDDEN: any human face, masks, neon, painterly/illustrated look, close-up portraits."
+      "id": "golden-lion-totem",
+      "subject": "A majestic lion head sculpted in dark wood with radiant GOLD mane details and tribal engravings, facing forward, filling 75% of the frame.",
+      "image_rules": "1. STYLE: ultra-detailed photorealistic sculpture render, premium artifact look.\n2. PALETTE: dark carved wood + luminous GOLD accents on near-black with a faint glowing tribal pattern.\n3. LIGHT: strong warm spotlight — gold highlights BLAZE against the dark.\n4. COMPOSITION: symmetric, huge, iconic, readable as a tiny thumbnail.\n5. MOOD: royal, fierce, timeless.\nFORBIDDEN: murkiness, low contrast, small subject, neon, cartoon, photography of real animals."
     },
     {
-      "id": "photo-portrait-modern",
-      "subject": "A real photographic close-up portrait of a stylish young person looking into the camera.",
-      "image_rules": "1. STYLE: editorial / documentary PHOTOGRAPHY (a real photo, NOT a painting).\n2. PALETTE: natural skin tones with ONE bold accent colour in wardrobe or background.\n3. COMPOSITION: shallow depth of field, sharp eyes, contemporary fashion, clean background.\n4. LIGHT: soft studio or natural window light.\n5. MOOD: intimate, current, aspirational.\nFORBIDDEN: oil painting, masks, tribal artifacts, neon, CGI, fantasy elements."
+      "id": "sunset-dancer-silhouette",
+      "subject": "A graceful dancer mid-leap, pure black silhouette against a HUGE blazing golden-amber sun filling the sky, dust glittering in the light.",
+      "image_rules": "1. STYLE: cinematic golden-hour photography, epic scale.\n2. PALETTE: the frame is DOMINATED by bright AMBER-GOLD sky — warm, radiant, vivid.\n3. LIGHT: giant sun as backdrop, rim-lit dust particles sparkle.\n4. COMPOSITION: dancer centered on the sun disc, strong simple shapes readable at small size.\n5. MOOD: euphoric, free, breathtaking.\nFORBIDDEN: dark gloomy sky, night scenes, low contrast, clutter, small subject."
     },
     {
-      "id": "abstract-geometric-pattern",
-      "subject": "A bold abstract geometric composition inspired by kente / mudcloth textiles — colour blocks and rhythmic shapes, no subject.",
-      "image_rules": "1. STYLE: flat vector geometric art, African-textile meets Bauhaus.\n2. PALETTE: bold complementary colour blocks (e.g. terracotta + teal + mustard) — graphic, not realistic.\n3. COMPOSITION: rhythmic repeating shapes, strong diagonal energy, balanced tension.\n4. NO faces, NO photographs, NO people.\n5. MOOD: vibrant, rhythmic, design-forward.\nFORBIDDEN: portraits, masks, photorealism, neon glow, painterly rendering."
+      "id": "golden-warrior-face",
+      "subject": "An intense close-up of a young African warrior's face with metallic GOLD war paint streaks, piercing bright eyes looking straight at the viewer, filling 80% of the frame.",
+      "image_rules": "1. STYLE: hyper-realistic cinematic close-up, razor sharp.\n2. PALETTE: warm bronze skin + brilliant GOLD paint + one deep TEAL accent stripe, near-black background.\n3. LIGHT: powerful warm key light — the face is BRIGHT, eyes catch the light.\n4. COMPOSITION: extreme close-up, eyes on the upper third, magnetic eye contact.\n5. MOOD: fierce, hypnotic, impossible to scroll past.\nFORBIDDEN: underexposed face, murky shadows swallowing detail, busy background, neon, cartoon."
     }
   ]
 }

@@ -1,14 +1,14 @@
 {
-  "_comment": "RECOVERY PIPELINE v3 — Phase 3 title templates. NINE structurally different title shapes replacing the single 'INVENTEDWORD + fire emoji + description #N' formula that fingerprinted the channel as a bot. Placeholders: TRACKNAME (uppercased track name), {genre}, {mix_number}, {genre_hashtag}. Includes no-emoji variants, description-first, a question, and duration-front shapes. One template is chosen per upload, not repeating within the last TITLE_HISTORY_WINDOW picks.",
+  "_comment": "Title templates — high-CTR clickbait pool. Punchier hooks (curiosity, superlative, warning, question, benefit) while keeping STRUCTURAL variety so consecutive uploads don't share one fingerprint. Placeholders: TRACKNAME, {genre}, {mix_number}, {genre_hashtag}. One template per upload, not repeating within the last TITLE_HISTORY_WINDOW picks.",
   "templates": [
-    "TRACKNAME 🔥 {genre} Mix #{mix_number} 2026 | {genre_hashtag}",
-    "Deep {genre} for Late Nights — TRACKNAME | {genre_hashtag}",
-    "Is This the Best {genre} Track of 2026? TRACKNAME | {genre_hashtag}",
-    "TRACKNAME — Extended {genre} Mix 2026 | {genre_hashtag}",
-    "TRACKNAME · {genre} · 2026",
-    "Hypnotic {genre} Journey — TRACKNAME [2026] | {genre_hashtag}",
-    "TRACKNAME | Sunset {genre} Session 2026 {genre_hashtag}",
-    "Best {genre} 2026 ▸ TRACKNAME | {genre_hashtag}",
-    "TRACKNAME — This Is {genre} 2026 | {genre_hashtag}"
+    "TRACKNAME 🔥 This {genre} Drop Will Give You CHILLS #{mix_number} | {genre_hashtag}",
+    "Nobody Is Ready For This {genre} Mix… TRACKNAME #{mix_number} | {genre_hashtag}",
+    "TRACKNAME 🔥 The {genre} Mix Everyone's Playing Right Now 2026 | {genre_hashtag}",
+    "WARNING: Dangerously Addictive {genre} — TRACKNAME #{mix_number} 🔥",
+    "Is This The Best {genre} Mix of 2026? TRACKNAME | {genre_hashtag}",
+    "TRACKNAME — Play This LOUD 🔊 Deep {genre} Mix #{mix_number} | {genre_hashtag}",
+    "You Won't Skip This One 🔥 TRACKNAME • {genre} 2026 | {genre_hashtag}",
+    "TRACKNAME | The {genre} Mix That Broke My Speakers #{mix_number} 2026",
+    "This Is Why Everyone Loves {genre} — TRACKNAME 🔥 | {genre_hashtag}"
   ]
 }

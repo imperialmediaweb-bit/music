@@ -140,23 +140,30 @@ THUMBNAIL_TEXT_STYLE = os.getenv("THUMBNAIL_TEXT_STYLE", "stylized")
 SCHEDULER_TIMEZONE = os.getenv("SCHEDULER_TIMEZONE", "Europe/Bucharest")
 
 # The upload schedule: a list of (day_of_week, hour, minute) tuples. day_of_week
-# uses APScheduler short names: mon tue wed thu fri sat sun. Publishing at 17:00
-# leaves the video indexed BEFORE the 18:00–21:00 traffic window opens.
+# uses APScheduler short names (mon..sun) or "*" for EVERY day. Publishing an
+# hour before the 18:00–21:00 audience peak leaves the video indexed in time.
 # Edit this list to change frequency/timing — the scheduler reads it from here,
 # never from hardcoded values.
 UPLOAD_SCHEDULE = [
-    ("tue", 17, 0),
-    ("thu", 17, 0),
-    ("sat", 17, 0),
+    ("*", 14, 0),   # daily — short mix
+    ("*", 18, 0),   # daily — long mix
 ]
 
-# Hard cap on uploads per rolling 7-day window, enforced before ANY upload
+# Per-slot generation plan, keyed by the slot HOUR. Each aimusicfactory song is
+# ~3 min; a generation = 2 songs. 14:00 → 3 gens + 2 archived ≈ 24 min (short),
+# 18:00 → 4 gens + 5 archived ≈ 39 min (long extended mix).
+SLOT_PLAN = {
+    14: {"gen_count": 3, "archive_count": 2},
+    18: {"gen_count": 4, "archive_count": 5},
+}
+
+# Hard cap on uploads per calendar week, enforced before ANY upload
 # (independent of the scheduler — a manual run without --force is capped too).
-MAX_UPLOADS_PER_WEEK = int(os.getenv("MAX_UPLOADS_PER_WEEK", "3"))
+MAX_UPLOADS_PER_WEEK = int(os.getenv("MAX_UPLOADS_PER_WEEK", "14"))
 
 # Minimum hours between two uploads. Doubles as the anti-duplication safety
-# lock: if a process restart re-fires a job, the <24h gap blocks the repeat.
-MIN_HOURS_BETWEEN_UPLOADS = int(os.getenv("MIN_HOURS_BETWEEN_UPLOADS", "24"))
+# lock: if a process restart re-fires a job, the gap blocks the repeat.
+MIN_HOURS_BETWEEN_UPLOADS = int(os.getenv("MIN_HOURS_BETWEEN_UPLOADS", "3"))
 
 # Persistent record of completed uploads (survives process restarts) so the
 # volume cap and the anti-duplication lock cannot be reset by a crash/restart.

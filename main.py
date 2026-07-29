@@ -1353,16 +1353,22 @@ def cmd_autostart(args):
     # (`autostart`) stay in lockstep. The per-upload volume guard still applies
     # (each task runs `run`, which checks the weekly cap), so even if both
     # mechanisms were ever active they can't exceed MAX_UPLOADS_PER_WEEK.
-    # Each slot runs `run --auto`: Phase 2 randomizes the duration bucket
-    # (short/medium/long) and the style prompt per upload, so gen_count and
-    # archive count are decided at runtime, not pinned here.
-    from config import UPLOAD_SCHEDULE
+    # Each slot's length comes from config.SLOT_PLAN (14:00 short, 18:00 long);
+    # slots without a plan run `run --auto` (Phase-2 randomized bucket).
+    from config import UPLOAD_SCHEDULE, SLOT_PLAN
     _DOW_PS = {"mon": "Monday", "tue": "Tuesday", "wed": "Wednesday",
                "thu": "Thursday", "fri": "Friday", "sat": "Saturday",
                "sun": "Sunday"}
-    # (day_of_week, hour, minute, gen_count, extra_args)
+
+    def _slot_args(hour):
+        plan = SLOT_PLAN.get(hour)
+        if plan:
+            return f"-g {plan['gen_count']} --archive-count {plan['archive_count']}"
+        return "--auto"
+
+    # (day_of_week, hour, minute, gen_count, extra_args); dow "*" = daily
     SCHEDULE_SLOTS = [
-        (dow, hour, minute, 0, "--auto")
+        (dow, hour, minute, 0, _slot_args(hour))
         for (dow, hour, minute) in UPLOAD_SCHEDULE
     ]
 
@@ -1425,7 +1431,9 @@ def cmd_autostart(args):
 
     for i, (dow, hour, minute, gen_count, extra_args) in enumerate(SCHEDULE_SLOTS, 1):
         task_name = f"{task_prefix}_{i}"
+        daily = dow == "*"
         ps_day = _DOW_PS.get(dow, "Tuesday")
+        dow_label = "DAILY" if daily else dow.upper()
         if extra_args == "__FLUSH__":
             cli_args = "flush-pending"
         else:
@@ -1443,7 +1451,7 @@ def cmd_autostart(args):
         else:
             slot_label = extra_args or "auto (profile-driven)"
         ps1_lines = [
-            f'# LUTH Music Pipeline — Slot {i} ({dow.upper()} {hour}:{minute:02d})',
+            f'# LUTH Music Pipeline — Slot {i} ({dow_label} {hour}:{minute:02d})',
             f'# {slot_label}',
             '',
             '$ErrorActionPreference = "Continue"',
@@ -1469,7 +1477,7 @@ def cmd_autostart(args):
         ps1_path.write_text("\n".join(ps1_lines), encoding="utf-8")
 
         # Register Windows Task Scheduler task using PowerShell (no CMD)
-        time_str = f"{dow.upper()} {hour:02d}:{minute:02d}"
+        time_str = f"{dow_label} {hour:02d}:{minute:02d}"
         # Use double quotes around the PS1 path inside the (single-quoted)
         # PS argument string. Nesting single quotes broke parsing and Windows
         # ended up running the task with no working directory → 0x8007010B
@@ -1489,9 +1497,10 @@ def cmd_autostart(args):
             f"-Argument '{ps_argument}' "
             f"-WorkingDirectory '{project_dir_ps}'; "
             f"$start = Get-Date -Hour {hour} -Minute {minute} -Second 0 -Millisecond 0; "
-            f"$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek {ps_day} -At $start; "
-            f"$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -WakeToRun; "
-            f"Register-ScheduledTask -TaskName '{task_name}' -Action $action -Trigger $trigger -Settings $settings -Force"
+            + ("$trigger = New-ScheduledTaskTrigger -Daily -At $start; " if daily else
+               f"$trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek {ps_day} -At $start; ")
+            + f"$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -WakeToRun; "
+            + f"Register-ScheduledTask -TaskName '{task_name}' -Action $action -Trigger $trigger -Settings $settings -Force"
         )
 
         result = subprocess.run(
@@ -1539,7 +1548,7 @@ def cmd_schedule(args):
     from apscheduler.events import EVENT_JOB_MISSED, EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
     from config import (
         UPLOAD_SCHEDULE, SCHEDULER_TIMEZONE, MAX_UPLOADS_PER_WEEK,
-        MIN_HOURS_BETWEEN_UPLOADS,
+        MIN_HOURS_BETWEEN_UPLOADS, SLOT_PLAN,
     )
     from modules.upload_guard import can_upload
 
@@ -1631,20 +1640,25 @@ def cmd_schedule(args):
         log.info(f"Scheduled with cron: {args.cron}")
     else:
         # Read the schedule from config (UPLOAD_SCHEDULE) — never hardcoded.
-        # Each entry is (day_of_week, hour, minute); duration/prompt variety is
-        # handled later (Phase 2), so no per-slot profile is pinned here.
+        # Each entry is (day_of_week, hour, minute); "*" = every day. Length is
+        # pinned per slot via SLOT_PLAN (14:00 short / 18:00 long); slots with
+        # no plan fall back to Phase-2 randomization.
         for i, (dow, hour, minute) in enumerate(UPLOAD_SCHEDULE, 1):
+            plan = SLOT_PLAN.get(hour, {})
             scheduler.add_job(
                 _guarded_pipeline,
                 CronTrigger(day_of_week=dow, hour=hour, minute=minute,
                             timezone=TIMEZONE),
+                kwargs=dict(plan),
                 id=f"music_pipeline_{i}",
-                name=f"{dow.upper()} {hour}:{minute:02d} — upload",
+                name=f"{'DAILY' if dow == '*' else dow.upper()} "
+                     f"{hour}:{minute:02d} — upload",
                 misfire_grace_time=MISFIRE_GRACE,
                 coalesce=True,
             )
         schedule_desc = ", ".join(
-            f"{dow.upper()} {h}:{m:02d}" for dow, h, m in UPLOAD_SCHEDULE
+            f"{'DAILY' if dow == '*' else dow.upper()} {h}:{m:02d}"
+            for dow, h, m in UPLOAD_SCHEDULE
         )
         log.info(f"Scheduled {len(UPLOAD_SCHEDULE)} upload(s)/week: {schedule_desc}")
         log.info(
