@@ -1027,7 +1027,15 @@ def process_single_track(mp3_path: Path, concept=None,
                 if attempt < 2:
                     log.info(f"Long-video comment attempt {attempt} failed; waiting 90s...")
                     _t.sleep(90)
-            if not cid:
+            if cid:
+                # Pin it — a pinned tracklist is the whole point (API can't
+                # pin, so this drives the browser). Non-fatal.
+                try:
+                    from modules.youtube_uploader import pin_comment
+                    pin_comment(video_id, cid)
+                except Exception as e:
+                    log.warning(f"Pin failed (comment stays unpinned): {e}")
+            else:
                 from modules.comment_queue import queue_comment
                 queue_comment(video_id, comment_text)
                 log.info("Comment queued — will be posted once the premiere goes public")

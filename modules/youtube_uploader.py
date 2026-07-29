@@ -156,6 +156,84 @@ def post_comment(video_id: str, text: str) -> str | None:
         return None
 
 
+def pin_comment(video_id: str, comment_id: str) -> bool:
+    """Pin our comment via the watch page (the Data API cannot pin).
+
+    Opens watch?v=ID&lc=COMMENT_ID — the `lc` param renders that comment as
+    the first "highlighted" thread — then clicks its ⋮ menu → Pin → confirm.
+    Menu text is matched case-insensitively in English and Romanian ("Pin" /
+    "Fixează") so a localized UI still works. Non-fatal: returns False on any
+    failure and leaves the comment simply unpinned.
+    """
+    url = f"https://www.youtube.com/watch?v={video_id}&lc={comment_id}"
+    log.info(f"Pinning comment: {url}")
+
+    with sync_playwright() as p:
+        browser, context = get_browser_context(p, YOUTUBE_COOKIE_FILE)
+        page = context.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=60_000)
+            page.wait_for_timeout(5000)
+
+            # Comments lazy-load — scroll until the highlighted thread renders.
+            thread = None
+            for _ in range(10):
+                thread = page.query_selector("ytd-comment-thread-renderer")
+                if thread:
+                    break
+                page.evaluate("window.scrollBy(0, 900)")
+                page.wait_for_timeout(1200)
+            if not thread:
+                log.warning("pin_comment: comment thread never rendered")
+                return False
+
+            # Open the thread's ⋮ action menu.
+            menu_btn = (thread.query_selector("#action-menu button")
+                        or thread.query_selector("#action-menu yt-icon-button"))
+            if not menu_btn:
+                log.warning("pin_comment: action menu button not found")
+                return False
+            menu_btn.click(force=True)
+            page.wait_for_timeout(1500)
+
+            # Click the "Pin" item (language-tolerant).
+            clicked = False
+            for item in page.query_selector_all(
+                "ytd-menu-service-item-renderer, tp-yt-paper-item"
+            ):
+                try:
+                    txt = (item.inner_text() or "").strip().lower()
+                    if txt.startswith("pin") or "fixeaz" in txt:
+                        item.click(force=True)
+                        clicked = True
+                        break
+                except Exception:
+                    continue
+            if not clicked:
+                log.warning("pin_comment: 'Pin' menu item not found")
+                return False
+            page.wait_for_timeout(1500)
+
+            # Confirm dialog ("Pin"/"Fixează" — #confirm-button is stable).
+            for sel in ("yt-confirm-dialog-renderer #confirm-button",
+                        "#confirm-button"):
+                try:
+                    btn = page.query_selector(sel)
+                    if btn and btn.is_visible():
+                        btn.click(force=True)
+                        break
+                except Exception:
+                    continue
+            page.wait_for_timeout(2000)
+            log.info(f"Pinned comment {comment_id} on {video_id}")
+            return True
+        except Exception as e:
+            log.warning(f"pin_comment failed: {e}")
+            return False
+        finally:
+            browser.close()
+
+
 def reply_to_new_comments(max_videos: int = 5, max_replies_per_video: int = 3) -> int:
     """Auto-reply to unanswered comments on recent videos.
 

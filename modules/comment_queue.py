@@ -80,6 +80,12 @@ def flush_pending_comments() -> int:
         if cid:
             posted += 1
             log.info(f"comment_queue: posted queued comment on {entry['video_id']}")
+            # Pin it (the whole point of the tracklist comment). Non-fatal.
+            try:
+                from modules.youtube_uploader import pin_comment
+                pin_comment(entry["video_id"], cid)
+            except Exception as e:
+                log.warning(f"comment_queue: pin failed: {e}")
         else:
             entry["attempts"] = entry.get("attempts", 0) + 1
             keep.append(entry)
