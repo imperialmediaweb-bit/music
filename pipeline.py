@@ -815,6 +815,13 @@ def process_single_track(mp3_path: Path, concept=None,
             tracklist comment.
     """
     ensure_path()
+    # Post any comments queued by previous runs (their premieres are public
+    # by now). Non-fatal — never block the new upload.
+    try:
+        from modules.comment_queue import flush_pending_comments
+        flush_pending_comments()
+    except Exception as e:
+        log.warning(f"comment_queue flush failed: {e}")
     result = {
         "file": str(mp3_path),
         "concept": None,
@@ -1007,15 +1014,23 @@ def process_single_track(mp3_path: Path, concept=None,
             tracklist = _build_tracklist(segment_files) if segment_files else ""
             if tracklist:
                 comment_text = f"{tracklist}\n\n{comment_text}"
-            # Retry up to 3 times with backoff in case the video is still
-            # processing — post_comment swallows errors so we re-check.
-            for attempt in range(1, 4):
+            # The upload is a scheduled premiere (private for ~30 min) and
+            # YouTube REJECTS comments on private videos — so immediate
+            # attempts usually fail. Try twice, then queue the comment; the
+            # queue is flushed on the next pipeline run / `engage` command,
+            # when the video is public.
+            cid = None
+            for attempt in range(1, 3):
                 cid = post_comment(video_id, comment_text)
                 if cid:
                     break
-                if attempt < 3:
+                if attempt < 2:
                     log.info(f"Long-video comment attempt {attempt} failed; waiting 90s...")
                     _t.sleep(90)
+            if not cid:
+                from modules.comment_queue import queue_comment
+                queue_comment(video_id, comment_text)
+                log.info("Comment queued — will be posted once the premiere goes public")
 
     # Step 5d: Post Community-tab announcement linking to the long video
     if youtube_url and concept is not None:

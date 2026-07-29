@@ -308,30 +308,76 @@ def _complete_self_certification(video_id: str) -> bool:
             page_text = (page.text_content("body") or "")[:500]
             log.info(f"Page text preview: {page_text[:200]}")
 
-            # Step 1: Turn ON monetization if there's a toggle
-            toggle_selectors = [
-                '#monetize-with-ads',
-                'tp-yt-paper-toggle-button',
-                'div[id*="monetize"]',
-                '#onoff-toggle',
-                'ytcp-toggle-button',
-            ]
-            for sel in toggle_selectors:
-                try:
-                    toggle = page.query_selector(sel)
-                    if toggle and toggle.is_visible():
-                        # Check if it's already ON
-                        aria = toggle.get_attribute("aria-pressed") or toggle.get_attribute("checked") or ""
-                        classes = toggle.get_attribute("class") or ""
-                        if aria == "true" or "checked" in classes or "selected" in classes:
-                            log.info(f"Monetization toggle already ON ({sel})")
-                        else:
-                            toggle.click(force=True)
-                            log.info(f"Turned ON monetization toggle: {sel}")
-                            page.wait_for_timeout(2000)
-                        break
-                except Exception as e:
-                    log.info(f"Toggle selector {sel} failed: {e}")
+            # Step 1 (CURRENT Studio UI): the monetization page shows a
+            # "Watch page ads and YouTube Premium" card with On/Off radio
+            # buttons, a Done button, then a Save button top-right. Click the
+            # exact "On" radio (NOT substring matching — "None of the above"
+            # also contains "on").
+            ads_on_done = False
+            try:
+                radios = page.query_selector_all(
+                    'tp-yt-paper-radio-button, ytcp-radio-button, [role="radio"]'
+                )
+                for r in radios:
+                    try:
+                        if not r.is_visible():
+                            continue
+                        txt = (r.inner_text() or "").strip().lower()
+                        if txt == "on":
+                            checked = (r.get_attribute("aria-checked") or
+                                       r.get_attribute("checked") or "")
+                            if checked == "true":
+                                log.info("Ads radio already ON")
+                                ads_on_done = True
+                            else:
+                                r.click(force=True)
+                                page.wait_for_timeout(1500)
+                                log.info("Clicked ads radio 'On'")
+                                ads_on_done = True
+                            break
+                    except Exception:
+                        continue
+                if ads_on_done:
+                    # Confirm the card with its Done button (if present)
+                    for done_sel in ('ytcp-button:has-text("Done")',
+                                     'button:has-text("Done")'):
+                        try:
+                            btn = page.query_selector(done_sel)
+                            if btn and btn.is_visible() and btn.is_enabled():
+                                btn.click(force=True)
+                                page.wait_for_timeout(1500)
+                                log.info("Clicked 'Done' on ads card")
+                                break
+                        except Exception:
+                            continue
+            except Exception as e:
+                log.info(f"New-UI ads radio flow failed: {e}")
+
+            # Step 1b (LEGACY UI): old toggle-based monetization switch.
+            if not ads_on_done:
+                toggle_selectors = [
+                    '#monetize-with-ads',
+                    'tp-yt-paper-toggle-button',
+                    'div[id*="monetize"]',
+                    '#onoff-toggle',
+                    'ytcp-toggle-button',
+                ]
+                for sel in toggle_selectors:
+                    try:
+                        toggle = page.query_selector(sel)
+                        if toggle and toggle.is_visible():
+                            # Check if it's already ON
+                            aria = toggle.get_attribute("aria-pressed") or toggle.get_attribute("checked") or ""
+                            classes = toggle.get_attribute("class") or ""
+                            if aria == "true" or "checked" in classes or "selected" in classes:
+                                log.info(f"Monetization toggle already ON ({sel})")
+                            else:
+                                toggle.click(force=True)
+                                log.info(f"Turned ON monetization toggle: {sel}")
+                                page.wait_for_timeout(2000)
+                            break
+                    except Exception as e:
+                        log.info(f"Toggle selector {sel} failed: {e}")
 
             page.screenshot(path=str(debug_dir / "debug_yt_monetization_02_toggle.png"))
 
@@ -358,7 +404,7 @@ def _complete_self_certification(video_id: str) -> bool:
 
             log.info(f"Clicked 'None of the above' {total_clicked} time(s)")
 
-            if total_clicked == 0:
+            if total_clicked == 0 and not ads_on_done:
                 page.screenshot(path=str(debug_dir / "debug_yt_monetization_no_none.png"))
                 # Dump all radio buttons / checkboxes for debugging
                 radios = page.evaluate("""() => {
@@ -409,6 +455,11 @@ def _complete_self_certification(video_id: str) -> bool:
                         .slice(0, 20);
                 }""")
                 log.warning(f"Could not find Submit button. Visible buttons: {buttons}")
+                # In the new UI, a disabled/absent Save just means nothing
+                # changed (ads were already ON) — that's success, not failure.
+                if ads_on_done:
+                    log.info("Ads ON confirmed; Save not needed (no pending changes)")
+                    return True
                 return False
 
             # Wait for save to complete

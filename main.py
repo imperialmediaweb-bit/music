@@ -1307,6 +1307,61 @@ def cmd_update_seo(args):
     log.info(f"SEO update complete: {updated}/{len(all_videos)} videos updated")
 
 
+def cmd_engage(args):
+    """Post queued comments (premieres now public) + reply to new comments.
+
+    Scheduler hook: runs daily so pinned tracklist comments queued while the
+    premiere was private get posted, and fan comments get replies.
+    """
+    from modules.comment_queue import flush_pending_comments
+    from modules.youtube_uploader import reply_to_new_comments
+
+    posted = flush_pending_comments()
+    log.info(f"Engage: {posted} queued comment(s) posted")
+    try:
+        replies = reply_to_new_comments(max_videos=8, max_replies_per_video=3)
+        log.info(f"Engage: {replies} repl(y/ies) sent")
+    except Exception as e:
+        log.warning(f"Engage: auto-reply failed: {e}")
+
+
+def cmd_monetize(args):
+    """Turn monetization ON for specific videos or the N most recent uploads.
+
+    Uses the Studio browser flow (cookies from `youtube-login`) because the
+    Data API cannot set monetization.
+    """
+    from modules.youtube_uploader import (
+        _complete_self_certification, _get_authenticated_service,
+    )
+
+    video_ids = list(args.ids or [])
+    if args.recent and not video_ids:
+        youtube = _get_authenticated_service()
+        ch = youtube.channels().list(part="contentDetails", mine=True).execute()
+        uploads_pl = (ch["items"][0]["contentDetails"]
+                      ["relatedPlaylists"]["uploads"])
+        req = youtube.playlistItems().list(
+            part="contentDetails", playlistId=uploads_pl,
+            maxResults=min(args.recent, 50),
+        ).execute()
+        video_ids = [it["contentDetails"]["videoId"] for it in req.get("items", [])]
+
+    if not video_ids:
+        log.error("No videos: pass IDs or --recent N")
+        sys.exit(1)
+
+    ok = 0
+    for vid in video_ids:
+        log.info(f"Monetizing {vid} ...")
+        try:
+            if _complete_self_certification(vid):
+                ok += 1
+        except Exception as e:
+            log.warning(f"Monetize {vid} failed: {e}")
+    log.info(f"Monetization done: {ok}/{len(video_ids)} OK")
+
+
 def cmd_flush_pending(args):
     """Upload everything currently queued in output/pending_uploads/.
 
@@ -1371,6 +1426,9 @@ def cmd_autostart(args):
         (dow, hour, minute, 0, _slot_args(hour))
         for (dow, hour, minute) in UPLOAD_SCHEDULE
     ]
+    # Daily engagement pass: posts pinned comments queued while premieres were
+    # private, and replies to new fan comments.
+    SCHEDULE_SLOTS.append(("*", 20, 30, 0, "__ENGAGE__"))
 
     def _cleanup_all():
         """Remove all old launchers: Task Scheduler tasks, VBS, BAT from Startup."""
@@ -1436,6 +1494,8 @@ def cmd_autostart(args):
         dow_label = "DAILY" if daily else dow.upper()
         if extra_args == "__FLUSH__":
             cli_args = "flush-pending"
+        elif extra_args == "__ENGAGE__":
+            cli_args = "engage"
         else:
             cli_args = f"run"
             if gen_count > 0:
@@ -1446,8 +1506,8 @@ def cmd_autostart(args):
         # Create a small PS1 script for this slot
         ps1_name = f"music_pipeline_slot_{i}.ps1"
         ps1_path = Path(project_dir) / ps1_name
-        if extra_args == "__FLUSH__":
-            slot_label = "flush-pending"
+        if extra_args in ("__FLUSH__", "__ENGAGE__"):
+            slot_label = cli_args
         else:
             slot_label = extra_args or "auto (profile-driven)"
         ps1_lines = [
@@ -1921,6 +1981,23 @@ def main():
         help="Upload tracks queued in output/pending_uploads/ (Suno split-upload second half)",
     )
     flush_parser.set_defaults(func=cmd_flush_pending)
+
+    # engage - post queued comments + reply to fans
+    engage_parser = subparsers.add_parser(
+        "engage",
+        help="Post queued pinned comments (premieres now public) and reply to new comments",
+    )
+    engage_parser.set_defaults(func=cmd_engage)
+
+    # monetize - flip monetization ON via Studio browser flow
+    monetize_parser = subparsers.add_parser(
+        "monetize",
+        help="Turn monetization ON for given video IDs or --recent N uploads",
+    )
+    monetize_parser.add_argument("ids", nargs="*", help="Video IDs")
+    monetize_parser.add_argument("--recent", type=int, default=0,
+                                 help="Monetize the N most recent uploads")
+    monetize_parser.set_defaults(func=cmd_monetize)
 
     # schedule - automatic 4 clips per day
     sched_parser = subparsers.add_parser(
