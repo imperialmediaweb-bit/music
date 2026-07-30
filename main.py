@@ -1422,13 +1422,12 @@ def cmd_autostart(args):
         return "--auto"
 
     # (day_of_week, hour, minute, gen_count, extra_args); dow "*" = daily
+    # Just the two upload slots — comment flushing/pinning and fan replies run
+    # inside each pipeline run, so no separate engage task is needed.
     SCHEDULE_SLOTS = [
         (dow, hour, minute, 0, _slot_args(hour))
         for (dow, hour, minute) in UPLOAD_SCHEDULE
     ]
-    # Daily engagement pass: posts pinned comments queued while premieres were
-    # private, and replies to new fan comments.
-    SCHEDULE_SLOTS.append(("*", 20, 30, 0, "__ENGAGE__"))
 
     def _cleanup_all():
         """Remove all old launchers: Task Scheduler tasks, VBS, BAT from Startup."""

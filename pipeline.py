@@ -815,13 +815,20 @@ def process_single_track(mp3_path: Path, concept=None,
             tracklist comment.
     """
     ensure_path()
-    # Post any comments queued by previous runs (their premieres are public
-    # by now). Non-fatal — never block the new upload.
+    # Post any comments queued by previous runs (their premieres are public by
+    # now) and reply to new fan comments. Runs here so the two daily upload
+    # slots cover engagement too — no separate scheduled task needed.
+    # Non-fatal — never block the new upload.
     try:
         from modules.comment_queue import flush_pending_comments
         flush_pending_comments()
     except Exception as e:
         log.warning(f"comment_queue flush failed: {e}")
+    try:
+        from modules.youtube_uploader import reply_to_new_comments
+        reply_to_new_comments(max_videos=5, max_replies_per_video=2)
+    except Exception as e:
+        log.warning(f"auto-reply failed: {e}")
     result = {
         "file": str(mp3_path),
         "concept": None,
