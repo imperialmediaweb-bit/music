@@ -145,28 +145,31 @@ SCHEDULER_TIMEZONE = os.getenv("SCHEDULER_TIMEZONE", "Europe/Bucharest")
 # hour before the 18:00–21:00 audience peak leaves the video indexed in time.
 # Edit this list to change frequency/timing — the scheduler reads it from here,
 # never from hardcoded values.
-# RECOVERY MODE (activated 2026-08-06). A week of 2/day + ~36 uploads/week
-# total left new videos at 13-66 views on a 17K-sub channel — channel-level
-# distribution suppression, exactly what the recovery brief predicted. Cut to
-# 3 long videos/week; durations and prompts stay randomized (Phase 2).
+# PROVEN CONFIGURATION (empirical, from the channel's own numbers): during
+# 21-29 Jul the channel ran 2 long videos/day with NO Shorts and new videos
+# pulled 100-380 views. The collapse to 15-90 came when Shorts doubled the
+# upload count on 29 Jul. So: exactly 2/day long-form, Shorts stay OFF.
+# Durations 22-40 min performed best (a 63-min upload flopped).
 UPLOAD_SCHEDULE = [
-    ("tue", 17, 0),
-    ("thu", 17, 0),
-    ("sat", 17, 0),
+    ("*", 14, 0),   # daily — shorter mix (~24 min)
+    ("*", 18, 0),   # daily — longer mix (~39 min)
 ]
 
-# Per-slot generation plan, keyed by the slot HOUR. No plan for 17:00 on
-# purpose — recovery slots run `--auto`, which samples the weighted duration
-# buckets (short/medium/long) so the catalogue keeps its variety.
-SLOT_PLAN = {}
+# Per-slot generation plan, keyed by the slot HOUR. Each aimusicfactory song is
+# ~3 min; a generation = 2 songs. 14:00 → 3 gens + 2 archived ≈ 24 min,
+# 18:00 → 4 gens + 5 archived ≈ 39 min.
+SLOT_PLAN = {
+    14: {"gen_count": 3, "archive_count": 2},
+    18: {"gen_count": 4, "archive_count": 5},
+}
 
-# Hard cap on uploads per calendar week, enforced before ANY upload
-# (independent of the scheduler — a manual run without --force is capped too).
-MAX_UPLOADS_PER_WEEK = int(os.getenv("MAX_UPLOADS_PER_WEEK", "3"))
+# Hard cap on uploads per calendar week (2/day + one manual slot of headroom),
+# enforced before ANY upload — a manual run without --force is capped too.
+MAX_UPLOADS_PER_WEEK = int(os.getenv("MAX_UPLOADS_PER_WEEK", "15"))
 
 # Minimum hours between two uploads. Doubles as the anti-duplication safety
 # lock: if a process restart re-fires a job, the gap blocks the repeat.
-MIN_HOURS_BETWEEN_UPLOADS = int(os.getenv("MIN_HOURS_BETWEEN_UPLOADS", "24"))
+MIN_HOURS_BETWEEN_UPLOADS = int(os.getenv("MIN_HOURS_BETWEEN_UPLOADS", "3"))
 
 # Persistent record of completed uploads (survives process restarts) so the
 # volume cap and the anti-duplication lock cannot be reset by a crash/restart.

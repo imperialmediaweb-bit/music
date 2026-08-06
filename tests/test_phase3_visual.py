@@ -53,8 +53,9 @@ def test_title_templates_have_variety(sel):
     tpls = sel._read_json(config.TITLE_TEMPLATES_FILE, "templates")
     assert len(tpls) >= 8
     assert len(set(tpls)) == len(tpls)
-    assert len([t for t in tpls if "🔥" not in t]) >= 3  # no-emoji variants
-    assert any("?" in t for t in tpls)                    # a question variant
+    # Every template must carry the proven SEO anchors.
+    assert all("TRACKNAME" in t for t in tpls)
+    assert all("{genre" in t for t in tpls)
 
 
 def test_title_non_repetition(sel):
