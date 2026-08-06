@@ -263,6 +263,45 @@ def _add_cover_name_only(image: Image.Image, track_name: str) -> Image.Image:
     return image
 
 
+def _tagline_from_title(youtube_title: str) -> str:
+    """Derive a short benefit tagline for the thumbnail from the video title.
+
+    The invented track name (ZALIMBA, MALZ…) tells viewers nothing — this adds
+    the WHY-click in 2-3 words, matched to the proven title hooks.
+    """
+    t = (youtube_title or "").lower()
+    for needle, tagline in [
+        ("need this", "YOU NEED THIS"),
+        ("late night", "LATE NIGHT DRIVE"),
+        ("different", "HITS DIFFERENT"),
+        ("fall in love", "PURE AFRO HOUSE"),
+        ("workout", "WORKOUT ENERGY"),
+        ("everyone's playing", "EVERYONE'S PLAYING THIS"),
+        ("broke my speakers", "BASS OVERLOAD"),
+        ("sunrise", "SUNRISE DRIVE"),
+        ("believe this drop", "INSANE DROP"),
+        ("chills", "PURE CHILLS"),
+        ("loud", "PLAY IT LOUD"),
+    ]:
+        if needle in t:
+            return tagline
+    return "DEEP AFRO HOUSE"
+
+
+def _add_tagline(image: Image.Image, tagline: str) -> Image.Image:
+    """Overlay the short benefit tagline above the big track name."""
+    if not tagline:
+        return image
+    if THUMBNAIL_TEXT_STYLE == "classic":
+        return _add_text_classic(
+            image, tagline, y_ratio=0.64, font_size_ratio=0.055, color="#FFFFFF"
+        )
+    return _add_stylized_text(
+        image, tagline, y_ratio=0.64, font_size_ratio=0.055,
+        color_top="#FFFFFF", color_bottom="#FFD700", glow=True, divider=False,
+    )
+
+
 def _add_artist_name(image: Image.Image, artist_name: str) -> Image.Image:
     """Overlay the artist name above the track name."""
     if THUMBNAIL_TEXT_STYLE == "classic":
@@ -415,6 +454,7 @@ def generate_thumbnail_and_cover(
     thumbnail_prompt: str,
     track_name: str,
     artist_name: str = "",
+    youtube_title: str = "",
 ) -> tuple[Path, Path]:
     """Generate BOTH YouTube thumbnail and TuneCore cover art from ONE DALL-E call.
 
@@ -449,8 +489,13 @@ def generate_thumbnail_and_cover(
         base_image = _generate_fallback_image(1792, 1024)
 
     # ── YouTube Thumbnail (1792x1024) ──
+    # Tagline (benefit hook) goes ONLY on the YouTube thumbnail — streaming
+    # stores (DistroKid/Spotify/Apple) reject covers with any extra text.
     thumb = base_image.copy()
+    tagline = _tagline_from_title(youtube_title)
+    thumb = _add_tagline(thumb, tagline)
     thumb = _add_track_name(thumb, track_name)
+    log.info(f"Thumbnail tagline: {tagline}")
     thumbnail_path = OUTPUT_DIR / f"{safe_name}_thumbnail.jpg"
     _save_thumbnail_compressed(thumb, thumbnail_path)
 

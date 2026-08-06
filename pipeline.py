@@ -439,7 +439,8 @@ def prepare_track_assets(mp3_path: Path, concept) -> dict:
     log.info("=" * 60)
     log.info("PREP STEP 2: Generating thumbnail + cover art...")
     thumbnail_path, cover_path = generate_thumbnail_and_cover(
-        concept.thumbnail_prompt, concept.track_name, DEFAULT_ARTIST
+        concept.thumbnail_prompt, concept.track_name, DEFAULT_ARTIST,
+        youtube_title=concept.youtube_title,
     )
     log.info(f"Thumbnail: {thumbnail_path} | Cover: {cover_path}")
 
@@ -901,7 +902,8 @@ def process_single_track(mp3_path: Path, concept=None,
         log.info("STEP 3: Generating thumbnail + TuneCore cover art (single DALL-E call)...")
         artist_name = DEFAULT_ARTIST
         thumbnail_path, cover_path = generate_thumbnail_and_cover(
-            concept.thumbnail_prompt, concept.track_name, artist_name
+            concept.thumbnail_prompt, concept.track_name, artist_name,
+            youtube_title=concept.youtube_title,
         )
         result["thumbnail_path"] = str(thumbnail_path)
         result["cover_path"] = str(cover_path)
