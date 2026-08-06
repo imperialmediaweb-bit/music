@@ -89,9 +89,10 @@ SKIP_TIKTOK = os.getenv("SKIP_TIKTOK", "false").lower() == "true"
 SKIP_BANDCAMP = os.getenv("SKIP_BANDCAMP", "false").lower() == "true"
 
 # Skip YouTube Shorts creation/upload in the pipeline.
-# Default: FALSE — Shorts ARE the channel's discovery engine, posted right
-# after each long video. Override with SKIP_SHORTS=true to disable.
-SKIP_SHORTS = os.getenv("SKIP_SHORTS", "false").lower() == "true"
+# Default: TRUE while in recovery mode — Shorts double the upload count and
+# feed the mass-produced signal (the ~36/week total came half from Shorts).
+# Re-enable with SKIP_SHORTS=false once distribution recovers.
+SKIP_SHORTS = os.getenv("SKIP_SHORTS", "true").lower() == "true"
 
 # Skip reusing archived MP3s in hybrid mode. When FALSE, older tracks from
 # the pool are mixed into the MIDDLE of new tracks (never at the very start),
@@ -144,26 +145,28 @@ SCHEDULER_TIMEZONE = os.getenv("SCHEDULER_TIMEZONE", "Europe/Bucharest")
 # hour before the 18:00–21:00 audience peak leaves the video indexed in time.
 # Edit this list to change frequency/timing — the scheduler reads it from here,
 # never from hardcoded values.
+# RECOVERY MODE (activated 2026-08-06). A week of 2/day + ~36 uploads/week
+# total left new videos at 13-66 views on a 17K-sub channel — channel-level
+# distribution suppression, exactly what the recovery brief predicted. Cut to
+# 3 long videos/week; durations and prompts stay randomized (Phase 2).
 UPLOAD_SCHEDULE = [
-    ("*", 14, 0),   # daily — short mix
-    ("*", 18, 0),   # daily — long mix
+    ("tue", 17, 0),
+    ("thu", 17, 0),
+    ("sat", 17, 0),
 ]
 
-# Per-slot generation plan, keyed by the slot HOUR. Each aimusicfactory song is
-# ~3 min; a generation = 2 songs. 14:00 → 3 gens + 2 archived ≈ 24 min (short),
-# 18:00 → 4 gens + 5 archived ≈ 39 min (long extended mix).
-SLOT_PLAN = {
-    14: {"gen_count": 3, "archive_count": 2},
-    18: {"gen_count": 4, "archive_count": 5},
-}
+# Per-slot generation plan, keyed by the slot HOUR. No plan for 17:00 on
+# purpose — recovery slots run `--auto`, which samples the weighted duration
+# buckets (short/medium/long) so the catalogue keeps its variety.
+SLOT_PLAN = {}
 
 # Hard cap on uploads per calendar week, enforced before ANY upload
 # (independent of the scheduler — a manual run without --force is capped too).
-MAX_UPLOADS_PER_WEEK = int(os.getenv("MAX_UPLOADS_PER_WEEK", "14"))
+MAX_UPLOADS_PER_WEEK = int(os.getenv("MAX_UPLOADS_PER_WEEK", "3"))
 
 # Minimum hours between two uploads. Doubles as the anti-duplication safety
 # lock: if a process restart re-fires a job, the gap blocks the repeat.
-MIN_HOURS_BETWEEN_UPLOADS = int(os.getenv("MIN_HOURS_BETWEEN_UPLOADS", "3"))
+MIN_HOURS_BETWEEN_UPLOADS = int(os.getenv("MIN_HOURS_BETWEEN_UPLOADS", "24"))
 
 # Persistent record of completed uploads (survives process restarts) so the
 # volume cap and the anti-duplication lock cannot be reset by a crash/restart.
