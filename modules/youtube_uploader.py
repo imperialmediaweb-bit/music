@@ -544,10 +544,40 @@ def _complete_self_certification(video_id: str) -> bool:
             page.wait_for_timeout(5000)
             page.screenshot(path=str(debug_dir / "debug_yt_monetization_04_done.png"))
 
+            # VERIFY — reload the monetization page and confirm the "On" radio
+            # is actually checked. Videos were silently left "Ads off" when the
+            # click flow reported success without taking effect; never trust
+            # the clicks, only the resulting state.
+            verified = None
+            try:
+                page.goto(studio_url, wait_until="domcontentloaded", timeout=60_000)
+                page.wait_for_timeout(6000)
+                for r in page.query_selector_all(
+                    'tp-yt-paper-radio-button, ytcp-radio-button, [role="radio"]'
+                ):
+                    try:
+                        if (r.inner_text() or "").strip().lower() == "on":
+                            verified = (r.get_attribute("aria-checked") == "true"
+                                        or r.get_attribute("checked") == "true")
+                            break
+                    except Exception:
+                        continue
+            except Exception as e:
+                log.warning(f"Monetization verify step errored: {e}")
+            page.screenshot(path=str(debug_dir / "debug_yt_monetization_05_verify.png"))
+
             # Save updated cookies
             save_cookies(context, YOUTUBE_COOKIE_FILE)
 
-            log.info("YouTube self-certification completed successfully")
+            if verified is False:
+                log.error("Monetization VERIFY FAILED — ads are still OFF for this "
+                          "video. See output/debug_yt_monetization_*.png")
+                return False
+            if verified is None:
+                log.warning("Monetization state could not be verified (no On radio "
+                            "found on reload) — check Studio manually")
+            else:
+                log.info("Monetization VERIFIED: ads are ON")
             return True
 
         except Exception as e:
