@@ -1,14 +1,14 @@
 {
-  "_comment": "Title templates tuned on actual channel data. Winners kept the proven skeleton (TRACKNAME 🔥 hook #N | #afrohouse) with benefit/FOMO/use-case hooks: 'You NEED This' pulled 1,822, 'Late Night Tribal Drive' 660, 'Hits DIFFERENT' 378, 'Fall In Love' 309, 'Workouts & Festival' 274, 'Everyone's Playing' 239. WORLD CUP anthem titles flopped (94) and were dropped. Placeholders: TRACKNAME, {genre}, {mix_number}, {genre_hashtag}. One template per upload, not repeating within the last TITLE_HISTORY_WINDOW picks.",
+  "_comment": "Title templates tuned on channel data (proven hooks), WITHOUT serial numbering. YouTube's 2026 inauthentic-content enforcement explicitly lists formulaic numbered titles ('Lofi Mix #47') as a mass-production detection signature — the old '#292' pattern painted a target on the channel. Hooks kept exactly as proven (You NEED This 1822, Late Night Tribal Drive 660, Hits DIFFERENT 378...). Placeholders: TRACKNAME, {genre}, {genre_hashtag}. One template per upload, not repeating within the last TITLE_HISTORY_WINDOW picks.",
   "templates": [
-    "TRACKNAME 🔥 If You Love {genre}, You NEED This #{mix_number} | {genre_hashtag}",
-    "TRACKNAME 🔥 Late Night Tribal Drive • {genre} Mix #{mix_number} | {genre_hashtag}",
-    "TRACKNAME 🔥 {genre} That Hits DIFFERENT • Mix #{mix_number} 2026 | {genre_hashtag}",
-    "TRACKNAME 🔥 This Track Made Me Fall In Love With {genre} #{mix_number} | {genre_hashtag}",
-    "TRACKNAME 🔥 {genre} Mix For Workouts & Festival Vibes #{mix_number} | {genre_hashtag}",
+    "TRACKNAME 🔥 If You Love {genre}, You NEED This Mix | {genre_hashtag}",
+    "TRACKNAME 🔥 Late Night Tribal Drive • {genre} Mix | {genre_hashtag}",
+    "TRACKNAME 🔥 {genre} That Hits DIFFERENT • 2026 Mix | {genre_hashtag}",
+    "TRACKNAME 🔥 This Track Made Me Fall In Love With {genre} | {genre_hashtag}",
+    "TRACKNAME 🔥 {genre} Mix For Workouts & Festival Vibes | {genre_hashtag}",
     "TRACKNAME 🔥 The {genre} Mix Everyone's Playing Right Now 2026 | {genre_hashtag}",
-    "TRACKNAME | The {genre} Mix That Broke My Speakers #{mix_number} 2026",
-    "TRACKNAME 🔥 Sunrise Drive • {genre} Mix #{mix_number} 2026 | {genre_hashtag}",
-    "TRACKNAME 🔥 You Won't Believe This Drop • {genre} Mix #{mix_number} | {genre_hashtag}"
+    "TRACKNAME | The {genre} Mix That Broke My Speakers 2026",
+    "TRACKNAME 🔥 Sunrise Drive • {genre} Mix 2026 | {genre_hashtag}",
+    "TRACKNAME 🔥 You Won't Believe This Drop • {genre} Mix | {genre_hashtag}"
   ]
 }
