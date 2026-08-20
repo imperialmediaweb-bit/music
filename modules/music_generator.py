@@ -836,28 +836,35 @@ def _download_via_actions_menu(page, button_index: int, safe_name: str,
             needles,
         )
 
-    # 2. Click the "Download" item (any casing/wording containing 'download')
-    dl_label = _click_item(["download"])
-    if not dl_label:
-        items = _menu_items()
-        log.warning(f"Download menu item not found. Menu items visible: {items}")
-        raise RuntimeError("Download menu item not found")
-    log.info(f"Clicked menu item: '{dl_label}'")
-    page.wait_for_timeout(800)
-    page.screenshot(path=str(OUTPUT_DIR / f"debug_submenu_open_{card_num}.png"))
-
-    # 3. Click the audio format item while capturing the download. The exact
-    # label keeps changing ('MP3', 'MP3 Audio', 'Download MP3'...), so match
-    # loosely and fall back to WAV / generic Audio.
+    # 2+3. Two-phase download. The site keeps changing this flow: sometimes
+    # clicking "Download" opens an MP3/WAV submenu, sometimes it starts the
+    # download DIRECTLY (no submenu). So: listen for the download BEFORE
+    # clicking "Download"; if none arrives quickly, treat it as a submenu and
+    # click the format item ('Audio Tool' and similar non-format entries are
+    # excluded — clicking those navigates away and breaks the page).
     output_path = download_dir / f"{safe_name}_{song_id}_{card_num}.mp3"
-    with page.expect_download(timeout=60_000) as dl_info:
-        fmt_label = _click_item(["mp3"]) or _click_item(["wav"]) or _click_item(["audio"])
-        if not fmt_label:
-            items = _menu_items()
-            log.warning(f"No MP3/WAV/Audio item. Submenu items visible: {items}")
-            raise RuntimeError("MP3 submenu item not found")
-        log.info(f"Clicked format item: '{fmt_label}'")
-    download = dl_info.value
+    download = None
+    try:
+        with page.expect_download(timeout=12_000) as dl_info:
+            dl_label = _click_item(["download"])
+            if not dl_label:
+                items = _menu_items()
+                log.warning(f"Download menu item not found. Menu items visible: {items}")
+                raise RuntimeError("Download menu item not found")
+            log.info(f"Clicked menu item: '{dl_label}'")
+        download = dl_info.value
+        log.info("Download started directly (no submenu)")
+    except PlaywrightTimeout:
+        # No direct download — a submenu should be open now.
+        page.screenshot(path=str(OUTPUT_DIR / f"debug_submenu_open_{card_num}.png"))
+        items = _menu_items()
+        log.info(f"Submenu items visible: {items}")
+        with page.expect_download(timeout=60_000) as dl_info:
+            fmt_label = _click_item(["mp3"]) or _click_item([".wav", "wav "])
+            if not fmt_label:
+                raise RuntimeError(f"MP3 submenu item not found (items: {items})")
+            log.info(f"Clicked format item: '{fmt_label}'")
+        download = dl_info.value
     # Keep the real extension if the site handed us a WAV.
     suggested = (download.suggested_filename or "").lower()
     if suggested.endswith(".wav"):
