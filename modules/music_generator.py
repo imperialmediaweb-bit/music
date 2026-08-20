@@ -112,6 +112,14 @@ def generate_music_batch(concept: MusicConcept, count: int = 4) -> list[Path]:
     except Exception as e:
         _ACTIVE_STYLE_PROMPT = STYLE_OF_MUSIC_PROMPT
         log.warning(f"prompt_pool unavailable ({e}) — using default style prompt")
+    # Genre anchor safety net: whatever the pool says, the generation prompt
+    # MUST carry the Afro House DNA — a pool edit can never drift the channel
+    # off-genre again.
+    from config import GENRE_ANCHOR
+    _low = _ACTIVE_STYLE_PROMPT.lower()
+    if "afro house" not in _low or "four-on-the-floor" not in _low:
+        _ACTIVE_STYLE_PROMPT = GENRE_ANCHOR + _ACTIVE_STYLE_PROMPT
+        log.info("Genre anchor prepended to style prompt (missing Afro House DNA)")
 
     safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in concept.track_name)
     safe_name = safe_name.strip().replace(" ", "_")[:50]

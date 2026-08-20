@@ -17,11 +17,25 @@ import shutil
 import time
 from pathlib import Path
 
-from config import OUTPUT_DIR
+from config import OUTPUT_DIR, ARCHIVE_QUARANTINE_RANGES
 from utils.logger import log
 
 ARCHIVE_DIR = OUTPUT_DIR / "archive" / "suno_pool"
 CATALOG_PATH = OUTPUT_DIR / "archive" / "catalog.json"
+
+
+def _is_quarantined(entry: dict) -> bool:
+    """True if this archived song was generated in a quarantined date range.
+
+    Between 2026-07-29 and 2026-08-20 the prompt pool drifted off-genre
+    (nu-disco / downtempo / amapiano), so songs archived then must not be
+    mixed into new Afro House tracks. Ranges live in config.
+    """
+    ts = entry.get("archived_at", "")
+    for start, end in ARCHIVE_QUARANTINE_RANGES:
+        if start <= ts[:10] <= end:
+            return True
+    return False
 
 
 def _ensure_dirs() -> None:
@@ -98,8 +112,12 @@ def pick_from_archive(count: int, exclude_files: list[Path] | None = None) -> li
     candidates = [
         e for e in catalog
         if e["filename"] not in exclude_names
+        and not _is_quarantined(e)
         and (ARCHIVE_DIR / e["filename"]).exists()
     ]
+    quarantined = sum(1 for e in catalog if _is_quarantined(e))
+    if quarantined:
+        log.info(f"Archive: {quarantined} off-genre song(s) quarantined (excluded)")
 
     selected = random.sample(candidates, min(count, len(candidates)))
     paths = [ARCHIVE_DIR / e["filename"] for e in selected]

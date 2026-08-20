@@ -193,6 +193,21 @@ PROMPT_HISTORY_FILE = Path(
 # A prompt may not repeat within this many consecutive picks.
 PROMPT_HISTORY_WINDOW = int(os.getenv("PROMPT_HISTORY_WINDOW", "8"))
 
+# Archived songs generated in these date ranges (inclusive, YYYY-MM-DD) are
+# never mixed into new tracks. 29 Jul–20 Aug: the prompt pool drifted
+# off-genre (nu-disco / downtempo / amapiano) before the all-Afro-House fix.
+ARCHIVE_QUARANTINE_RANGES = [
+    ("2026-07-29", "2026-08-20"),
+]
+
+# Genre anchor prepended to any generation style prompt that lacks it, so a
+# future pool edit can never drift the channel off its genre again.
+GENRE_ANCHOR = os.getenv(
+    "GENRE_ANCHOR",
+    "Afro House, four-on-the-floor house kick, 118-125 BPM, organic African "
+    "percussion (congas, djembe, shakers), deep rolling bassline. ",
+)
+
 # Weighted duration buckets: (label, min_minutes, max_minutes, weight).
 # Weights need not sum to 1 — they are normalised at selection time. The long
 # bucket is favoured because the channel's best performers are extended mixes.
