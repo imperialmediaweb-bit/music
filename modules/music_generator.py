@@ -800,54 +800,68 @@ def _download_via_actions_menu(page, button_index: int, safe_name: str,
     page.wait_for_timeout(1000)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_menu_open_{card_num}.png"))
 
-    # 2. Click "Download" item in the open menu
-    download_clicked = page.evaluate(
-        """() => {
-            // Try clickable elements with EXACT text "Download" (excluding parents)
-            const candidates = document.querySelectorAll('button, [role="menuitem"], div[role="menuitem"], li, a');
-            for (const el of candidates) {
-                const ownText = Array.from(el.childNodes)
-                    .filter(n => n.nodeType === 3)
-                    .map(n => n.textContent.trim())
-                    .join(' ').trim();
-                const fullText = (el.textContent || '').trim();
-                if (ownText === 'Download' || fullText === 'Download') {
-                    const rect = el.getBoundingClientRect();
-                    if (rect.width > 0 && rect.height > 0) {
-                        el.click();
-                        return true;
+    def _menu_items():
+        """Visible short-text clickables — the open menu/submenu contents."""
+        return page.evaluate(
+            """() => {
+                const out = [];
+                const els = document.querySelectorAll('button, [role="menuitem"], div[role="menuitem"], li, a, [role="option"]');
+                for (const el of els) {
+                    const t = (el.textContent || '').trim();
+                    const r = el.getBoundingClientRect();
+                    if (t && t.length <= 40 && r.width > 0 && r.height > 0) out.push(t);
+                }
+                return out.slice(0, 60);
+            }"""
+        )
+
+    def _click_item(needles):
+        """Click the visible element whose text contains a needle (shortest wins)."""
+        return page.evaluate(
+            """(needles) => {
+                const els = document.querySelectorAll('button, [role="menuitem"], div[role="menuitem"], li, a, [role="option"]');
+                let best = null, bestLen = 1e9;
+                for (const el of els) {
+                    const t = (el.textContent || '').trim();
+                    const low = t.toLowerCase();
+                    const r = el.getBoundingClientRect();
+                    if (!t || t.length > 40 || r.width === 0 || r.height === 0) continue;
+                    for (const n of needles) {
+                        if (low.includes(n) && t.length < bestLen) { best = el; bestLen = t.length; }
                     }
                 }
-            }
-            return false;
-        }"""
-    )
-    if not download_clicked:
+                if (best) { best.click(); return (best.textContent || '').trim(); }
+                return null;
+            }""",
+            needles,
+        )
+
+    # 2. Click the "Download" item (any casing/wording containing 'download')
+    dl_label = _click_item(["download"])
+    if not dl_label:
+        items = _menu_items()
+        log.warning(f"Download menu item not found. Menu items visible: {items}")
         raise RuntimeError("Download menu item not found")
+    log.info(f"Clicked menu item: '{dl_label}'")
     page.wait_for_timeout(800)
     page.screenshot(path=str(OUTPUT_DIR / f"debug_submenu_open_{card_num}.png"))
 
-    # 3. Click "MP3" submenu item while capturing the download
+    # 3. Click the audio format item while capturing the download. The exact
+    # label keeps changing ('MP3', 'MP3 Audio', 'Download MP3'...), so match
+    # loosely and fall back to WAV / generic Audio.
     output_path = download_dir / f"{safe_name}_{song_id}_{card_num}.mp3"
     with page.expect_download(timeout=60_000) as dl_info:
-        mp3_clicked = page.evaluate(
-            """() => {
-                const buttons = document.querySelectorAll('button, [role="menuitem"], div[role="menuitem"], li, a');
-                for (const el of buttons) {
-                    if ((el.textContent || '').trim() === 'MP3') {
-                        const rect = el.getBoundingClientRect();
-                        if (rect.width > 0 && rect.height > 0) {
-                            el.click();
-                            return true;
-                        }
-                    }
-                }
-                return false;
-            }"""
-        )
-        if not mp3_clicked:
+        fmt_label = _click_item(["mp3"]) or _click_item(["wav"]) or _click_item(["audio"])
+        if not fmt_label:
+            items = _menu_items()
+            log.warning(f"No MP3/WAV/Audio item. Submenu items visible: {items}")
             raise RuntimeError("MP3 submenu item not found")
+        log.info(f"Clicked format item: '{fmt_label}'")
     download = dl_info.value
+    # Keep the real extension if the site handed us a WAV.
+    suggested = (download.suggested_filename or "").lower()
+    if suggested.endswith(".wav"):
+        output_path = output_path.with_suffix(".wav")
     download.save_as(str(output_path))
     log.info(f"Card {card_num}: downloaded {output_path.name}")
     return [output_path]
