@@ -1386,6 +1386,71 @@ def cmd_monetize(args):
     log.info(f"Monetization done: {ok}/{len(video_ids)} OK")
 
 
+def cmd_playlist_sort(args):
+    """Reorder the main genre playlist so the highest-viewed videos play first.
+
+    The playlist link in every description is the session-time engine
+    (click → playlist → autoplay); putting proven winners first makes the
+    autoplay chain start with the strongest retention.
+    """
+    from modules.youtube_uploader import _get_authenticated_service, _find_or_create_playlist
+
+    playlist_name = args.name or "Afro House"
+    youtube = _get_authenticated_service()
+    pl_id = _find_or_create_playlist(youtube, playlist_name)
+
+    # Collect all items (paginate)
+    items, token = [], None
+    while True:
+        resp = youtube.playlistItems().list(
+            part="snippet", playlistId=pl_id, maxResults=50, pageToken=token
+        ).execute()
+        items.extend(resp.get("items", []))
+        token = resp.get("nextPageToken")
+        if not token:
+            break
+    log.info(f"Playlist '{playlist_name}': {len(items)} video(s)")
+    if not items:
+        return
+
+    # Fetch view counts in batches of 50
+    views = {}
+    vids = [it["snippet"]["resourceId"]["videoId"] for it in items]
+    for i in range(0, len(vids), 50):
+        resp = youtube.videos().list(
+            part="statistics", id=",".join(vids[i:i + 50])
+        ).execute()
+        for v in resp.get("items", []):
+            views[v["id"]] = int(v.get("statistics", {}).get("viewCount", 0))
+
+    ranked = sorted(items, key=lambda it: views.get(
+        it["snippet"]["resourceId"]["videoId"], 0), reverse=True)
+
+    moved = 0
+    for pos, it in enumerate(ranked):
+        vid = it["snippet"]["resourceId"]["videoId"]
+        if it["snippet"].get("position") == pos:
+            continue  # already in place — save API quota
+        try:
+            youtube.playlistItems().update(
+                part="snippet",
+                body={
+                    "id": it["id"],
+                    "snippet": {
+                        "playlistId": pl_id,
+                        "resourceId": it["snippet"]["resourceId"],
+                        "position": pos,
+                    },
+                },
+            ).execute()
+            moved += 1
+            log.info(f"  #{pos + 1}: {it['snippet'].get('title', vid)[:50]} "
+                     f"({views.get(vid, 0)} views)")
+        except Exception as e:
+            log.warning(f"  reorder failed for {vid}: {e}")
+    log.info(f"Playlist sorted: {moved} item(s) moved, winners first")
+
+
 def cmd_flush_pending(args):
     """Upload everything currently queued in output/pending_uploads/.
 
@@ -2011,6 +2076,15 @@ def main():
         help="Post queued pinned comments (premieres now public) and reply to new comments",
     )
     engage_parser.set_defaults(func=cmd_engage)
+
+    # playlist-sort - winners first so the autoplay chain starts strong
+    plsort_parser = subparsers.add_parser(
+        "playlist-sort",
+        help="Reorder the genre playlist by view count (winners first)",
+    )
+    plsort_parser.add_argument("--name", type=str, default=None,
+                               help='Playlist name (default: "Afro House")')
+    plsort_parser.set_defaults(func=cmd_playlist_sort)
 
     # monetize - flip monetization ON via Studio browser flow
     monetize_parser = subparsers.add_parser(
