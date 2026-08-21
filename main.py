@@ -1023,6 +1023,7 @@ def cmd_process(args):
     3. Generate concept, thumbnail, video, upload to YouTube
     """
     from modules.audio_merger import merge_mp3s
+    from modules.concept_generator import generate_concept
     from pipeline import process_single_track
 
     input_dir = Path(args.folder) if args.folder else INPUT_DIR
@@ -1037,14 +1038,22 @@ def cmd_process(args):
     for f in mp3_files:
         log.info(f"  - {f.name}")
 
-    # Merge all MP3s
+    # Generate the concept FIRST so every artifact (merged file, master WAV,
+    # cover, DistroKid release) carries the real track name — a nameless run
+    # once shipped a release literally titled "merged" to streaming stores.
+    log.info("=" * 60)
+    log.info("Generating concept (name first, so files are named right)...")
+    concept = generate_concept()
+    log.info(f"Track name: {concept.track_name}")
+
+    # Merge all MP3s under the concept's name
     log.info("=" * 60)
     log.info("MERGING MP3 FILES...")
-    merged_path = merge_mp3s(mp3_files)
+    merged_path = merge_mp3s(mp3_files, output_name=concept.track_name)
     log.info(f"Merged file: {merged_path}")
 
     # Process the merged track
-    result = process_single_track(merged_path)
+    result = process_single_track(merged_path, concept=concept)
 
     if result["errors"]:
         log.warning(f"Completed with {len(result['errors'])} error(s)")
