@@ -1447,6 +1447,101 @@ def cmd_endscreens(args):
     log.info(f"End screens done: {ok}/{len(video_ids)} OK")
 
 
+def cmd_playlists_build(args):
+    """Build themed playlists and backfill them with the top uploads.
+
+    Playlists are the channel's #1 traffic source (~30%). Creates the themed
+    set once, then assigns each of the top-N videos (by views) to 1-2 matching
+    playlists based on title keywords and duration. Safe to re-run — existing
+    playlist items are skipped.
+    """
+    import re as _re
+    from modules.youtube_uploader import (
+        _get_authenticated_service, _find_or_create_playlist, _add_to_playlist,
+    )
+
+    # "Afro House" is the main traffic engine (~30% of views) — EVERY top
+    # video goes in it, plus up to 2 matching themed playlists.
+    THEMES = [
+        ("Afro House",                 lambda t, m: True),
+        ("Extended Afro House Mixes",  lambda t, m: m >= 30),
+        ("Deep Tribal Afro House",     lambda t, m: any(k in t for k in ("tribal", "drum", "ritual", "primal"))),
+        ("Late Night Afro House Drive", lambda t, m: any(k in t for k in ("late night", "night drive", "3 a.m", "midnight"))),
+        ("Afro House Workout Energy",  lambda t, m: any(k in t for k in ("workout", "gym", "energy", "festival", "crazy", "insane"))),
+        ("Melodic Sunrise Afro House", lambda t, m: any(k in t for k in ("sunrise", "melodic", "chill", "sunset", "focus", "study"))),
+    ]
+
+    youtube = _get_authenticated_service()
+    theme_ids = {}
+    for name, _ in THEMES:
+        theme_ids[name] = _find_or_create_playlist(youtube, name)
+
+    # All uploads with stats + duration
+    ch = youtube.channels().list(part="contentDetails", mine=True).execute()
+    uploads_pl = ch["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+    vids, token = [], None
+    while len(vids) < 400:
+        resp = youtube.playlistItems().list(
+            part="contentDetails", playlistId=uploads_pl,
+            maxResults=50, pageToken=token,
+        ).execute()
+        vids += [it["contentDetails"]["videoId"] for it in resp.get("items", [])]
+        token = resp.get("nextPageToken")
+        if not token:
+            break
+
+    meta = {}
+    for i in range(0, len(vids), 50):
+        resp = youtube.videos().list(
+            part="snippet,statistics,contentDetails", id=",".join(vids[i:i + 50])
+        ).execute()
+        for v in resp.get("items", []):
+            dur = v["contentDetails"].get("duration", "PT0M")
+            h = _re.search(r"(\d+)H", dur)
+            mi = _re.search(r"(\d+)M", dur)
+            minutes = (int(h.group(1)) * 60 if h else 0) + (int(mi.group(1)) if mi else 0)
+            meta[v["id"]] = {
+                "title": v["snippet"]["title"],
+                "views": int(v.get("statistics", {}).get("viewCount", 0)),
+                "minutes": minutes,
+            }
+
+    top = sorted(meta, key=lambda v: meta[v]["views"], reverse=True)[:args.top]
+    log.info(f"Backfilling themed playlists with top {len(top)} videos by views")
+
+    # What's already in each themed playlist (skip duplicates, save quota)
+    existing = {}
+    for name, pid in theme_ids.items():
+        have, token = set(), None
+        while True:
+            resp = youtube.playlistItems().list(
+                part="contentDetails", playlistId=pid, maxResults=50, pageToken=token,
+            ).execute()
+            have |= {it["contentDetails"]["videoId"] for it in resp.get("items", [])}
+            token = resp.get("nextPageToken")
+            if not token:
+                break
+        existing[name] = have
+
+    added = 0
+    for vid in top:
+        t = meta[vid]["title"].lower()
+        m = meta[vid]["minutes"]
+        # Always "Afro House" (first rule matches everything) + up to 2 themed.
+        matched = [name for name, rule in THEMES if rule(t, m)][:3]
+        for name in matched:
+            if vid in existing[name]:
+                continue
+            try:
+                _add_to_playlist(youtube, theme_ids[name], vid)
+                existing[name].add(vid)
+                added += 1
+                log.info(f"  + '{meta[vid]['title'][:45]}' → {name}")
+            except Exception as e:
+                log.warning(f"  add failed ({name}): {e}")
+    log.info(f"Themed playlists done: {added} addition(s) across {len(THEMES)} playlists")
+
+
 def cmd_playlist_sort(args):
     """Reorder the main genre playlist so the highest-viewed videos play first.
 
@@ -2147,6 +2242,15 @@ def main():
     es_parser.add_argument("--top", type=int, default=0,
                            help="Apply to the N most-viewed uploads")
     es_parser.set_defaults(func=cmd_endscreens)
+
+    # playlists-build - themed playlists + backfill top videos into them
+    plb_parser = subparsers.add_parser(
+        "playlists-build",
+        help="Create themed playlists and backfill top-N videos (always incl. Afro House)",
+    )
+    plb_parser.add_argument("--top", type=int, default=50,
+                            help="How many top videos (by views) to backfill (default 50)")
+    plb_parser.set_defaults(func=cmd_playlists_build)
 
     # playlist-sort - winners first so the autoplay chain starts strong
     plsort_parser = subparsers.add_parser(
