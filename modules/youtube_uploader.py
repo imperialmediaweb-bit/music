@@ -599,10 +599,12 @@ def _apply_end_screen(video_id: str) -> bool:
     legacy end-screen page. Best-effort — returns False on UI mismatch and
     logs a screenshot so we can adjust selectors when Studio changes.
     """
+    # The old /edit/endscreen deep link now renders "Oops, something went
+    # wrong" for everyone — the end-screen tools moved into the video Editor.
     editor_urls = [
+        f"https://studio.youtube.com/video/{video_id}/editor",
         f"https://studio.youtube.com/video/{video_id}/edit/endscreen",
         f"https://studio.youtube.com/video/{video_id}/endscreen",
-        f"https://studio.youtube.com/video/{video_id}/end-screen",
     ]
     debug_dir = OUTPUT_DIR
 
@@ -616,10 +618,16 @@ def _apply_end_screen(video_id: str) -> bool:
             for url in editor_urls:
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-                    page.wait_for_timeout(6000)
-                    if "accounts.google.com" not in page.url and "endscreen" in page.url.lower().replace("-", ""):
+                    page.wait_for_timeout(7000)
+                    body = (page.text_content("body") or "").lower()
+                    if "accounts.google.com" in page.url:
+                        continue
+                    if "oops, something went wrong" in body:
+                        log.info(f"'{url}' renders the Oops error page — trying next")
+                        continue
+                    if "/editor" in page.url or "endscreen" in page.url.lower().replace("-", ""):
                         loaded = True
-                        log.info(f"End-screen editor loaded at {page.url}")
+                        log.info(f"Editor loaded at {page.url}")
                         break
                 except Exception as e:
                     log.info(f"Endscreen URL '{url}' failed: {e}")
@@ -638,6 +646,39 @@ def _apply_end_screen(video_id: str) -> bool:
                 return False
 
             page.screenshot(path=str(debug_dir / "debug_yt_endscreen_01_loaded.png"))
+
+            # In the new Editor, the end-screen tools sit behind an entry
+            # point ("ADD AN END SCREEN" band / "End screen" section) — open it.
+            if "/editor" in page.url:
+                opened = False
+                for sel in [
+                    "button:has-text('ADD AN END SCREEN')",
+                    "ytcp-button:has-text('ADD AN END SCREEN')",
+                    "button:has-text('Add an end screen')",
+                    "button:has-text('End screen')",
+                    "div:has-text('ADD AN END SCREEN')",
+                    "[aria-label*='end screen' i]",
+                ]:
+                    try:
+                        el = page.locator(sel).first
+                        if el.is_visible(timeout=2000):
+                            el.click()
+                            opened = True
+                            log.info(f"Opened end-screen section via: {sel}")
+                            page.wait_for_timeout(3000)
+                            break
+                    except Exception:
+                        continue
+                if not opened:
+                    # Self-diagnose: dump every visible short-text control so
+                    # the next log tells us the real labels.
+                    labels = page.evaluate(
+                        """() => [...document.querySelectorAll('button, ytcp-button, [role="tab"], [role="button"], a')]
+                            .filter(e => e.offsetParent !== null)
+                            .map(e => (e.textContent || e.getAttribute('aria-label') || '').trim())
+                            .filter(t => t && t.length <= 40).slice(0, 40)"""
+                    )
+                    log.warning(f"End-screen entry not found. Visible controls: {labels}")
 
             # Strategy 1: "Apply template" — pick the template that adds
             # Subscribe + Best-for-viewer. The Studio UI shows several
