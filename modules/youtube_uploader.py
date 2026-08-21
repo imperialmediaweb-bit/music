@@ -599,13 +599,11 @@ def _apply_end_screen(video_id: str) -> bool:
     legacy end-screen page. Best-effort — returns False on UI mismatch and
     logs a screenshot so we can adjust selectors when Studio changes.
     """
-    # The old /edit/endscreen deep link now renders "Oops, something went
-    # wrong" for everyone — the end-screen tools moved into the video Editor.
-    editor_urls = [
-        f"https://studio.youtube.com/video/{video_id}/editor",
-        f"https://studio.youtube.com/video/{video_id}/edit/endscreen",
-        f"https://studio.youtube.com/video/{video_id}/endscreen",
-    ]
+    # Studio renders "Oops, something went wrong" for DIRECT navigation to
+    # the editor URLs (while e.g. /monetization loads fine) — the editor only
+    # opens via in-app SPA navigation. So: load the video's Details page
+    # (known-good) and click the "Editor" item in Studio's own left menu.
+    details_url = f"https://studio.youtube.com/video/{video_id}/edit"
     debug_dir = OUTPUT_DIR
 
     log.info(f"Opening YouTube Studio end-screen editor for {video_id}...")
@@ -615,23 +613,52 @@ def _apply_end_screen(video_id: str) -> bool:
         page = context.new_page()
         try:
             loaded = False
-            for url in editor_urls:
-                try:
-                    page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-                    page.wait_for_timeout(7000)
+            try:
+                page.goto(details_url, wait_until="domcontentloaded", timeout=45_000)
+                page.wait_for_timeout(7000)
+                body = (page.text_content("body") or "").lower()
+                if "accounts.google.com" in page.url:
+                    log.warning("End-screen: not logged into Studio (cookies expired)")
+                    return False
+                if "oops, something went wrong" in body:
+                    log.warning("Even the Details page renders Oops for this video")
+                else:
+                    # Click "Editor" in Studio's own left menu — SPA navigation
+                    # is the only route the editor accepts.
+                    clicked = False
+                    for sel in [
+                        "a[href*='/editor']",
+                        "[role='link']:has-text('Editor')",
+                        "a:has-text('Editor')",
+                        "tp-yt-paper-icon-item:has-text('Editor')",
+                        "ytcp-navigation-drawer :text('Editor')",
+                    ]:
+                        try:
+                            el = page.locator(sel).first
+                            if el.is_visible(timeout=2500):
+                                el.click()
+                                clicked = True
+                                log.info(f"Clicked left-nav Editor via: {sel}")
+                                page.wait_for_timeout(7000)
+                                break
+                        except Exception:
+                            continue
+                    if not clicked:
+                        navs = page.evaluate(
+                            """() => [...document.querySelectorAll('a, [role="link"], tp-yt-paper-icon-item')]
+                                .filter(e => e.offsetParent !== null)
+                                .map(e => (e.textContent || '').trim())
+                                .filter(t => t && t.length <= 30).slice(0, 30)"""
+                        )
+                        log.warning(f"Left-nav 'Editor' not found. Visible nav items: {navs}")
                     body = (page.text_content("body") or "").lower()
-                    if "accounts.google.com" in page.url:
-                        continue
-                    if "oops, something went wrong" in body:
-                        log.info(f"'{url}' renders the Oops error page — trying next")
-                        continue
-                    if "/editor" in page.url or "endscreen" in page.url.lower().replace("-", ""):
+                    if "/editor" in page.url and "oops, something went wrong" not in body:
                         loaded = True
-                        log.info(f"Editor loaded at {page.url}")
-                        break
-                except Exception as e:
-                    log.info(f"Endscreen URL '{url}' failed: {e}")
-                    continue
+                        log.info(f"Editor opened via SPA navigation: {page.url}")
+                    elif clicked:
+                        log.warning(f"Editor click landed on {page.url} (oops={'oops' in body})")
+            except Exception as e:
+                log.info(f"Details/editor navigation failed: {e}")
 
             if not loaded:
                 log.warning("Could not open end-screen editor")
