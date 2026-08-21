@@ -190,8 +190,9 @@ PROMPT_POOL_FILE = Path(
 PROMPT_HISTORY_FILE = Path(
     os.getenv("PROMPT_HISTORY_FILE", BASE_DIR / "prompt_history.json")
 )
-# A prompt may not repeat within this many consecutive picks.
-PROMPT_HISTORY_WINDOW = int(os.getenv("PROMPT_HISTORY_WINDOW", "8"))
+# A prompt may not repeat within this many consecutive picks. Kept below the
+# pool size (8 pure-Afro-House prompts) so the selector never starves.
+PROMPT_HISTORY_WINDOW = int(os.getenv("PROMPT_HISTORY_WINDOW", "5"))
 
 # Archived songs generated in these date ranges (inclusive, YYYY-MM-DD) are
 # never mixed into new tracks. 29 Jul–20 Aug: the prompt pool drifted
