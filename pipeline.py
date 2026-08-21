@@ -708,6 +708,7 @@ def post_community_announcement(video_url: str, track_name: str,
     YouTube Data API has no insert endpoint for community posts so this
     must go through Studio's web UI.
     """
+    from config import OUTPUT_DIR
     try:
         from playwright.sync_api import sync_playwright
         from modules.youtube_uploader import get_browser_context, YOUTUBE_COOKIE_FILE
