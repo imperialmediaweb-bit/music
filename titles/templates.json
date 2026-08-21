@@ -1,14 +1,14 @@
 {
-  "_comment": "Title pool v3 — tuned to YouTube's indexing/suggestion rules: the exact search phrase '{genre} Mix' is front-loaded right after the track name (search+suggested match on the first ~40 chars), each formula stays under ~70 chars before the auto-appended [XX Min] tail, ONE emoji max, no serial numbering (mass-produced signature), hooks are proven winners (NEED 1822, Late Night 660, DIFFERENT 378, LOUD, Everyone's Playing 239, Broke My Speakers 178). Placeholders: TRACKNAME, {genre}, {genre_hashtag}. One per upload, non-repeating within TITLE_HISTORY_WINDOW.",
+  "_comment": "Title pool v4 — max-punch clickbait at the owner's call, still inside YouTube's indexing rules: '{genre} Mix' search phrase early, <=70 chars before the auto [XX Min] tail, ONE emoji, no serial numbering, hooks stay deliverable (a hard-hitting bass mix genuinely backs 'DESTROYS speakers' / 'goes CRAZY'). Placeholders: TRACKNAME, {genre}, {genre_hashtag}.",
   "templates": [
-    "TRACKNAME 🔥 {genre} Mix You NEED Right Now | {genre_hashtag}",
-    "TRACKNAME 🔥 Deep {genre} Mix • Late Night Drive | {genre_hashtag}",
-    "TRACKNAME 🔥 {genre} Mix That Hits DIFFERENT | {genre_hashtag}",
-    "TRACKNAME 🔥 Best {genre} Mix of 2026? You Decide | {genre_hashtag}",
-    "TRACKNAME 🔥 {genre} Mix • Play It LOUD | {genre_hashtag}",
-    "TRACKNAME 🔥 The {genre} Mix Everyone's Playing | {genre_hashtag}",
-    "TRACKNAME | {genre} Mix That Broke My Speakers 🔊",
-    "TRACKNAME 🔥 Sunrise Drive • Deep {genre} Mix | {genre_hashtag}",
-    "TRACKNAME 🔥 Hypnotic {genre} Mix • Deep Tribal Bass | {genre_hashtag}"
+    "TRACKNAME 🔥 This {genre} Mix Goes CRAZY | {genre_hashtag}",
+    "TRACKNAME 🔥 DANGEROUSLY Addictive {genre} Mix | {genre_hashtag}",
+    "TRACKNAME 🔥 {genre} Mix — You're NOT Ready | {genre_hashtag}",
+    "TRACKNAME 🔊 {genre} Mix That DESTROYS Speakers | {genre_hashtag}",
+    "TRACKNAME 🔥 The {genre} Mix With ZERO Skips | {genre_hashtag}",
+    "TRACKNAME 🔥 INSANE Drops • Deep {genre} Mix | {genre_hashtag}",
+    "TRACKNAME 🔥 {genre} Mix Everyone's OBSESSED With | {genre_hashtag}",
+    "TRACKNAME 🔥 This {genre} Mix Should Be ILLEGAL | {genre_hashtag}",
+    "TRACKNAME 🔥 {genre} Mix on REPEAT All Night | {genre_hashtag}"
   ]
 }
