@@ -932,11 +932,10 @@ def upload_to_youtube(
     if desc_intro:
         clean_desc = f"{desc_intro}\n\n{clean_desc}"
 
-    # Append exactly 3 hashtags at end (YouTube shows the FIRST 3 hashtags above the title)
-    # These are prime real estate — use the most searched, clickable hashtags
-    # Place them at the TOP of the description so they display above the video title
-    genre_tag = concept.genre.lower().replace(" ", "")
-    description = f"#{genre_tag} #deephouse #tribalhouse\n\n{clean_desc}"
+    # The description body starts with the HOOK line, not hashtags — YouTube
+    # surfaces the first 3 hashtags above the title no matter where they sit
+    # in the description, so they go at the very END (appended below).
+    description = clean_desc
 
     # Playlist autoplay trap — link to playlist instead of single video
     # Viewers click → playlist starts → autoplay → massive watch time
@@ -967,21 +966,13 @@ def upload_to_youtube(
     if artist_links:
         description = description.rstrip() + "\n\n" + "\n".join(artist_links)
 
-    # SEO keyword block — YouTube indexes these but viewers rarely scroll this far
-    genre_lower = concept.genre.lower() if concept.genre else "afro house"
-    seo_keywords = (
-        f"\n\n"
-        f"{genre_lower} mix 2026, best {genre_lower} 2026, "
-        f"new {genre_lower} music, {genre_lower} playlist, "
-        f"{genre_lower} beats, deep house mix, tribal house 2026, "
-        f"african music 2026, {genre_lower} non stop, "
-        f"{genre_lower} long mix, best deep house, "
-        f"chill {genre_lower}, {genre_lower} workout, "
-        f"{genre_lower} driving music, {genre_lower} study music, "
-        f"electronic music 2026, house music mix, "
-        f"new music 2026, trending music, viral music 2026"
-    )
-    description += seo_keywords
+    # NO raw keyword list here — that's keyword stuffing (against YouTube's
+    # spam policy) and the keywords already live in the video tags. The
+    # description ends with exactly 3 hashtags: YouTube lifts the first 3
+    # hashtags from anywhere in the description and shows them above the
+    # title, so the hook keeps the first line and the tags close the text.
+    genre_tag = (concept.genre or "Afro House").lower().replace(" ", "")
+    description = description.rstrip() + f"\n\n#{genre_tag} #deephouse #tribalhouse"
 
     # Premiere mode: upload as private with publishAt 30 min from now.
     # YouTube shows countdown + sends subscriber notifications + live chat.
