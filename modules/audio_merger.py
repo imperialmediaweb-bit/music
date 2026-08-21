@@ -171,7 +171,7 @@ def merge_mp3s(mp3_files: list[Path], output_name: str = "merged") -> Path:
                 escaped = str(mp3_path.resolve()).replace("'", "'\\''")
                 f.write(f"file '{escaped}'\n")
 
-        safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in output_name)
+        safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in (output_name or ""))
         safe_name = safe_name.strip().replace(" ", "_")[:50] or "merged"
         output_path = OUTPUT_DIR / f"{safe_name}.mp3"
 
