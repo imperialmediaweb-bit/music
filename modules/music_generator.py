@@ -535,7 +535,8 @@ def _wait_with_progress(page, seconds: float):
 # ── Phase 3: My Music -> click cards -> download from detail pages ──
 
 def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected_cards: int,
-                           cdp=None, download_dir: Path = None) -> list[Path]:
+                           cdp=None, download_dir: Path = None,
+                           match_any: bool = False) -> list[Path]:
     """Navigate to My Music, find track cards by name, open each, download MP3s.
 
     The site renders a CSS grid of square cards on /myMusic. Each card has:
@@ -576,7 +577,13 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
     # reliable than the old grid-heuristic which mistakes the "Share" button
     # text for the track title.
     row_matches = _find_song_rows(page, track_name)
-    matching = [r for r in row_matches if r.get("nameMatch")]
+    if match_any:
+        # Download-only mode with no name given: take the newest rows as-is
+        # (library tracks keep their own generated names, so name matching
+        # would find nothing).
+        matching = row_matches
+    else:
+        matching = [r for r in row_matches if r.get("nameMatch")]
     if not matching:
         log.warning(f"No '...' menu rows match '{track_name}' yet — trying search box...")
         _search_mymusic(page, track_name)
@@ -2073,7 +2080,8 @@ def download_existing_tracks(track_name: str, max_cards: int = 4) -> list[Path]:
             page.evaluate("window.moveTo(-2400, -2400)")
 
         all_mp3s = _download_from_mymusic(page, concept, safe_name, max_cards,
-                                          cdp=cdp, download_dir=INPUT_DIR)
+                                          cdp=cdp, download_dir=INPUT_DIR,
+                                          match_any=not track_name)
         browser.close()
 
     if not all_mp3s:
