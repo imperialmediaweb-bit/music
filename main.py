@@ -1135,6 +1135,28 @@ def cmd_suno_download(args):
         log.info("Done!")
 
 
+def _keep_system_awake(enable: bool) -> None:
+    """Stop Windows from sleeping while a pipeline run is in progress.
+
+    A run takes ~1h; if the PC sleeps mid-run the network suspends and the
+    whole clip fails (ERR_NETWORK_IO_SUSPENDED after wake). Uses the same
+    mechanism as video players (SetThreadExecutionState). No-op off Windows.
+    """
+    import platform as plat
+    if plat.system() != "Windows":
+        return
+    try:
+        import ctypes
+        ES_CONTINUOUS = 0x80000000
+        ES_SYSTEM_REQUIRED = 0x00000001
+        flags = ES_CONTINUOUS | (ES_SYSTEM_REQUIRED if enable else 0)
+        ctypes.windll.kernel32.SetThreadExecutionState(flags)
+        log.info("System sleep %s for the duration of this run"
+                 % ("BLOCKED" if enable else "re-allowed"))
+    except Exception as e:
+        log.warning(f"Could not change sleep state: {e}")
+
+
 def cmd_run(args):
     """Run full pipeline N times (generate music + merge + process + upload).
 
@@ -1166,6 +1188,7 @@ def cmd_run(args):
         label += " [WORLD CUP]"
     log.info(f"Running full pipeline for {label}...")
 
+    _keep_system_awake(True)
     total_errors = 0
     for i in range(1, count + 1):
         log.info(f"\n{'#' * 60}")
@@ -1190,6 +1213,7 @@ def cmd_run(args):
 
     log.info(f"\n{'=' * 60}")
     log.info(f"BATCH COMPLETE: {count - total_errors}/{count} clips successful")
+    _keep_system_awake(False)
     if total_errors:
         log.warning(f"{total_errors} clip(s) had errors")
         sys.exit(1)
