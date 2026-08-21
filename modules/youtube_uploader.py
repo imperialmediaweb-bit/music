@@ -90,8 +90,13 @@ def _get_authenticated_service():
 def _find_or_create_playlist(youtube, playlist_title="Afro House") -> str:
     """Find existing playlist by title, or create a new one.
 
-    Returns the playlist ID.
+    Returns the playlist ID. The main "Afro House" playlist is pinned to the
+    channel's real traffic-engine playlist via config.MAIN_PLAYLIST_ID so we
+    never fork a duplicate of it by name.
     """
+    from config import MAIN_PLAYLIST_ID
+    if MAIN_PLAYLIST_ID and playlist_title.strip().lower() == "afro house":
+        return MAIN_PLAYLIST_ID
     # Search existing playlists
     request = youtube.playlists().list(part="snippet", mine=True, maxResults=50)
     response = request.execute()

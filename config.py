@@ -245,6 +245,11 @@ TITLE_HISTORY_FILE = Path(
 # the template count so the selector never starves.
 TITLE_HISTORY_WINDOW = int(os.getenv("TITLE_HISTORY_WINDOW", "5"))
 
+# The channel's REAL main playlist (the ~30%-of-traffic one). When set, every
+# "Afro House" playlist operation (upload add, sort, backfill, description
+# autoplay link) targets this exact playlist instead of resolving by name.
+MAIN_PLAYLIST_ID = os.getenv("MAIN_PLAYLIST_ID", "PLTa_ufOAcU84AFoBx2tJQcHfbH-DZR4O_")
+
 # Ensure directories exist
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 INPUT_DIR.mkdir(parents=True, exist_ok=True)
