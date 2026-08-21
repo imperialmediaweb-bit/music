@@ -271,16 +271,21 @@ def _tagline_from_title(youtube_title: str) -> str:
     """
     t = (youtube_title or "").lower()
     for needle, tagline in [
+        ("goes crazy", "GOES CRAZY"),
+        ("dangerously", "DANGEROUSLY ADDICTIVE"),
+        ("not ready", "YOU'RE NOT READY"),
+        ("destroys speakers", "SPEAKER DESTROYER"),
+        ("zero skips", "ZERO SKIPS"),
+        ("insane drops", "INSANE DROPS"),
+        ("obsessed", "PURE OBSESSION"),
+        ("illegal", "TOO GOOD TO BE LEGAL"),
+        ("repeat all night", "ON REPEAT ALL NIGHT"),
         ("need this", "YOU NEED THIS"),
         ("late night", "LATE NIGHT DRIVE"),
         ("different", "HITS DIFFERENT"),
-        ("fall in love", "PURE AFRO HOUSE"),
-        ("workout", "WORKOUT ENERGY"),
         ("everyone's playing", "EVERYONE'S PLAYING THIS"),
         ("broke my speakers", "BASS OVERLOAD"),
         ("sunrise", "SUNRISE DRIVE"),
-        ("believe this drop", "INSANE DROP"),
-        ("chills", "PURE CHILLS"),
         ("loud", "PLAY IT LOUD"),
     ]:
         if needle in t:
