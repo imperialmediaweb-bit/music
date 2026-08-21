@@ -815,56 +815,54 @@ def _download_via_actions_menu(page, button_index: int, safe_name: str,
             }"""
         )
 
-    def _click_item(needles):
-        """Click the visible element whose text contains a needle (shortest wins)."""
-        return page.evaluate(
-            """(needles) => {
-                const els = document.querySelectorAll('button, [role="menuitem"], div[role="menuitem"], li, a, [role="option"]');
-                let best = null, bestLen = 1e9;
-                for (const el of els) {
-                    const t = (el.textContent || '').trim();
-                    const low = t.toLowerCase();
-                    const r = el.getBoundingClientRect();
-                    if (!t || t.length > 40 || r.width === 0 || r.height === 0) continue;
-                    for (const n of needles) {
-                        if (low.includes(n) && t.length < bestLen) { best = el; bestLen = t.length; }
-                    }
-                }
-                if (best) { best.click(); return (best.textContent || '').trim(); }
-                return null;
-            }""",
-            needles,
-        )
+    def _find_visible_item(text, exact=True):
+        """Find a visible short-text clickable matching `text` (lowercase)."""
+        for el in page.query_selector_all(
+            'button, [role="menuitem"], div[role="menuitem"], li, a, [role="option"], div'
+        ):
+            try:
+                if not el.is_visible():
+                    continue
+                t = (el.inner_text() or "").strip()
+                if not t or len(t) > 40:
+                    continue
+                low = t.lower()
+                if (exact and low == text) or (not exact and text in low):
+                    return el
+            except Exception:
+                continue
+        return None
 
-    # 2+3. Two-phase download. The site keeps changing this flow: sometimes
-    # clicking "Download" opens an MP3/WAV submenu, sometimes it starts the
-    # download DIRECTLY (no submenu). So: listen for the download BEFORE
-    # clicking "Download"; if none arrives quickly, treat it as a submenu and
-    # click the format item ('Audio Tool' and similar non-format entries are
-    # excluded — clicking those navigates away and breaks the page).
-    output_path = download_dir / f"{safe_name}_{song_id}_{card_num}.mp3"
-    download = None
-    try:
-        with page.expect_download(timeout=12_000) as dl_info:
-            dl_label = _click_item(["download"])
-            if not dl_label:
-                items = _menu_items()
-                log.warning(f"Download menu item not found. Menu items visible: {items}")
-                raise RuntimeError("Download menu item not found")
-            log.info(f"Clicked menu item: '{dl_label}'")
-        download = dl_info.value
-        log.info("Download started directly (no submenu)")
-    except PlaywrightTimeout:
-        # No direct download — a submenu should be open now.
-        page.screenshot(path=str(OUTPUT_DIR / f"debug_submenu_open_{card_num}.png"))
+    # 2. The "Download" entry is a FLYOUT parent (has a "›" arrow): the
+    # MP3/WAV submenu opens on HOVER, not on click — clicking does nothing,
+    # which is why the old flow never saw the MP3 item.
+    dl_el = _find_visible_item("download")
+    if not dl_el:
         items = _menu_items()
-        log.info(f"Submenu items visible: {items}")
-        with page.expect_download(timeout=60_000) as dl_info:
-            fmt_label = _click_item(["mp3"]) or _click_item([".wav", "wav "])
-            if not fmt_label:
-                raise RuntimeError(f"MP3 submenu item not found (items: {items})")
-            log.info(f"Clicked format item: '{fmt_label}'")
-        download = dl_info.value
+        log.warning(f"Download menu item not found. Menu items visible: {items}")
+        raise RuntimeError("Download menu item not found")
+    dl_el.hover()
+    page.wait_for_timeout(1000)
+    page.screenshot(path=str(OUTPUT_DIR / f"debug_submenu_open_{card_num}.png"))
+
+    # 3. Click the format item in the flyout (exact match — 'Generate Video'
+    # and 'Song-to-MIDI' must never match). Try a click-expand as fallback.
+    mp3_el = _find_visible_item("mp3") or _find_visible_item("wav")
+    if not mp3_el:
+        dl_el.click()
+        page.wait_for_timeout(1000)
+        mp3_el = _find_visible_item("mp3") or _find_visible_item("wav")
+    if not mp3_el:
+        items = _menu_items()
+        log.warning(f"MP3/WAV item not in flyout. Items visible: {items}")
+        raise RuntimeError("MP3 submenu item not found")
+
+    output_path = download_dir / f"{safe_name}_{song_id}_{card_num}.mp3"
+    fmt_label = (mp3_el.inner_text() or "").strip()
+    with page.expect_download(timeout=60_000) as dl_info:
+        mp3_el.click()
+    log.info(f"Clicked format item: '{fmt_label}'")
+    download = dl_info.value
     # Keep the real extension if the site handed us a WAV.
     suggested = (download.suggested_filename or "").lower()
     if suggested.endswith(".wav"):
