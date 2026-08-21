@@ -1,14 +1,14 @@
 {
-  "_comment": "Title templates tuned on channel data (proven hooks), WITHOUT serial numbering. YouTube's 2026 inauthentic-content enforcement explicitly lists formulaic numbered titles ('Lofi Mix #47') as a mass-production detection signature — the old '#292' pattern painted a target on the channel. Hooks kept exactly as proven (You NEED This 1822, Late Night Tribal Drive 660, Hits DIFFERENT 378...). Placeholders: TRACKNAME, {genre}, {genre_hashtag}. One template per upload, not repeating within the last TITLE_HISTORY_WINDOW picks.",
+  "_comment": "Title pool v3 — tuned to YouTube's indexing/suggestion rules: the exact search phrase '{genre} Mix' is front-loaded right after the track name (search+suggested match on the first ~40 chars), each formula stays under ~70 chars before the auto-appended [XX Min] tail, ONE emoji max, no serial numbering (mass-produced signature), hooks are proven winners (NEED 1822, Late Night 660, DIFFERENT 378, LOUD, Everyone's Playing 239, Broke My Speakers 178). Placeholders: TRACKNAME, {genre}, {genre_hashtag}. One per upload, non-repeating within TITLE_HISTORY_WINDOW.",
   "templates": [
-    "TRACKNAME 🔥 If You Love {genre}, You NEED This Mix | {genre_hashtag}",
-    "TRACKNAME 🔥 Late Night Tribal Drive • {genre} Mix | {genre_hashtag}",
-    "TRACKNAME 🔥 {genre} That Hits DIFFERENT • 2026 Mix | {genre_hashtag}",
-    "TRACKNAME 🔥 This Track Made Me Fall In Love With {genre} | {genre_hashtag}",
-    "TRACKNAME 🔥 {genre} Mix For Workouts & Festival Vibes | {genre_hashtag}",
-    "TRACKNAME 🔥 The {genre} Mix Everyone's Playing Right Now 2026 | {genre_hashtag}",
-    "TRACKNAME | The {genre} Mix That Broke My Speakers 2026",
-    "TRACKNAME 🔥 Sunrise Drive • {genre} Mix 2026 | {genre_hashtag}",
-    "TRACKNAME 🔥 You Won't Believe This Drop • {genre} Mix | {genre_hashtag}"
+    "TRACKNAME 🔥 {genre} Mix You NEED Right Now | {genre_hashtag}",
+    "TRACKNAME 🔥 Deep {genre} Mix • Late Night Drive | {genre_hashtag}",
+    "TRACKNAME 🔥 {genre} Mix That Hits DIFFERENT | {genre_hashtag}",
+    "TRACKNAME 🔥 Best {genre} Mix of 2026? You Decide | {genre_hashtag}",
+    "TRACKNAME 🔥 {genre} Mix • Play It LOUD | {genre_hashtag}",
+    "TRACKNAME 🔥 The {genre} Mix Everyone's Playing | {genre_hashtag}",
+    "TRACKNAME | {genre} Mix That Broke My Speakers 🔊",
+    "TRACKNAME 🔥 Sunrise Drive • Deep {genre} Mix | {genre_hashtag}",
+    "TRACKNAME 🔥 Hypnotic {genre} Mix • Deep Tribal Bass | {genre_hashtag}"
   ]
 }
