@@ -1,5 +1,5 @@
 {
-  "_comment": "Audio prompt pool v3 — PURE Afro House only (owner's call). Fusion-leaning flavors removed (desert oud strings, orchestral cinematic, jazzy sax, nature field recordings). Every variant is the classic Afro House core — four-on-the-floor, 118-125 BPM, organic African percussion, deep rolling bassline, tribal/hypnotic character — varying only intensity and mood WITHIN the genre.",
+  "_comment": "Audio prompt pool v3 — PURE Afro House only (owner's call). Fusion-leaning flavors removed (desert oud strings, orchestral cinematic, jazzy sax, nature field recordings). Every variant is the classic Afro House core — four-on-the-floor, 118-125 BPM, organic African percussion, deep rolling bassline, tribal/hypnotic character — varying only intensity and mood WITHIN the genre. v3.1: heavy deep bass (car-bass / sub-bass) reinforced as a mandatory element in every prompt.",
   "prompts": [
     {
       "id": "progressive-carbass",
@@ -7,31 +7,31 @@
     },
     {
       "id": "dark-tribal-afro",
-      "prompt": "Dark tribal Afro House, 120 BPM, relentless four-on-the-floor. Heavy ceremonial toms and djembe locked to a deep rolling bassline, ominous drone pads, distant ritual chant fragments. Metallic percussion accents like ritual bells, tension building in long hypnotic waves. Mood: ominous, hypnotic, powerful."
+      "prompt": "Dark tribal Afro House, 120 BPM, relentless four-on-the-floor. Heavy ceremonial toms and djembe locked to a deep rolling bassline, ominous drone pads, distant ritual chant fragments. Metallic percussion accents like ritual bells, tension building in long hypnotic waves. Massive deep sub-bass presence throughout — heavy car-bass low end that moves air, mastered for bass impact. Mood: ominous, hypnotic, powerful."
     },
     {
       "id": "peaktime-afro-tech",
-      "prompt": "Peak-time Afro House / Afro Tech, 124 BPM, driving four-on-the-floor for a festival main stage. Punchy layered tribal drums, tight aggressive bassline, filtered build-ups with white-noise risers and a euphoric hands-in-the-air drop with a chopped vocal stab. Loud, wide, relentless. Mood: explosive, ecstatic."
+      "prompt": "Peak-time Afro House / Afro Tech, 124 BPM, driving four-on-the-floor for a festival main stage. Punchy layered tribal drums, tight aggressive bassline, filtered build-ups with white-noise risers and a euphoric hands-in-the-air drop with a chopped vocal stab. Loud, wide, relentless. Massive deep sub-bass presence throughout — heavy car-bass low end that moves air, mastered for bass impact. Mood: explosive, ecstatic."
     },
     {
       "id": "minimal-hypnotic-afro",
-      "prompt": "Minimal hypnotic Afro House, 120 BPM, stripped four-on-the-floor. One rolling marimba loop, dry kick, tight shaker, a single deep sub note that breathes. Long patient grooves where the tension lives between the hits — late-night warehouse Afro House, nothing extra. Mood: hypnotic, restrained, meditative."
+      "prompt": "Minimal hypnotic Afro House, 120 BPM, stripped four-on-the-floor. One rolling marimba loop, dry kick, tight shaker, a single deep sub note that breathes. Long patient grooves where the tension lives between the hits — late-night warehouse Afro House, nothing extra. Massive deep sub-bass presence throughout — heavy car-bass low end that moves air, mastered for bass impact. Mood: hypnotic, restrained, meditative."
     },
     {
       "id": "vocal-chant-afro",
-      "prompt": "Vocal Afro House, 122 BPM, four-on-the-floor with rich organic drums. Call-and-response African chants (wordless, soulful) over a deep melodic bassline, warm percussion and handclaps; a goosebump chant swell in the breakdown, then back into the rolling groove. Mood: communal, uplifting, spiritual."
+      "prompt": "Vocal Afro House, 122 BPM, four-on-the-floor with rich organic drums. Call-and-response African chants (wordless, soulful) over a deep melodic bassline, warm percussion and handclaps; a goosebump chant swell in the breakdown, then back into the rolling groove. Massive deep sub-bass presence throughout — heavy car-bass low end that moves air, mastered for bass impact. Mood: communal, uplifting, spiritual."
     },
     {
       "id": "deep-rolling-afro",
-      "prompt": "Deep rolling Afro House for 3 a.m., 123 BPM, tunnel-vision four-on-the-floor. A relentless rolling bassline drives everything; tight dry drums, hissing hats, one slowly mutating synth blip, sparse tribal percussion accents. Almost no melody — pure forward momentum. Mood: dark, driving, hypnotic."
+      "prompt": "Deep rolling Afro House for 3 a.m., 123 BPM, tunnel-vision four-on-the-floor. A relentless rolling bassline drives everything; tight dry drums, hissing hats, one slowly mutating synth blip, sparse tribal percussion accents. Almost no melody — pure forward momentum. Massive deep sub-bass presence throughout — heavy car-bass low end that moves air, mastered for bass impact. Mood: dark, driving, hypnotic."
     },
     {
       "id": "melodic-sunrise-afro",
-      "prompt": "Melodic Afro House for a sunrise set, 121 BPM, steady four-on-the-floor house kick with warm organic percussion. A tender piano motif and soft wordless vocal hum float over a deep rounded bassline, tribal drums carrying the groove underneath the emotion. Unmistakably Afro House. Mood: euphoric, luminous, hopeful."
+      "prompt": "Melodic Afro House for a sunrise set, 121 BPM, steady four-on-the-floor house kick with warm organic percussion. A tender piano motif and soft wordless vocal hum float over a deep rounded bassline, tribal drums carrying the groove underneath the emotion. Unmistakably Afro House. Massive deep sub-bass presence throughout — heavy car-bass low end that moves air, mastered for bass impact. Mood: euphoric, luminous, hopeful."
     },
     {
       "id": "percussion-storm-afro",
-      "prompt": "Drum-heavy tribal Afro House, 123 BPM, pounding four-on-the-floor. Layered djembe, talking drum and shaker in call-and-response over a deep anchoring sub; gang vocal chants answering the drums, raw skin-and-wood texture with field-recording grit — all locked to the house pulse. Mood: primal, communal, energetic."
+      "prompt": "Drum-heavy tribal Afro House, 123 BPM, pounding four-on-the-floor. Layered djembe, talking drum and shaker in call-and-response over a deep anchoring sub; gang vocal chants answering the drums, raw skin-and-wood texture with field-recording grit — all locked to the house pulse. Massive deep sub-bass presence throughout — heavy car-bass low end that moves air, mastered for bass impact. Mood: primal, communal, energetic."
     }
   ]
 }

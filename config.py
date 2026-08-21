@@ -206,7 +206,8 @@ ARCHIVE_QUARANTINE_RANGES = [
 GENRE_ANCHOR = os.getenv(
     "GENRE_ANCHOR",
     "Afro House, four-on-the-floor house kick, 118-125 BPM, organic African "
-    "percussion (congas, djembe, shakers), deep rolling bassline. ",
+    "percussion (congas, djembe, shakers), deep rolling bassline with massive "
+    "heavy sub-bass / car-bass low end. ",
 )
 
 # Weighted duration buckets: (label, min_minutes, max_minutes, weight).
