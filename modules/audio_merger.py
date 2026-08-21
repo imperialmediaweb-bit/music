@@ -249,7 +249,7 @@ def merge_mp3s_crossfade(mp3_files: list[Path], output_name: str = "merged",
 
     log.info(f"Merging {len(mp3_files)} MP3s with {crossfade_sec}s crossfade...")
 
-    safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in output_name)
+    safe_name = "".join(c if c.isalnum() or c in "-_ " else "" for c in (output_name or ""))
     safe_name = safe_name.strip().replace(" ", "_")[:50] or "merged"
     output_path = OUTPUT_DIR / f"{safe_name}.mp3"
 
