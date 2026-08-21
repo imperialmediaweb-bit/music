@@ -728,6 +728,58 @@ def _apply_end_screen(video_id: str) -> bool:
                             except Exception:
                                 continue
 
+            # Add a PLAYLIST element — the strongest session-time driver
+            # (an end-screen playlist adds ~3.2 min of extra watch per viewer:
+            # click → playlist → autoplay chain, no further decisions needed).
+            try:
+                add_btn = None
+                for sel in ["button:has-text('Add element')",
+                            "ytcp-button:has-text('Add element')",
+                            "button:has-text('Element')"]:
+                    el = page.locator(sel).first
+                    try:
+                        if el.is_visible(timeout=2000):
+                            add_btn = el
+                            break
+                    except Exception:
+                        continue
+                if add_btn:
+                    add_btn.click()
+                    page.wait_for_timeout(1500)
+                    for sel in ["[role='menuitem']:has-text('Playlist')",
+                                "tp-yt-paper-item:has-text('Playlist')",
+                                "div:has-text('Playlist'):not(:has(*))"]:
+                        el = page.locator(sel).first
+                        try:
+                            if el.is_visible(timeout=2000):
+                                el.click()
+                                page.wait_for_timeout(2000)
+                                break
+                        except Exception:
+                            continue
+                    # Picker dialog: choose the Afro House playlist (or the
+                    # first playlist row as fallback).
+                    picked = False
+                    for sel in ["[role='option']:has-text('Afro House')",
+                                "ytcp-entity-card:has-text('Afro House')",
+                                "tp-yt-paper-item:has-text('Afro House')",
+                                "[role='dialog'] [role='option']"]:
+                        el = page.locator(sel).first
+                        try:
+                            if el.is_visible(timeout=2500):
+                                el.click()
+                                picked = True
+                                page.wait_for_timeout(1500)
+                                break
+                        except Exception:
+                            continue
+                    log.info("End-screen playlist element %s"
+                             % ("added" if picked else "picker not matched"))
+                else:
+                    log.info("End-screen: 'Add element' not visible for playlist step")
+            except Exception as e:
+                log.info(f"End-screen playlist step skipped: {e}")
+
             page.screenshot(path=str(debug_dir / "debug_yt_endscreen_02_elements.png"))
 
             # Click Save

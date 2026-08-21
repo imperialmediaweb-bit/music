@@ -1386,6 +1386,58 @@ def cmd_monetize(args):
     log.info(f"Monetization done: {ok}/{len(video_ids)} OK")
 
 
+def cmd_endscreens(args):
+    """Apply the end screen (Subscribe + video + PLAYLIST) to top/recent videos.
+
+    --top N ranks all uploads by view count and applies to the N winners —
+    they get the most end-screen impressions, so they feed the autoplay
+    playlist hardest. Uses the Studio browser flow (end screens have no API).
+    """
+    from modules.youtube_uploader import (
+        _apply_end_screen, _get_authenticated_service,
+    )
+
+    video_ids = list(args.ids or [])
+    if args.top and not video_ids:
+        youtube = _get_authenticated_service()
+        ch = youtube.channels().list(part="contentDetails", mine=True).execute()
+        uploads_pl = ch["items"][0]["contentDetails"]["relatedPlaylists"]["uploads"]
+        vids, token = [], None
+        while len(vids) < 500:
+            resp = youtube.playlistItems().list(
+                part="contentDetails", playlistId=uploads_pl,
+                maxResults=50, pageToken=token,
+            ).execute()
+            vids += [it["contentDetails"]["videoId"] for it in resp.get("items", [])]
+            token = resp.get("nextPageToken")
+            if not token:
+                break
+        views = {}
+        for i in range(0, len(vids), 50):
+            resp = youtube.videos().list(
+                part="statistics", id=",".join(vids[i:i + 50])
+            ).execute()
+            for v in resp.get("items", []):
+                views[v["id"]] = int(v.get("statistics", {}).get("viewCount", 0))
+        video_ids = sorted(views, key=views.get, reverse=True)[:args.top]
+        log.info(f"Top {len(video_ids)} by views: "
+                 + ", ".join(f"{v}({views[v]})" for v in video_ids))
+
+    if not video_ids:
+        log.error("No videos: pass IDs or --top N")
+        sys.exit(1)
+
+    ok = 0
+    for vid in video_ids:
+        log.info(f"End screen for {vid} ...")
+        try:
+            if _apply_end_screen(vid):
+                ok += 1
+        except Exception as e:
+            log.warning(f"End screen {vid} failed: {e}")
+    log.info(f"End screens done: {ok}/{len(video_ids)} OK")
+
+
 def cmd_playlist_sort(args):
     """Reorder the main genre playlist so the highest-viewed videos play first.
 
@@ -2076,6 +2128,16 @@ def main():
         help="Post queued pinned comments (premieres now public) and reply to new comments",
     )
     engage_parser.set_defaults(func=cmd_engage)
+
+    # endscreens - apply Subscribe+video+playlist end screen to top videos
+    es_parser = subparsers.add_parser(
+        "endscreens",
+        help="Apply end screen with playlist element to given IDs or --top N by views",
+    )
+    es_parser.add_argument("ids", nargs="*", help="Video IDs")
+    es_parser.add_argument("--top", type=int, default=0,
+                           help="Apply to the N most-viewed uploads")
+    es_parser.set_defaults(func=cmd_endscreens)
 
     # playlist-sort - winners first so the autoplay chain starts strong
     plsort_parser = subparsers.add_parser(
