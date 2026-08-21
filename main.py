@@ -231,23 +231,44 @@ def _run_full_pipeline(gen_count: int = 0, platform: str = None, songs: int = No
             needed = profile.get("archive_min_pool", 12)
             log.info(f"Hybrid mode waiting — pool {pool}/{needed} MP3s (need more generations)")
 
-    # Smart ordering (applies to every path that added archive songs): the track
-    # must ALWAYS open with a fresh song (a stale archived intro hurts retention)
-    # and, when possible, close with a fresh one too. Archived songs are shuffled
-    # into the MIDDLE together with the remaining fresh ones.
+    # Smart ordering: the track must ALWAYS open with the most ENERGETIC fresh
+    # song — the first 30 seconds decide whether YouTube keeps recommending
+    # the video, so the opener is chosen by measured loudness (ffmpeg
+    # volumedetect), not at random. Archived songs go in the MIDDLE; a fresh
+    # song closes when possible.
+    def _mean_volume_db(p):
+        import subprocess as _sp
+        import re as _re
+        try:
+            r = _sp.run(["ffmpeg", "-i", str(p), "-af", "volumedetect",
+                         "-f", "null", "-"], capture_output=True, text=True,
+                        timeout=120)
+            m = _re.search(r"mean_volume:\s*(-?[\d.]+) dB", r.stderr)
+            return float(m.group(1)) if m else -99.0
+        except Exception:
+            return -99.0
+
+    if mp3_files:
+        loudest = max(mp3_files, key=_mean_volume_db)
+        mp3_files.remove(loudest)
+        mp3_files.insert(0, loudest)
+        log.info(f"Opener (most energetic fresh song): {loudest.name}")
+
     if archive_mp3s_list:
         log.info(f"Hybrid mix: {len(mp3_files)} fresh + {len(archive_mp3s_list)} from archive")
         fresh = mp3_files[:]
-        random.shuffle(fresh)
         random.shuffle(archive_mp3s_list)
         if len(fresh) >= 2:
-            first, last = fresh[0], fresh[-1]
-            middle = fresh[1:-1] + archive_mp3s_list
+            first = mp3_files[0]  # loudest, chosen above
+            rest = [f for f in fresh if f is not first]
+            random.shuffle(rest)
+            last = rest[-1]
+            middle = rest[:-1] + archive_mp3s_list
             random.shuffle(middle)
             mp3_files = [first] + middle + [last]
         else:
             mp3_files = fresh + archive_mp3s_list
-        log.info(f"Order: fresh intro → {len(mp3_files) - 2} mixed middle → fresh outro")
+        log.info(f"Order: energetic fresh intro → {len(mp3_files) - 2} mixed middle → fresh outro")
 
     # Step 3: Merge all MP3s into one track (with crossfade if profile uses it)
     log.info("=" * 60)
