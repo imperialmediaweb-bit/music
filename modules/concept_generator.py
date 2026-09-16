@@ -1470,7 +1470,7 @@ def generate_fusion_concept(track_name: str = "") -> MusicConcept:
     music_style = fusion["music_style"]
     thumbnail_style = fusion["thumbnail_style"]
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=OPENAI_API_KEY, timeout=90.0, max_retries=0)  # 90s: a JSON concept can be slow; our loop handles retries
     system_prompt = _build_fusion_system_prompt(fusion, music_style)
 
     user_msg = (
@@ -1555,6 +1555,108 @@ def generate_fusion_concept(track_name: str = "") -> MusicConcept:
     )
 
 
+def _invent_track_name() -> str:
+    """Invent a fresh catchy track name without calling any API."""
+    import random as _r
+    starts = ["Za", "Ma", "Ki", "Lu", "Ba", "Ta", "Ne", "Ju", "Ka", "Ra",
+              "Sa", "Do", "Fi", "Ze", "Mo", "Ny", "Ha", "Ko", "Vu", "Ji",
+              "Te", "Bo", "Ga", "Wa", "Ru", "Si", "Ya", "Mu", "Le", "Ca"]
+    mids = ["ru", "ku", "li", "na", "ba", "ti", "mo", "sha", "ve", "zi",
+            "la", "ni", "ka", "do", "ma", "ro", "ju", "sa"]
+    ends = ["ni", "ra", "mo", "li", "ka", "ta", "zu", "ro", "na", "si",
+            "vi", "no", "ya", "ku", "da", "mi"]
+    name = _r.choice(starts) + _r.choice(mids) + _r.choice(ends)
+    if _r.random() < 0.3:  # sometimes a shorter, punchier two-syllable name
+        name = _r.choice(starts) + _r.choice(ends)
+    return name.capitalize()
+
+
+def _local_concept(genre: str, track_name: str = "",
+                   music_style: str = "") -> MusicConcept:
+    """Build a complete concept WITHOUT OpenAI.
+
+    The whole channel stopped publishing for a month because one OpenAI call
+    timed out and took the entire run down with it. Metadata is not worth
+    losing a day's upload over: this assembles a solid concept from the pools
+    we already maintain (title templates, thumbnail directions, genre profile)
+    so the pipeline always has something to publish.
+    """
+    import random as _r
+
+    profile = _get_genre_profile(genre)
+    name = (track_name or _invent_track_name()).strip()
+    genre_hashtag = f"#{genre.lower().replace(' ', '')}"
+    mix_num = _next_mix_number(genre)
+
+    # Title from the rotating template pool (same source the AI is told to use)
+    try:
+        from modules.visual_selector import pick_title_template
+        title = pick_title_template().format(
+            genre=genre, genre_hashtag=genre_hashtag, mix_number=mix_num,
+        ).replace("TRACKNAME", name.upper())
+    except Exception:
+        title = f"{name.upper()} 🔥 {genre} Mix You NEED Right Now | {genre_hashtag}"
+
+    # Thumbnail prompt from the rotating visual directions
+    try:
+        from modules.visual_selector import pick_direction
+        d = pick_direction()
+        thumb = (f"{d['subject']}\n\nSTYLE RULES (MANDATORY):\n{d['image_rules']}\n\n"
+                 "No text, no logos, no watermarks. 4K, ultra detailed.")
+    except Exception:
+        thumb = profile["thumbnail_core"]
+
+    moods = ["hypnotic", "primal", "euphoric", "nocturnal", "cinematic",
+             "relentless", "spiritual", "magnetic"]
+    mood = _r.choice(moods)
+
+    openers = [
+        f"The {genre} mix your speakers were built for.",
+        f"Press play and let this {genre} groove take over.",
+        f"{name} is the {genre} session you'll keep coming back to.",
+        f"Deep bass, tribal drums, zero filler — this is {name}.",
+    ]
+    uses = ["late night drives", "workouts", "deep focus", "long road trips",
+            "sunset sessions", "studying"]
+    description = (
+        f"{_r.choice(openers)}\n\n"
+        f"{name} rolls on a deep, {mood} groove — rounded sub-bass, organic "
+        f"percussion and drums that never let go. No interruptions, just one "
+        f"long continuous mix.\n\n"
+        f"Perfect for {_r.choice(uses)}, {_r.choice(uses)} or anything that "
+        f"needs momentum.\n\n"
+        f"If this one hits, hit LIKE and SUBSCRIBE — and tell me in the "
+        f"comments which drop got you.\n\n"
+        f"Contact: imperialmediaweb@gmail.com"
+    )
+
+    related = [g.strip() for g in profile["related_genres"].split(",") if g.strip()]
+    use_cases = [u.strip() for u in profile["use_cases"].split(",") if u.strip()]
+    tags = [genre, f"{genre} music", f"{genre} mix", f"{genre} 2026",
+            f"new {genre}", f"best {genre}"] + related[:8] + use_cases[:6] + [
+            "new music 2026", "music mix 2026", "trending music", name]
+
+    hashtags = [genre.lower().replace(" ", ""), "deephouse", "tribalhouse",
+                "housemusic", "afrobeat", "electronicmusic", "newmusic2026",
+                "musicmix", "carbass", "deepbass"]
+
+    log.info(f"Local concept built (no API): {name}")
+    return MusicConcept(
+        track_name=name,
+        genre=genre,
+        mood=mood,
+        description=f"A deep, {mood} {genre} journey called {name}.",
+        music_prompt=music_style or DEFAULT_AFRO_HOUSE_STYLE,
+        hashtags=hashtags,
+        thumbnail_prompt=thumb,
+        youtube_title=title[:100],
+        youtube_description=description,
+        youtube_tags=tags[:30],
+        tiktok_caption=f"This {genre} beat hits different 🔥 #fyp #foryou {genre_hashtag}"[:150],
+        lyrics="",
+    )
+
+
 def generate_concept(track_name: str = "", genre: str = "",
                      music_style: str = "", thumbnail_style: str = "",
                      world_cup: bool | None = None) -> MusicConcept:
@@ -1584,7 +1686,7 @@ def generate_concept(track_name: str = "", genre: str = "",
 
     log.info(f"Generating {genre} music concept...")
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=OPENAI_API_KEY, timeout=90.0, max_retries=0)  # 90s: a JSON concept can be slow; our loop handles retries
 
     system_prompt = _build_system_prompt(genre, music_style, world_cup=world_cup)
 
@@ -1626,10 +1728,11 @@ def generate_concept(track_name: str = "", genre: str = "",
                 log.info(f"Retrying in {wait}s...")
                 time.sleep(wait)
             else:
-                raise RuntimeError(
-                    f"OpenAI API failed after 4 attempts: {last_err}\n"
-                    "Check your OPENAI_API_KEY in .env and internet connection."
-                ) from last_err
+                log.error(f"OpenAI API failed after 4 attempts: {last_err}")
+                log.warning("Falling back to a LOCAL concept — the upload goes "
+                            "ahead with pool-built metadata instead of dying.")
+                return _local_concept(genre, track_name=track_name,
+                                      music_style=music_style)
 
     raw = response.choices[0].message.content
     data = json.loads(raw)
