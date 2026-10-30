@@ -1218,13 +1218,14 @@ def upload_to_youtube(
     except Exception as e:
         log.warning(f"End-screen apply failed: {e}")
 
-    # Complete self-certification for monetization
+    # Monetization is DEFERRED, not done here: this video is still a private
+    # premiere for the next ~30 minutes, and Studio's monetization page offers
+    # no controls while it is. Queue it; the next run flushes it once public.
     try:
-        certified = _complete_self_certification(video_id)
-        if not certified:
-            log.warning("Self-certification incomplete — check YouTube Studio manually")
+        from modules.monetize_queue import queue_monetization
+        queue_monetization(video_id, title=title)
     except Exception as e:
-        log.warning(f"Self-certification failed (non-fatal): {e}")
+        log.warning(f"Could not queue monetization (non-fatal): {e}")
 
     log.info(f"Premiere scheduled at {publish_at} — YouTube will notify subscribers")
 

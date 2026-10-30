@@ -827,6 +827,11 @@ def process_single_track(mp3_path: Path, concept=None,
     except Exception as e:
         log.warning(f"comment_queue flush failed: {e}")
     try:
+        from modules.monetize_queue import flush_pending_monetization
+        flush_pending_monetization()
+    except Exception as e:
+        log.warning(f"monetize_queue flush failed: {e}")
+    try:
         from modules.youtube_uploader import reply_to_new_comments
         reply_to_new_comments(max_videos=5, max_replies_per_video=2)
     except Exception as e:

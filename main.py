@@ -1368,10 +1368,16 @@ def cmd_engage(args):
     premiere was private get posted, and fan comments get replies.
     """
     from modules.comment_queue import flush_pending_comments
+    from modules.monetize_queue import flush_pending_monetization
     from modules.youtube_uploader import reply_to_new_comments
 
     posted = flush_pending_comments()
     log.info(f"Engage: {posted} queued comment(s) posted")
+    try:
+        monetized = flush_pending_monetization()
+        log.info(f"Engage: {monetized} queued video(s) monetized")
+    except Exception as e:
+        log.warning(f"Engage: monetization flush failed: {e}")
     try:
         replies = reply_to_new_comments(max_videos=8, max_replies_per_video=3)
         log.info(f"Engage: {replies} repl(y/ies) sent")
