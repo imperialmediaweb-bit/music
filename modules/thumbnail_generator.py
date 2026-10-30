@@ -485,11 +485,11 @@ def generate_thumbnail_and_cover(
     try:
         if not OPENAI_API_KEY:
             raise RuntimeError("OPENAI_API_KEY not set")
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        client = OpenAI(api_key=OPENAI_API_KEY, timeout=180.0, max_retries=0)  # gpt-image-1 draws for 60-120s; our loop owns the retries
         base_image = _dall_e_generate(client, thumbnail_prompt, "1792x1024")
         log.info("DALL-E image ready — deriving thumbnail + cover from single image")
     except Exception as e:
-        log.warning(f"DALL-E generation failed: {e}")
+        log.error(f"IMAGE GENERATION FAILED: {e} — the cover will be a plain gradient, not artwork")
         log.info("Using fallback gradient thumbnail...")
         base_image = _generate_fallback_image(1792, 1024)
 
@@ -551,7 +551,7 @@ def generate_cover_art(
     try:
         if not OPENAI_API_KEY:
             raise RuntimeError("OPENAI_API_KEY not set")
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        client = OpenAI(api_key=OPENAI_API_KEY, timeout=180.0, max_retries=0)  # gpt-image-1 draws for 60-120s; our loop owns the retries
         image = _dall_e_generate(client, cover_prompt, "1024x1024")
     except Exception as e:
         log.warning(f"DALL-E cover art failed: {e}")
@@ -582,7 +582,7 @@ def generate_thumbnail(thumbnail_prompt: str, track_name: str) -> Path:
     try:
         if not OPENAI_API_KEY:
             raise RuntimeError("OPENAI_API_KEY not set")
-        client = OpenAI(api_key=OPENAI_API_KEY)
+        client = OpenAI(api_key=OPENAI_API_KEY, timeout=180.0, max_retries=0)  # gpt-image-1 draws for 60-120s; our loop owns the retries
         image = _dall_e_generate(client, thumbnail_prompt, "1792x1024")
     except Exception as e:
         log.warning(f"DALL-E thumbnail failed: {e}")
