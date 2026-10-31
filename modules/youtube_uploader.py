@@ -356,6 +356,30 @@ def reply_to_new_comments(max_videos: int = 5, max_replies_per_video: int = 3) -
     return total_replies
 
 
+def _verify_ads_on(page, studio_url: str) -> bool | None:
+    """Reload the monetization page and read whether the "On" radio is checked.
+
+    True / False = the page rendered and said so. None = nothing to read: the
+    page did not render its controls at all, which Studio does to this browser
+    fairly often, and is not evidence that ads are on.
+    """
+    try:
+        page.goto(studio_url, wait_until="domcontentloaded", timeout=60_000)
+        page.wait_for_timeout(6000)
+        for r in page.query_selector_all(
+            'tp-yt-paper-radio-button, ytcp-radio-button, [role="radio"]'
+        ):
+            try:
+                if (r.inner_text() or "").strip().lower() == "on":
+                    return (r.get_attribute("aria-checked") == "true"
+                            or r.get_attribute("checked") == "true")
+            except Exception:
+                continue
+    except Exception as e:
+        log.warning(f"Monetization verify step errored: {e}")
+    return None
+
+
 def _complete_self_certification(video_id: str) -> bool:
     """Complete YouTube Studio self-certification for monetization.
 
@@ -497,10 +521,26 @@ def _complete_self_certification(video_id: str) -> bool:
                         .slice(0, 30);
                 }""")
                 log.warning(f"No 'None of the above' found. Visible radios/labels: {radios}")
-                # Check if already certified
+                # Nothing to click. That is either "already certified" or — far
+                # more often — Studio refusing to render its controls for this
+                # browser at all. Those look identical from here, so decide on
+                # the actual ads state instead of assuming the happy one: a
+                # video reported as monetized when it is not costs real money
+                # and hides the problem.
                 if "self-certification" not in page_text.lower():
-                    log.info("Self-certification section not visible — may already be done")
-                    return True
+                    state = _verify_ads_on(page, studio_url)
+                    if state is True:
+                        log.info("No self-certification needed — ads VERIFIED ON")
+                        return True
+                    if state is False:
+                        log.error("Ads are OFF and no self-certification controls "
+                                  "were offered — leaving it queued for a retry")
+                    else:
+                        log.error("Studio rendered no monetization controls "
+                                  "(visible radios: none) — cannot confirm ads "
+                                  "are on, so NOT reporting success. If this "
+                                  "repeats, switch the video on by hand in Studio.")
+                    return False
                 return False
 
             page.wait_for_timeout(1000)
@@ -538,37 +578,22 @@ def _complete_self_certification(video_id: str) -> bool:
                         .slice(0, 20);
                 }""")
                 log.warning(f"Could not find Submit button. Visible buttons: {buttons}")
-                # In the new UI, a disabled/absent Save just means nothing
-                # changed (ads were already ON) — that's success, not failure.
+                # An absent Save can mean nothing needed saving (ads already
+                # ON) — but only the ads state itself can say so.
                 if ads_on_done:
-                    log.info("Ads ON confirmed; Save not needed (no pending changes)")
-                    return True
+                    if _verify_ads_on(page, studio_url) is True:
+                        log.info("Ads VERIFIED ON; Save not needed (no pending changes)")
+                        return True
+                    log.error("Save button missing and ads are not confirmed ON "
+                              "— leaving it queued rather than claiming success")
                 return False
 
             # Wait for save to complete
             page.wait_for_timeout(5000)
             page.screenshot(path=str(debug_dir / "debug_yt_monetization_04_done.png"))
 
-            # VERIFY — reload the monetization page and confirm the "On" radio
-            # is actually checked. Videos were silently left "Ads off" when the
-            # click flow reported success without taking effect; never trust
-            # the clicks, only the resulting state.
-            verified = None
-            try:
-                page.goto(studio_url, wait_until="domcontentloaded", timeout=60_000)
-                page.wait_for_timeout(6000)
-                for r in page.query_selector_all(
-                    'tp-yt-paper-radio-button, ytcp-radio-button, [role="radio"]'
-                ):
-                    try:
-                        if (r.inner_text() or "").strip().lower() == "on":
-                            verified = (r.get_attribute("aria-checked") == "true"
-                                        or r.get_attribute("checked") == "true")
-                            break
-                    except Exception:
-                        continue
-            except Exception as e:
-                log.warning(f"Monetization verify step errored: {e}")
+            # VERIFY — never trust the clicks, only the resulting state.
+            verified = _verify_ads_on(page, studio_url)
             page.screenshot(path=str(debug_dir / "debug_yt_monetization_05_verify.png"))
 
             # Save updated cookies
@@ -579,10 +604,11 @@ def _complete_self_certification(video_id: str) -> bool:
                           "video. See output/debug_yt_monetization_*.png")
                 return False
             if verified is None:
-                log.warning("Monetization state could not be verified (no On radio "
-                            "found on reload) — check Studio manually")
-            else:
-                log.info("Monetization VERIFIED: ads are ON")
+                log.error("Could not read the ads state back — reporting failure "
+                          "rather than a success we did not confirm; it stays "
+                          "queued for the next run")
+                return False
+            log.info("Monetization VERIFIED: ads are ON")
             return True
 
         except Exception as e:
