@@ -619,7 +619,7 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
             try:
                 downloaded = _download_via_actions_menu(
                     page, row["buttonIndex"], safe_name, card_num, song_id,
-                    download_dir=download_dir,
+                    download_dir=download_dir, selector=row.get("selector"),
                 )
                 all_mp3s.extend(downloaded)
             except Exception as e:
@@ -735,18 +735,69 @@ def _download_from_mymusic(page, concept: MusicConcept, safe_name: str, expected
     return all_mp3s
 
 
+# The My Music row "..." button, in the order we try to find it. The site has
+# renamed this control more than once; when the first selector stops matching,
+# the whole run used to fall through to a grid heuristic that reads the row's
+# "Share" button as the song title, and every generation was reported as a
+# silent failure. Candidates are tried in order and the first one that finds
+# in-content buttons wins — buttons inside nav/aside are skipped so the
+# sidebar's own menu buttons never pose as song rows.
+_ROW_BUTTON_SELECTORS = [
+    'button[data-tour="desktop-song-action-menu"]',
+    'button[data-tour*="song-action"]',
+    'button[data-tour*="action-menu"]',
+    'button[data-testid*="song-action"]',
+    'button[data-testid*="action-menu"]',
+    'button[aria-label*="action" i]',
+    'button[aria-label*="more" i]',
+    'button[aria-label*="option" i]',
+    'button[aria-haspopup="menu"]',
+]
+
+_SELECTOR_JS = """
+(selectors) => {
+  for (const sel of selectors) {
+    let found;
+    try { found = document.querySelectorAll(sel); } catch (e) { continue; }
+    const inContent = [...found].filter(
+      b => !b.closest('nav') && !b.closest('aside') && !b.closest('header'));
+    if (inContent.length > 0) return {selector: sel, count: inContent.length};
+  }
+  return null;
+}
+"""
+
+
+def _resolve_row_selector(page) -> str | None:
+    """Return the selector that currently matches My Music row action buttons."""
+    hit = page.evaluate(_SELECTOR_JS, _ROW_BUTTON_SELECTORS)
+    if not hit:
+        log.error("No row action button matched ANY known selector — "
+                  "aimusicfactory changed its My Music layout again. "
+                  "Inspect output/debug_mymusic.html")
+        return None
+    if hit["selector"] != _ROW_BUTTON_SELECTORS[0]:
+        log.warning(f"Row buttons found via FALLBACK selector '{hit['selector']}' "
+                    f"({hit['count']} rows) — the site renamed the primary one")
+    else:
+        log.info(f"Row buttons: {hit['count']} via '{hit['selector']}'")
+    return hit["selector"]
+
+
 def _find_song_rows(page, track_name: str) -> list[dict]:
     """Find My Music rows whose ancestor contains the given track name.
 
-    Each row has a "..." action button (data-tour="desktop-song-action-menu").
-    Returns one dict per such button on the page:
-        {"buttonIndex": int, "name": str, "nameMatch": bool}
-    The buttonIndex maps to the Nth button[data-tour="desktop-song-action-menu"]
-    on the page — used later to click via JS.
+    Returns one dict per row action button on the page:
+        {"buttonIndex": int, "name": str, "nameMatch": bool, "selector": str}
+    buttonIndex is the index within `selector`'s matches, so the same selector
+    must be used when clicking — it travels with the row for that reason.
     """
-    return page.evaluate(
-        """(trackName) => {
-            const buttons = document.querySelectorAll('button[data-tour="desktop-song-action-menu"]');
+    selector = _resolve_row_selector(page)
+    if not selector:
+        return []
+    rows = page.evaluate(
+        """([trackName, selector]) => {
+            const buttons = document.querySelectorAll(selector);
             const results = [];
             const lowerName = (trackName || '').toLowerCase();
             buttons.forEach((btn, idx) => {
@@ -757,7 +808,7 @@ def _find_song_rows(page, track_name: str) -> list[dict]:
                 for (let i = 0; i < 14; i++) {
                     const next = row.parentElement;
                     if (!next) break;
-                    const peers = next.querySelectorAll('button[data-tour="desktop-song-action-menu"]');
+                    const peers = next.querySelectorAll(selector);
                     if (peers.length > 1) break;
                     row = next;
                 }
@@ -777,30 +828,35 @@ def _find_song_rows(page, track_name: str) -> list[dict]:
             });
             return results;
         }""",
-        track_name,
+        [track_name, selector],
     )
+    for r in rows:
+        r["selector"] = selector
+    return rows
 
 
 def _download_via_actions_menu(page, button_index: int, safe_name: str,
                                card_num: int, song_id: str,
-                               download_dir: Path) -> list:
+                               download_dir: Path, selector: str = None) -> list:
     """Open the song-actions ('...') menu and download MP3 via Download > MP3.
 
     Flow (new UI):
-      1. Click button[data-tour="desktop-song-action-menu"] at button_index
-      2. Wait for menu, click "Download" item
-      3. Wait for submenu, click "MP3" item — Playwright captures the download
+      1. Click the row action button at button_index (within `selector`, which
+         must be the same selector the index was produced with)
+      2. Wait for menu, HOVER "Download" — the format list is a hover flyout
+      3. Click "MP3" — Playwright captures the download
     """
+    selector = selector or _ROW_BUTTON_SELECTORS[0]
     # 1. Click the "..." button
     clicked = page.evaluate(
-        """(idx) => {
-            const buttons = document.querySelectorAll('button[data-tour="desktop-song-action-menu"]');
+        """([idx, selector]) => {
+            const buttons = document.querySelectorAll(selector);
             if (idx >= buttons.length) return false;
             buttons[idx].scrollIntoView({block: 'center'});
             buttons[idx].click();
             return true;
         }""",
-        button_index,
+        [button_index, selector],
     )
     if not clicked:
         raise RuntimeError(f"actions button index {button_index} not found")
